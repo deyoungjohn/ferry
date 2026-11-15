@@ -1,5 +1,5 @@
 import { decodeEventLog, getAddress } from 'viem';
-import type { Address, Log, PublicClient } from 'viem';
+import type { AbiEvent, Address, Log, PublicClient } from 'viem';
 import type {
   EvmAssetConfig,
   EvmChainId,
@@ -10,7 +10,9 @@ import type {
 import { ferryHtlcAbi } from '@ferry/htlc-evm/abi';
 
 export interface ChunkedLogOptions {
-  maxRange?: bigint;
+  maxRange?: bigint | undefined;
+  event?: AbiEvent | undefined;
+  args?: Record<string, unknown> | undefined;
 }
 
 const DEFAULT_MAX_LOG_RANGE = 10_000n;
@@ -29,11 +31,19 @@ export async function fetchLogsChunked(
 
   const fetchRange = async (start: bigint, end: bigint): Promise<void> => {
     try {
-      const logs = await client.getLogs({
-        address,
-        fromBlock: start,
-        toBlock: end,
-      });
+      const logs = options?.event
+        ? await client.getLogs({
+            address,
+            event: options.event,
+            args: options.args,
+            fromBlock: start,
+            toBlock: end,
+          })
+        : await client.getLogs({
+            address,
+            fromBlock: start,
+            toBlock: end,
+          });
       results.push(...logs);
     } catch (err) {
       if (start >= end) {

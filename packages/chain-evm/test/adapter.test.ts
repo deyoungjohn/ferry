@@ -21,7 +21,9 @@ import type {
 import {
   ChainMismatchError,
   EvmChainAdapter,
+  InvalidSecretError,
   RelayLockRejectedError,
+  RelayLockTransportError,
   SendQueue,
   UnsupportedAssetError,
   fetchLogsChunked,
@@ -357,6 +359,65 @@ describe('EvmChainAdapter', () => {
       name: 'RelayLockRejectedError',
       code: 'RELAY_LOCK_REVERTED',
     } satisfies Partial<RelayLockRejectedError>);
+  });
+
+  it('rejects a bad secret in claim before sending any transaction', async () => {
+    const terms = makeTerms('bad-secret-claim', { direction: 'BCH_TO_EVM' });
+    await adapter.lock(terms);
+    const lockId = adapter.lockId(solverAccount.address, terms.hashLock);
+    const nonceBefore = await publicClient.getTransactionCount({
+      address: solverAccount.address,
+    });
+
+    const badSecret = sha256(stringToHex('not-the-right-secret'));
+    await expect(adapter.claim(lockId, badSecret)).rejects.toBeInstanceOf(
+      InvalidSecretError,
+    );
+
+    const nonceAfter = await publicClient.getTransactionCount({
+      address: solverAccount.address,
+    });
+    expect(nonceAfter).toBe(nonceBefore);
+  });
+
+  it('throws RelayLockTransportError when RPC is unreachable during relayLock send', async () => {
+    const terms = makeTerms('transport-err');
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    const failingWalletClient = {
+      account: solverAccount,
+      writeContract: async () => {
+        throw Object.assign(new Error('fetch failed: connect ECONNREFUSED'), {
+          name: 'HttpRequestError',
+        });
+      },
+    } as unknown as WalletClient;
+
+    const flakyAdapter = new EvmChainAdapter({
+      config: chainConfig,
+      client: publicClient,
+      walletClient: failingWalletClient,
+    });
+
+    await expect(
+      flakyAdapter.relayLock({
+        chain: 'base',
+        orderId: terms.hashLock,
+        payload: {
+          owner: userAccount.address,
+          token: usdcAddress,
+          recipient: solverAccount.address,
+          amount: 1_000_000n,
+          hashLock: terms.hashLock,
+          deadline: now + 3600n,
+          intentDeadline: now + 600n,
+          intentSig: `0x${'11'.repeat(65)}` as Hex,
+          permitDeadline: now + 600n,
+          v: 27,
+          r: `0x${'22'.repeat(32)}` as Hex32,
+          s: `0x${'33'.repeat(32)}` as Hex32,
+        },
+      }),
+    ).rejects.toBeInstanceOf(RelayLockTransportError);
   });
 
   it('supports 18-decimals token without permit, no-return-value token, exact approvals, and refund', async () => {

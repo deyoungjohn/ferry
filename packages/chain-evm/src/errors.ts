@@ -24,3 +24,21 @@ export class ChainMismatchError extends Error {
     this.name = 'ChainMismatchError';
   }
 }
+
+export class InvalidSecretError extends Error {
+  readonly code = 'INVALID_SECRET' as const;
+
+  constructor(lockId: string) {
+    super(`Secret does not match hashLock for lock ${lockId}`);
+    this.name = 'InvalidSecretError';
+  }
+}
+
+export class RelayLockTransportError extends Error {
+  readonly code = 'UPSTREAM_ERROR' as const;
+
+  constructor(message: string, cause?: unknown) {
+    super(message, cause !== undefined ? { cause } : undefined);
+    this.name = 'RelayLockTransportError';
+  }
+}

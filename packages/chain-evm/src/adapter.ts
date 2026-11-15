@@ -35,7 +35,9 @@ import type {
 import { ferryHtlcAbi } from '@ferry/htlc-evm/abi';
 import {
   ChainMismatchError,
+  InvalidSecretError,
   RelayLockRejectedError,
+  RelayLockTransportError,
   UnsupportedAssetError,
 } from './errors.js';
 import { decodeHtlcLog, fetchLogsChunked } from './logs.js';
@@ -48,6 +50,7 @@ export interface EvmChainAdapterOptions {
   pollIntervalMs?: number | undefined;
   maxLogRange?: bigint | undefined;
   lookbackBlocks?: bigint | undefined;
+  deployBlock?: bigint | undefined;
 }
 
 export interface RelayLockPayload {
@@ -90,6 +93,7 @@ export class EvmChainAdapter implements ChainAdapter {
   private readonly pollIntervalMs: number;
   private readonly maxLogRange?: bigint | undefined;
   private readonly lookbackBlocks: bigint;
+  private readonly deployBlock: bigint;
   private readonly lastSeenTxByAction = new Map<string, Hex32>();
   private readonly lastSeenSecretByLock = new Map<string, Hex32>();
 
@@ -104,6 +108,7 @@ export class EvmChainAdapter implements ChainAdapter {
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this.maxLogRange = options.maxLogRange;
     this.lookbackBlocks = options.lookbackBlocks ?? DEFAULT_LOOKBACK_BLOCKS;
+    this.deployBlock = options.deployBlock ?? 0n;
 
     this.client =
       options.client ??
@@ -288,11 +293,14 @@ export class EvmChainAdapter implements ChainAdapter {
         account,
       }));
     } catch (err) {
-      throw new RelayLockRejectedError(
-        'RELAY_LOCK_REVERTED',
+      const message =
         (err as { shortMessage?: string }).shortMessage ??
-          (err as Error).message,
-      );
+        (err as Error).message ??
+        String(err);
+      if (isContractRevertError(err)) {
+        throw new RelayLockRejectedError('RELAY_LOCK_REVERTED', message);
+      }
+      throw new RelayLockTransportError(message, err);
     }
 
     const txId = hash as Hex32;
@@ -395,6 +403,9 @@ export class EvmChainAdapter implements ChainAdapter {
     if (currentLock.status !== 'locked') {
       throw new Error(`Cannot claim lock in state: ${currentLock.status}`);
     }
+    if (!isValidSecret(secret, currentLock.hashLock)) {
+      throw new InvalidSecretError(lockId);
+    }
 
     try {
       const hash = await this.send((account) => ({
@@ -494,7 +505,7 @@ export class EvmChainAdapter implements ChainAdapter {
           const logs = await fetchLogsChunked(
             this.client,
             this.htlcAddress,
-            0n,
+            this.deployBlock,
             currentBlock,
             this.maxLogRange ? { maxRange: this.maxLogRange } : undefined,
           );
@@ -703,4 +714,34 @@ export class EvmChainAdapter implements ChainAdapter {
       return hash;
     });
   }
+}
+
+function isContractRevertError(err: unknown): boolean {
+  let current: unknown = err;
+  for (
+    let depth = 0;
+    depth < 8 && current && typeof current === 'object';
+    depth++
+  ) {
+    const node = current as {
+      name?: unknown;
+      message?: unknown;
+      shortMessage?: unknown;
+      details?: unknown;
+      cause?: unknown;
+    };
+    if (
+      node.name === 'ContractFunctionRevertedError' ||
+      node.name === 'ExecutionRevertedError'
+    ) {
+      return true;
+    }
+    for (const field of [node.shortMessage, node.message, node.details]) {
+      if (typeof field === 'string' && /revert/i.test(field)) {
+        return true;
+      }
+    }
+    current = node.cause;
+  }
+  return false;
 }
