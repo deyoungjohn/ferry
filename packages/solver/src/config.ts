@@ -1,0 +1,190 @@
+import { z } from 'zod';
+
+export const DEFAULT_DEV_EVM_PRIVATE_KEY =
+  '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
+
+export const KNOWN_DEV_EVM_KEYS: readonly string[] = [
+  DEFAULT_DEV_EVM_PRIVATE_KEY.toLowerCase(),
+  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80', // Anvil 0
+  '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a', // Anvil 2
+  '0x0000000000000000000000000000000000000000000000000000000000000000',
+];
+
+export const MAINNET_BCH_ELECTRUM_URLS =
+  'wss://blackie.c3-soft.com:50004,wss://bch.imaginary.cash:50004';
+export const CHIPNET_BCH_ELECTRUM_URLS =
+  'wss://chipnet.imaginary.cash:50004,wss://blackie.c3-soft.com:64004';
+
+export const SolverConfigSchema = z
+  .object({
+    port: z.coerce.number().default(8787),
+    host: z.string().default('127.0.0.1'),
+    dbPath: z.string().default(':memory:'),
+    network: z.enum(['testnet', 'mainnet']).default('testnet'),
+    bchElectrumUrls: z.string().default(CHIPNET_BCH_ELECTRUM_URLS),
+    baseRpcUrl: z.string().default('https://sepolia.base.org'),
+    baseChainId: z.coerce.number().default(84532),
+    baseHtlcAddress: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{40}$/)
+      .default('0x5A0C062f4B7b8fF2263530e12bc15De9C836a641'),
+    baseUsdcAddress: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{40}$/)
+      .default('0x036CbD53842c5426634e7929541eC2318f3dCF7e'),
+    solverEvmPrivateKey: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{64}$/)
+      .default(DEFAULT_DEV_EVM_PRIVATE_KEY),
+    solverBchWif: z.string().optional(),
+    operatorToken: z.string().min(32).optional(),
+    dsproofWindowMs: z.coerce.number().default(5000),
+    tipMaxAgeBchSeconds: z.coerce.number().default(7200),
+    tipMaxAgeBaseSeconds: z.coerce.number().default(60),
+    quotingEnabled: z.coerce.boolean().default(true),
+  })
+  .superRefine((data, ctx) => {
+    if (data.network === 'mainnet') {
+      if (!data.operatorToken || data.operatorToken.length < 32) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'An operator token with at least 32 characters is required on mainnet. Refusing to start.',
+          path: ['operatorToken'],
+        });
+      }
+
+      const urls = data.bchElectrumUrls
+        .split(',')
+        .map((u) => u.trim())
+        .filter(Boolean);
+      const hosts = new Set(
+        urls.map((u) => {
+          try {
+            return new URL(u).host.toLowerCase();
+          } catch {
+            return u.toLowerCase();
+          }
+        }),
+      );
+      if (hosts.size < 2) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `At least two distinct Electrum hosts are required on mainnet (configured: ${hosts.size}). Refusing to start without redundant quorum.`,
+          path: ['bchElectrumUrls'],
+        });
+      }
+
+      if (KNOWN_DEV_EVM_KEYS.includes(data.solverEvmPrivateKey.toLowerCase())) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'A default or placeholder private key cannot be used on mainnet. Refusing to start.',
+          path: ['solverEvmPrivateKey'],
+        });
+      }
+
+      if (data.solverBchWif) {
+        const wif = data.solverBchWif.trim();
+        if (wif.startsWith('c') || wif.startsWith('9')) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              'A testnet BCH WIF cannot be used on mainnet. Refusing to start.',
+            path: ['solverBchWif'],
+          });
+        }
+      }
+    }
+  });
+
+export type SolverConfig = z.infer<typeof SolverConfigSchema>;
+
+export function loadConfigFromEnv(
+  env: Record<string, string | undefined>,
+): SolverConfig {
+  const network = (env.NETWORK || 'testnet').toLowerCase() as
+    'testnet' | 'mainnet';
+  const isMainnet = network === 'mainnet';
+
+  const bchElectrumUrls = isMainnet
+    ? env.BCH_ELECTRUM_URLS || MAINNET_BCH_ELECTRUM_URLS
+    : env.BCH_CHIPNET_ELECTRUM_URLS ||
+      env.BCH_ELECTRUM_URLS ||
+      CHIPNET_BCH_ELECTRUM_URLS;
+
+  const allowDevKeys =
+    env.ALLOW_DEV_KEYS === '1' ||
+    env.ALLOW_DEV_KEYS === 'true' ||
+    env.FERRY_ALLOW_DEV_KEYS === '1';
+
+  if (isMainnet && allowDevKeys) {
+    throw new Error(
+      'ALLOW_DEV_KEYS is not permitted on mainnet. Refusing to start.',
+    );
+  }
+
+  const rawSolverKey = env.SOLVER_EVM_PRIVATE_KEY;
+  let solverEvmPrivateKey: string;
+  if (!rawSolverKey) {
+    if (isMainnet) {
+      throw new Error(
+        'SOLVER_EVM_PRIVATE_KEY is required on mainnet. Refusing to start.',
+      );
+    }
+    if (!allowDevKeys) {
+      throw new Error(
+        'SOLVER_EVM_PRIVATE_KEY is not set. Refusing to fall back to default dev key without explicit ALLOW_DEV_KEYS=1.',
+      );
+    }
+    solverEvmPrivateKey = DEFAULT_DEV_EVM_PRIVATE_KEY;
+  } else {
+    solverEvmPrivateKey = rawSolverKey;
+  }
+
+  return SolverConfigSchema.parse({
+    port: env.PORT,
+    host: env.HOST,
+    dbPath: env.DATABASE_PATH || env.DATABASE_URL,
+    network,
+    bchElectrumUrls,
+    baseRpcUrl: env.BASE_RPC_URL,
+    baseChainId: env.BASE_CHAIN_ID,
+    baseHtlcAddress: env.BASE_FERRY_HTLC_ADDRESS || env.FERRY_HTLC_ADDRESS,
+    baseUsdcAddress: env.BASE_USDC_ADDRESS || env.USDC_ADDRESS,
+    solverEvmPrivateKey,
+    solverBchWif: env.SOLVER_BCH_WIF || undefined,
+    operatorToken: env.OPERATOR_TOKEN ? env.OPERATOR_TOKEN.trim() : undefined,
+    dsproofWindowMs: env.DSPROOF_WINDOW_MS,
+    tipMaxAgeBchSeconds: env.TIP_MAX_AGE_BCH_SECONDS,
+    tipMaxAgeBaseSeconds: env.TIP_MAX_AGE_BASE_SECONDS,
+    quotingEnabled:
+      env.QUOTING_ENABLED !== undefined
+        ? env.QUOTING_ENABLED === 'true'
+        : undefined,
+  });
+}
+
+/**
+ * Returns a redacted representation of configuration safe for logging or terminal display.
+ * Never prints private keys, WIFs or tokens.
+ */
+export function redactConfigForDisplay(config: SolverConfig): string {
+  const safe = {
+    network: config.network,
+    host: config.host,
+    port: config.port,
+    dbPath: config.dbPath,
+    bchElectrumUrls: config.bchElectrumUrls,
+    baseRpcUrl: config.baseRpcUrl,
+    baseChainId: config.baseChainId,
+    baseHtlcAddress: config.baseHtlcAddress,
+    baseUsdcAddress: config.baseUsdcAddress,
+    solverEvmPrivateKey: '[REDACTED]',
+    solverBchWif: config.solverBchWif ? '[REDACTED]' : undefined,
+    operatorToken: config.operatorToken ? '[REDACTED]' : undefined,
+    quotingEnabled: config.quotingEnabled,
+    dsproofWindowMs: config.dsproofWindowMs,
+  };
+  return JSON.stringify(safe, null, 2);
+}
