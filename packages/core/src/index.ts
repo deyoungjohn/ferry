@@ -9,4 +9,8 @@ export * from './chains.js';
 export * from './evm.js';
 export * from './category.js';
 export * from './vectors.js';
+export * from './cashaddr.js';
+export * from './pay-link.js';
+export * from './send-link.js';
+export * from './link-url.js';
 export * from './api/index.js';
