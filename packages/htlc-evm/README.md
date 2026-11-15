@@ -9,6 +9,7 @@ Immutable, ownerless EVM hash-time-locked contract (`FerryHTLC`) for cross-chain
 - **No admin:** no owner, no upgrade path, no pause, no token allow-list.
 - **Permissionless settlement:** `claim` and `refund` can be called by any address and always transfer to the fixed `recipient` or `sender`. Claims remain valid after `deadline` (first valid transaction wins).
 - **Gasless locking:** `lockWithIntent` verifies an EIP-712 `LockIntent` signature via OpenZeppelin `SignatureChecker` (supporting both ECDSA and ERC-1271 smart-contract wallets), wraps `IERC20Permit.permit` in `try/catch`, and uses `SafeERC20` for non-standard tokens. `DOMAIN_SEPARATOR()` recomputes dynamically if `block.chainid` changes on a chain fork.
+- **Unsupported tokens:** fee-on-transfer tokens are unsupported; a lock records the requested amount, so the solver and the UI accept only the configured canonical tokens.
 
 ## Deterministic CREATE2 deployment
 
