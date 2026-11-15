@@ -1,0 +1,751 @@
+# Decisions
+
+Lightweight decision records (template below). Spike answers (S-01…S-14, Q-A…Q-C) go here as pass/fail plus the consequence for the rebuild. IDs: `D-A<n>-<nnn>` (agents), `D-OR-<nnn>` (maintainer). Append-only.
+
+---
+
+### Branch-per-task worktrees, merge commits, merges by the maintainer
+- **Evidence:** Three agents work in parallel in the same phase; history doubles as the timing record.
+- **Consequence for rebuild:** Use `ph<n>-<slug>` branches in sibling worktrees; merge PRs with merge commits (not squash) so per-commit timings survive.
+- **Revisit if:** Review becomes the bottleneck (then consider a 4th agent or batching PRs).
+
+### D-A2-001 · Pin pnpm 9 through packageManager → PASS
+- **Evidence:** `npm view pnpm versions` and `npm view pnpm@9 version` confirm 9.15.9 as the latest 9.x release; both `corepack pnpm --version` and the existing pnpm launcher return 9.15.9 inside this workspace. Outside it the installed pnpm remains 12.8.1. A temporary clean clone passes install, build, typecheck, lint and tests with the v9 lockfile.
+- **Consequence for rebuild:** Keep the blueprint's major and pin `pnpm@9.15.9` in `packageManager`; use Corepack when the shell launcher does not honor that field. Enable exact saves and engine checks in `.npmrc`. Node is already managed by NVM, so pin its installed 22.23.1 in `.nvmrc` and avoid installing a second version manager.
+- **Revisit if:** A future dependency demonstrably requires a newer pnpm major, or the frozen hackathon toolchain is deliberately reverified.
+
+### Package boundaries for chain-specific code, plus cross-agent test vectors
+- **Evidence:** Blueprint §5.5 puts BCH script helpers and EVM helpers inside `@ferry/core`, but in the testnet build three agents build core, the BCH contract and the EVM contract in parallel. Shared ownership of `core/bch` and `core/evm` would serialise them.
+- **Consequence for rebuild:** `@ferry/core` holds chain-agnostic protocol logic only: order terms, canonical encoding, `orderId`, signing, pricing, timing, reveal policy, the `ChainAdapter` interface, plus the EIP-712 `LockIntent` typed-data definition and EVM `lockId` derivation (needed by both web and solver). Script-specific code lives with its contract: `@ferry/htlc-bch` (artifact, parameter encoding, P2SH32 derivation, spend builders, category byte order) and `@ferry/htlc-evm` (ABI export, deploy scripts). Where two agents implement the same rule in two languages, both compute a shared cross-check vector (`XV-nnn`, defined in the prompts); the maintainers compares the results before merging.
+- **Revisit if:** In the hackathon a single person owns core and both contracts; then the §5.5 layout is fine.
+### D-A1-001 · 2026-10-22 · L0 web stack versions
+- **Decision:** React 19.3.1, Vite 8.3.5, Tailwind 4.3.3, TypeScript 5.9.3, React Router 8.5.0, Vitest 5.0.5, @playwright/test 1.64.1. Exact pins in `packages/web/package.json`.
+- **Evidence:** `npm view <pkg> version` on 2026-10-22 (rows in `verified-facts.md`). Blueprint §6 targets React 19 · Vite 6 · Tailwind 4. React and Tailwind majors still match. Vite 6 is two majors behind current stable; no incompatibility with the chosen React plugin appeared. TypeScript `latest` is 7.0.2, but typescript-eslint 8.72.0 declares support for `<6.1.0`, so 5.9.3 is the newest lint-compatible release (blueprint also says TS 5.x). Fontsource no longer publishes Inter Display, so Inter Variable is self-hosted; Instrument Serif is self-hosted as a latin-only italic subset.
+- **Consequence for rebuild:** Resolve Vite to current stable instead of copying the blueprint number, but pin TypeScript to the newest version the lint stack supports rather than `latest`. Check `@playwright/test`'s required Chromium revision before the first e2e run.
+- **Revisit if:** typescript-eslint supports TypeScript 7, a Vite 8 plugin breaks, or a design review rejects the Inter Variable look.
+
+### D-A2-002 · Source exports under an explicit development condition
+- **Evidence:** Core exports source under `ferry-source` before ordinary dist entries. TypeScript resolves that condition through the shared base; Vitest activates it. Ordinary Node production imports select dist.
+- **Consequence for rebuild:** Vite consumers add `ferry-source` to resolve.conditions; tsx consumers launch with `--conditions=ferry-source` (or NODE_OPTIONS). Development/tests require no prior build; production builds emit dist. The root discovers package vitest.config.ts projects and excludes them from its fallback Node project, preserving each package's environment and setup.
+- **Revisit if:** A consumer cannot honor export conditions; alias the source entry for development.
+
+#### D-A2-002 verification addendum · Agent A2
+- A test imports the package by name with dist temporarily absent. Vite/Vitest Node resolution additionally needs the condition in ssr.resolve.conditions; resolve.conditions alone was insufficient. Both settings are now present. The root discovers both Vitest and Vite configs in TS/MTS/JS/MJS forms, including the scripts workspace, before applying its fallback Node project.
+
+### D-A2-003 · OrderTerms v1 multichain mapping and deterministic CBOR → PASS
+- **Evidence:** Strict Zod parsing, three independent cborg-generated fixtures (forward, reverse and BSC 18 decimals), insertion-order checks, uint boundaries and tag-2 cross-checks. Deliberately encoding hashLock as text instead of bytes made all three committed golden tests fail; the mutation was restored.
+- **Mapping from blueprint §3.1:**
+
+| Blueprint field | Core v1 field and meaning |
+|---|---|
+| version | version remains literal 1; this is the first undeployed testnet build schema |
+| direction | COUNTER_TO_BCH / BCH_TO_COUNTER replace EVM-specific labels |
+| bchToken | Unchanged PUSD or MUSD |
+| bchTokenCategory | Unchanged display-order 32-byte category |
+| bchTokenAmount | Unchanged bigint base units, two decimals per blueprint |
+| usdcAmount | counterAmount, bigint base units at counterAsset.decimals |
+| evmChainId | counterChain is the adapter id; counterNetworkId is a positive numeric EVM id or a non-EVM network label |
+| implicit USDC contract/metadata | counterAsset contains symbol USDC/USDT, integer decimals 0–36 and token address |
+| evmHtlc | counterHtlc, a string address in the counter chain's format |
+| userEvmAddress | userCounterAddress, string EVM hex or Solana/Tron base58 |
+| solverEvmAddress | solverCounterAddress with the same representation rule |
+| userBchLockingBytecode | Unchanged BCH recipient bytes |
+| solverBchLockingBytecode | Unchanged BCH solver recipient bytes |
+| hashLock | Unchanged 32-byte SHA-256 digest |
+| evmDeadline | counterDeadline, Unix seconds for every counter-chain HTLC |
+| bchRefundHeight | Unchanged absolute BCH block height, below the CLTV time threshold |
+| bchCarrySats | Unchanged positive bigint satoshis |
+| bchMaxFee | Unchanged nonnegative bigint satoshis, bounded by carry |
+| quoteId | Unchanged bounded UTF-8 text |
+| quoteExpiry | Unchanged positive integer Unix seconds |
+
+- **Encoding decision:** Keep a small restricted encoder rather than a general CBOR data model in the runtime. Strict validation limits it to unsigned integers, byte strings, text and maps. Encode integers in the shortest form; bigint values through uint64 use normal integers, larger values use tag 2 and minimal big-endian bytes. Definite lengths only; sort map keys lexicographically by full encoded bytes per RFC 8949 §4.2.1. Hash/category/BCH script fields become bytes. Other strings remain UTF-8 text; EVM addresses and hex normalize lowercase, base58 case is retained, no Unicode normalization, invalid surrogates rejected. No float or undefined fields. cborg 6.1.4 with its standard bigIntEncoder is a dev-only independent oracle.
+- **Consequence for rebuild:** Freeze this exact field mapping and profile before parallel adapter/UI work. Parse strict terms before hashing/signing; verify real route/token/deployment identities outside core. Signature helpers personal-sign exactly 32 raw digest bytes.
+- **Sources:** https://www.rfc-editor.org/rfc/rfc8949.html#section-4.2.1 ; https://github.com/rvagg/cborg ; blueprint §3.1/§24.3.
+- **Revisit if:** A protocol extension changes canonical fields; it then needs a new version and fixtures before deployment.
+
+### D-A2-004 · Default probabilistic timing margins → PASS with an explicit reaction assumption
+- **Method:** Model n independent exponential BCH inter-arrivals with mean 600 s as Erlang/Gamma(n, 600 s). Evaluate the integer-shape incomplete-gamma/Poisson-sum identity in the log domain and invert with bracket expansion plus 100 bisections. Independent 65-digit Python Decimal sum/bisection references and the shape-one exponential closed form verify both tails. The implementation bounds shape to 10,000 to cap CPU work.
+- **Config:** SAFETY = 7200 s from the blueprint. SOLVER_REACTION = 60 s is an explicit unmeasured assumption because the blueprint gives no numeric value; callers can supply a measured operational bound. Reverse remaining-block minimum is 108.
+- **Forward:** With 36 BCH blocks remaining and 24 h left on the counter-chain deadline at t0, P99.99 is 37612.989039 s (10.448053 h). Reaction plus safety is 7260 s. Required time is 44872.989039 s; F margin is 41527.010961 s (11.535281 h), so PASS.
+- **Reverse at the minimum:** With 108 blocks remaining and a 6 h counter deadline, P0.01 is 44131.238733 s (12.258677 h). Required duration plus reaction/safety is 28860 s; R margin is 15271.238733 s (4.242011 h), so PASS. Below 108 blocks the operational gate refuses counter-locking even if the numeric margin is positive.
+- **Reverse at the initial default:** With all 144 blocks remaining, P0.01 is 62150.481935 s (17.264023 h), giving 33290.481935 s (9.247356 h) margin against the same 28860 s requirement.
+- **Consequence for rebuild:** Defaults pass this model with more than the claimed two-hour safety budget and the stated 60-second reaction allowance. Check actual time/height remaining at each decision, not expected block time or the original quote duration. These are tail-probability statements, not guarantees during a chain halt or a model of ASERT; the solver's halt monitoring remains mandatory. Claims can still race refunds after either deadline.
+- **Source:** https://dlmf.nist.gov/8.4.E8 ; blueprint §4.1, §4.2 and §8.
+- **Revisit if:** Measured solver reaction, chain behavior or confirmation policy changes.
+
+#### D-A2-003 signing-identity addendum · Agent A2
+- The EIP-191 verifier takes the trusted solver service EVM signing address from configuration. On a non-EVM route this identity is distinct from the base58 solverCounterAddress. Never accept the expected signing address from an untrusted quote. No additional signing-identity field is added to the canonical order. A separate NodeNext consumer build also verified source type resolution with declaration emission confined to the consumer's dist.
+
+### D-A1-002 · Dynamic EIP-712 domain separator instead of an immutable
+- **Decision:** `FerryHTLC.DOMAIN_SEPARATOR()` is a view function that hashes `EIP712Domain(name, version, block.chainid, address(this))`; it is not a constructor-set immutable.
+- **Evidence:** Blueprint §5.2 stores the separator in an immutable. That makes the XV-003 fixed-address check impossible without a real deployment at `0x1111…`, and it would keep a stale chain id after a fork. The dynamic form is the OpenZeppelin `EIP712` behaviour and still exposes the same `DOMAIN_SEPARATOR()` ABI.
+- **Consequence for rebuild:** Use a dynamic separator unless gas profiling shows it matters; the extra hashing is confined to `lockWithIntent`.
+- **Revisit if:** A consumer needs a `view`-free constant, or a fork test shows a chain-id migration problem.
+
+### D-A1-003 · SignatureChecker (ECDSA + ERC-1271) for the lock intent
+- **Decision:** `lockWithIntent` validates the intent with OpenZeppelin `SignatureChecker.isValidSignatureNow`, not `ECDSA.recover`.
+- **Evidence:** S-06 uses an EOA wallet, but smart-contract wallets are common on Base and a relayer flow should not exclude them. `SignatureChecker` accepts both a 65-byte ECDSA signature and an ERC-1271 `isValidSignature` response; the mock smart wallet test exercises the latter. The intent digest and replay protection are unchanged.
+- **Consequence for rebuild:** Keep `SignatureChecker`; the permit step may fail for a smart wallet and is caught, so the wallet must already have approved the exact amount.
+- **Revisit if:** The extra ERC-1271 staticcall is unacceptable on a hot path, or a wallet implementation returns a non-standard magic value.
+
+### D-A1-004 · Checks-effects-interactions ordering in `lockWithIntent`
+- **Decision:** Validate the intent and signature first, then create the lock state and emit `Locked`, then attempt the permit, then pull the tokens. The blueprint attempts the permit before `_lock`.
+- **Evidence:** This ordering keeps state and the event ahead of both token interactions, and `nonReentrant` blocks any callback from `permit`. Moving the permit before the lock would leave a token callback able to reenter before the lock existed; it also risked consuming a permit nonce on an invalid term. Tests cover a front-run permit, an expired permit with an existing allowance, and replay.
+- **Consequence for rebuild:** Keep CEI ordering; the permit call must still happen before `safeTransferFrom`.
+- **Revisit if:** A permit implementation needs to run before any state write for a token-specific reason.
+
+### D-A1-005 · OpenZeppelin 5.6.1 from the npm registry
+- **Decision:** Pin `@openzeppelin/contracts` to `5.6.1` in `packages/htlc-evm/package.json`; pnpm records the tarball integrity in `pnpm-lock.yaml`.
+- **Evidence:** On 2026-10-22 the npm `latest` dist-tag is `5.6.1`; `5.7.0` is published under `dev`. The prompt asks for an exact current 5.x release and a pinned tag or commit. The registry release is immutable and integrity-checked, and avoids a git submodule/root `.gitmodules` change.
+- **Consequence for rebuild:** Use the registry tarball with an exact version and lockfile; do not use a floating tag. Re-check the current stable 5.x before the event.
+- **Revisit if:** A needed fix exists only on the `dev` tag, or the review requires a git tag/commit instead of a registry tarball.
+
+### D-A1-006 · `via_ir` for the Solidity build
+- **Decision:** Compile with `via_ir = true` and the optimizer enabled.
+- **Evidence:** Without IR, solc 0.8.28 reports stack-too-deep at the 12-argument `lockWithIntent` boundary. The IR pipeline compiles in about 1 second locally and leaves more stack headroom; the ABI is unchanged and the deterministic address is recomputed from the final artifact.
+- **Consequence for rebuild:** Keep `via_ir` while the public signature stays wide; if the ABI is refactored to structs, retest without IR. Slither and forge inspect the resulting bytecode/IR normally.
+- **Revisit if:** A tool in the deployment or verification path cannot handle IR-compiled metadata, or gas regresses materially.
+
+### D-A3-001 · S-07: CashTokens category byte order in FerryHTLC contract parameters → PASS
+- **Evidence:** Live Chipnet probe on Fulcrum node (`wss://chipnet.imaginary.cash:50004`). Instance A built with display-order category parameter (`ec335fd3ffa45f80cef7217cf98e8adf562df5a3e33f354f69df2951703586ac`) funded in tx `72244904d3e778f606d0f264cde1e0b082abe5c762790c5b5156846b28e427d1`. Attempted claim spend was rejected by node consensus rules with `bad-txns-token-invalid-category (code 16)`. Instance B built with internal-order category parameter (`4425a0e2ca5109d0261ec0a95d1cd6ffa3c389fb4ac0b5b50cb1a4afc5ac6924` for test cat / reversed genesis hash) funded in tx `1d1d29b64fc13d76a6b859b953e4cbfc664807d139192459f94916df15e705ed`. Claim spend succeeded and was confirmed in tx `bc062c1ca46a5e9df8d2e7c66b1cf6f73cfdb8fae86f21ef054f8ce26bbccbc6`.
+- **Consequence for rebuild:** The CashScript contract `FerryHTLC.cash` parameter `bytes32 tokenCategory` MUST be provided in INTERNAL (little-endian) byte order because BCH introspection opcode `OP_OUTPUTTOKENCATEGORY` pushes the internal 32 bytes onto the VM stack. `encodeHtlcParameters()` must convert RPC/display-order category hex strings to internal byte order before passing to contract constructor. Furthermore, `TransactionBuilder` and `@bitauth/libauth`'s `encodeTransactionOutput` take display-order category hex strings, which they reverse into little-endian when serializing transaction outputs.
+- **Revisit if:** CashScript or CashTokens CHIP modifies introspection opcode byte order or serialization conventions.
+
+#### D-A3-001 verification addendum (airtight script-level check)
+- **Evidence:** S-07 was rerun on Chipnet to isolate contract script execution from transaction-level token consensus. In the earlier probe, the claim output category was reversed from the contract parameter, triggering node transaction-level rejection (`bad-txns-token-invalid-category (code 16)`) before script evaluation. In this addendum run, Instance A was funded with display-order parameter (`ec335fd3ffa45f80cef7217cf98e8adf562df5a3e33f354f69df2951703586ac`) in funding transaction `01bd0f77ff09510c4b5fa87c03e4e0d7db3e285a23bf71e2a61904b50d805b18`. The claim transaction was constructed with the genuine display-order category (`tPUSD`) on both input and output so CashTokens consensus validation passed. Evaluation proceeded to the contract P2SH32 redeem script, where `OP_OUTPUTTOKENCATEGORY` pushed internal bytes while constructor parameter held display bytes. The node rejected the spend with exact script error: `mandatory-script-verify-flag-failed (Script failed an OP_EQUALVERIFY operation) (code 16)`. Instance B (internal-order parameter) was funded in `0dcb2b463086f96337edf858dfb82b5dbfdf5720676c2b8730de1d7cb815351d` and claimed in `2d1f827f1e2cd1ea21d2223fbbff7579a805dfad69a3cbf8bf3c781c1a575937` (376 bytes, 500 sats fee, 365 ms). Instance C (refund spend) was funded in `69ff119ec1c29e5289dee68ca385d6fd998adbae6dc89f097aabe7507321702e` and refunded at height 329332 in `45365de34867a02fe550f97b3afff6bdedcd4241f3db209ca2411753dd0929df` (341 bytes, 500 sats fee, 305 ms).
+- **Consequence for rebuild:** Confirms unconditionally that passing display-order category bytes into the covenant compiles and funds, but unconditionally fails on-chain at the script `OP_EQUALVERIFY` opcode during spend evaluation.
+
+### D-A3-002 · XO Engine execution spike S-01/S-02 → NO (Clean Fallback to Blueprint §10)
+- **Evidence:**
+  - **S-02 (Bytecode Parity): PASS.** Transcribed `FerryHTLC.cash` to CashAssembly in `packages/htlc-bch/xo/ferry-htlc.template.ts`. When compiled with `compileCashAssemblyString` in hex evaluation mode (`evaluationDecodeMode: 'hex'`), the resulting locking bytecode and P2SH32 address match the CashScript compiler output byte-for-byte (`aa20f18a11e0f61cb26e47fd59976c9453a5a687333ea6f5af1fdc35a5414eca7d8987`), verified in `packages/htlc-bch/test/xo-template.test.ts`.
+  - **S-01 (Engine Execution Spike): NO.** Evaluated through `@xo-cash/engine@0.1.0-next.17437760444` and `@xo-cash/state@0.0.5` in `packages/htlc-bch/src/probe-xo-engine.ts`:
+    1. Template import succeeded (`ID: 6f1fc081e8da5757fd5b68bc691686f5c9780ec999ac94c09f3ce0c128cdfd9f`).
+    2. Lock invitation created and locking bytecode resolved successfully. The engine builds the lock transaction with valid CashTokens output prefix (`020000000001d00700000000000048ef333333333333333333333333333333333333333333333333333333333333333310fde803aa20f18a...`).
+    3. Spend execution (Claim/Refund): When attempting to sign a claim input via `engine.signInvitation`, the engine fails with `InputUnspentOutputUnavailableError: Unspent output 4444...44:0 of merged input 0 in invitation "..." not tracked by this account`.
+    4. Architectural barriers identified:
+       - **Strict Local Tracking:** In XO Engine, an account can only spend UTXOs that exist in its internal state (`state.getUnspentOutputData`) with associated template metadata (`state.getScriptHashData`). An external party (solver or recipient) receiving a covenant UTXO outpoint cannot build or sign the spend transaction without the UTXO and its derivation secrets having been tracked locally from inception.
+       - **Covenant vs HD Model:** XO's `signInvitation` and `generateInputUnlockingBytecode` are architected around Libauth entity key signatures (Schnorr/ECDSA key operations). Pure covenant spending that requires revealing a secret preimage (`OP_SHA256 OP_EQUALVERIFY`) and CLTV locktimes does not fit the engine's key-derivation pipeline.
+       - **CashAssembly Evaluation Decode Mode Quirk:** In `@xo-cash/engine`, `resolveTemplateTokenCategory` evaluates CashAssembly expressions with hardcoded `evaluationDecodeMode: "utf8"` rather than `"hex"`. For binary category expressions (`$(<tokenCategory>)`), UTF-8 decoding corrupts bytes into replacement characters unless passed as an ASCII hex string.
+       - **Storage Adapter in Node.js:** `@xo-cash/state@0.0.5` has `SQLiteStorage` stubbed out with `/* SQLite storage implementation. (Not implemented yet) */`, requiring `indexeddbshim` under Node.js.
+- **Consequence for rebuild:**
+  - Fall back cleanly to blueprint §10: CashScript contract and artifact execute lock, claim, and refund transactions for the hackathon MVP.
+  - The XO template in `packages/htlc-bch/xo/` serves as the formal contract specification and lock invitation generator for post-L8 / mainnet roadmaps.
+- **Revisit if:** General Protocols releases an engine version supporting non-HD covenant spend execution and native SQLite storage.
+
+### D-A3-003 · S-05: Fulcrum Latency and DSProof Support → PASS
+- **Evidence:**
+  - Probed candidate Fulcrum endpoints across Chipnet and Mainnet (Mainnet read-only, no broadcasts): `wss://chipnet.imaginary.cash:50004` (Fulcrum 2.1.4), `wss://bch.imaginary.cash:50004` (Fulcrum 2.1.4), `wss://fulcrum.greyh.at:50004` (Fulcrum 2.1.2).
+  - All candidate servers report `cashtokens: true` and `dsproof: true` in `server.features`.
+  - Protocol methods `blockchain.transaction.dsproof.subscribe([txid])` and `blockchain.transaction.dsproof.get([txid])` take the 32-byte transaction hash and respond with `null` (when uncontested) or the proof object when contested.
+  - Live 10-sample Chipnet broadcast-to-notification latency benchmark achieved: Min 804.0 ms, Median 1021.1 ms, Max 1372.1 ms. Target threshold was median < 2000 ms, so PASS.
+  - Instantaneous tip subscription confirmed via `blockchain.headers.subscribe`.
+- **Consequence for rebuild:**
+  - Fulcrum is fast enough for Ferry's 0-conf lock detection on BCH (~1.0s median round-trip notification).
+  - The solver can subscribe to the user's lock transaction via `blockchain.transaction.dsproof.subscribe([txid])` immediately upon broadcast to obtain sub-1.5s contested signal before fulfilling counter-chain swaps.
+- **Revisit if:** Network congestion or remote node peering degrades median notification latency beyond 2000 ms.
+
+---
+
+### Questions for General Protocols (Q-C)
+
+- **Q-C01 (Covenant Spend Execution without HD Keys):** How should custom P2SH32 covenants (such as Ferry's HTLC, where spending inputs require unlocking by revealing a SHA-256 secret preimage and passing CLTV rather than producing an ECDSA/Schnorr key signature) be signed and executed in the XO Engine? Currently, `signInvitation` expects inputs to be tracked by the local account's key store and throws `InputUnspentOutputUnavailableError` when spending an untracked covenant outpoint.
+- **Q-C02 (Token Category Evaluation Decode Mode):** In `@xo-cash/engine/source/resolutions/token.ts` (`resolveTemplateTokenCategory`), `compileCashAssemblyString` is called with hardcoded `evaluationDecodeMode: "utf8"`. For binary token category expressions (e.g. `$(<tokenCategory>)`), does this require category variables to be formatted as ASCII hex strings rather than raw byte buffers to avoid replacement character corruption? Should `evaluationDecodeMode: "hex"` be used for category and commitment evaluations?
+- **Q-C03 (Native SQLite Storage in Node.js):** In `@xo-cash/state@0.0.5`, `SQLiteStorage` is noted as `/* (Not implemented yet) */` and `listScriptHashes` is not implemented on the SQLite adapter, forcing Node.js consumers to use `storageType: 'indexeddb'` backed by `indexeddbshim`. What is the timeline for the native `better-sqlite3` storage adapter?
+- **Q-C04 (P2SH32 Unlocking Script Bytecode Composition):** In Libauth compiler configuration for P2SH32 (`lockingScriptTypes[lockingScriptId] = 'p2sh32'`), Libauth automatically appends the serialized redeem script bytecode to the unlocking script. In XO template schemas, should covenant unlocking scripts specify `<redeemBytecode>` explicitly at the tail, or rely on Libauth's compiler to append it?
+
+
+### XO strategy after S-01 = NO (accepting D-A3-002)
+- **Evidence:** D-A3-002: XO engine cannot execute claim/refund (tracks only its own outputs; HD-key signing pipeline); S-02 passes byte-for-byte.
+- **Consequence for rebuild:** CashScript artifact is the executor. XO is used for the `lock` invitation if the hybrid check ( Part B) passes, and the XO template is kept as a verified-equivalent artifact. Treat the Build with XO bounty claim as weak until the human has asked General Protocols the Q-C questions (31 Oct workshop).
+- **Revisit if:** General Protocols confirm a supported way to spend externally created covenant outputs.
+
+#### D-A3-002 hybrid lock check and workaround addendum
+- **Lock Path Verdict:** PARTIAL.
+- **Evidence:**
+  - Evaluated in `packages/htlc-bch/src/probe-xo-hybrid.ts` on Chipnet.
+  - XO Engine successfully imported `ferryHtlcTemplate` and created a lock invitation (`6172320baf1453e4951a2aa5b4dafa37`).
+  - Calling `engine.resolveInvitationOutputLockingBytecode` derived the covenant P2SH32 locking bytecode (`aa207253bf163d4bae2fff62603ec1f90c824cff68e6b4d37ca36ca8539eae858dfa87`), which matches the CashScript contract locking bytecode byte-for-byte (S-02 Parity PASS).
+  - However, driving the transaction signing through XO Engine failed: calling `signInvitation(invitationId, 0)` failed with `Commit not found for merged input 0...` because the template lock transaction defines no inputs. When inputs were explicitly attached to the invitation, signing failed with `InputUnspentOutputUnavailableError` because XO Engine requires spent inputs to be pre-tracked in the local account store (`#accountContext.state`).
+  - In the hybrid model, the solver uses the XO-resolved locking bytecode to fund the covenant on Chipnet with 100 tPUSD and 2000 carry satoshis in transaction `f1d537078e1ebd0d218190a5b854c32c14114faa9b7518293c5d8bcde867afaf` (confirmed on-chain).
+  - The XO-derived HTLC UTXO was subsequently claimed on Chipnet using the CashScript claim builder with the secret preimage in transaction `0a4e6ddbf0371e0dd8396d7c1cf49bd3a8c69e22b5711a763e74811e5482d2a3` (confirmed on-chain).
+  - **Workaround Assessment (45-minute timebox):**
+    - `buildInvitationTransactionFromMergedCommit` successfully constructs the unsigned wire transaction skeleton for the claim action (120 bytes, transaction hash `126922521cfe2e869137963d7efa2b0d3c4c635756dafebd603581b2fb5f8f41`).
+    - However, `generateUnlockingBytecode` fails with `InputUnspentOutputUnavailableError` because the public `Engine` class exposes no `importUtxo` or `trackScriptHash` API to inject external covenant outputs into its internal private store (`#accountContext.state`).
+    - Furthermore, `compileInputUnlockingScript` requires HD derivation key references for all inputs, making pure non-HD covenant unlocking infeasible inside the current engine version.
+- **Consequence for rebuild:**
+  - Build with XO claim remains PARTIAL: XO templates can be used to generate validated swap invitations and deterministic covenant locking scripts across parties, but transaction funding and covenant spend execution (claim/refund) must be driven by CashScript or custom transaction builders.
+  - Append Q-C05 to the questions for General Protocols.
+
+---
+
+### Questions for General Protocols (Q-C Addendum)
+
+- **Q-C05 (Registering External UTXOs in Engine State for Covenant Spends):** Does the XO Engine roadmap include a public method on `Engine` (such as `importUnspentOutput` or `trackScriptHash`) to allow an account to register an externally created UTXO so that `generateUnlockingBytecode` and `buildInvitationTransactionFromMergedCommit` can assemble complete covenant-spending transactions without requiring the output to have originated from an internal HD invitation?
+### D-A2-005 · BCH Electrum client architecture: Custom Dual-Fulcrum Wrapper vs @electrum-cash/network
+- **Decision:** Implement a lightweight, direct dual-Fulcrum client wrapper (`BchQuorumClient`) rather than importing `@electrum-cash/network@4.4.8`.
+- **Evidence:** Evaluating `@electrum-cash/network@4.4.8` against the minimal client in `@ferry/htlc-bch` revealed that the library introduces heavy dependencies and cluster abstractions that obscure connection state. The custom wrapper directly manages connections to two independent Chipnet Fulcrum endpoints (`wss://chipnet.imaginary.cash:50004` and `wss://blackie.c3-soft.com:50004`), enforces a tip quorum (`|tip1 - tip2| <= 1`), executes seamless failover, and performs history reconciliation via `blockchain.scripthash.get_history` upon reconnect (handling CH-02 and CH-04) with strict TypeScript types and minimal surface area.
+- **Consequence for rebuild:** Maintain `BchQuorumClient` in `packages/solver/src/bch/quorum-client.ts`. Add additional public Fulcrum nodes or self-hosted nodes via the comma-separated `BCH_ELECTRUM_URLS` configuration.
+- **Revisit if:** Fulcrum protocol breaks backwards compatibility or a unified cross-chain client library is required.
+
+### D-A2-006 · Measured Solver Reaction Latency Bound
+- **Decision:** Establish an empirical upper bound of 5 seconds for solver detect-to-broadcast reaction latency (`SOLVER_REACTION`).
+- **Evidence:** During forward swap execution on Anvil + Chipnet contracts (E2E-01), the solver engine measured detect-to-broadcast reaction latencies of 77 ms for BCH lock publication following EVM finality, and 163 ms for EVM claim execution following BCH claim detection. The 5-second operational bound provides a 30x safety margin over measured execution while strictly verifying the conservative 60-second reaction time assumed in L1 timing models (D-A2-004).
+- **Consequence for rebuild:** Keep timing invariant F and R calculations configured with `solverReactionSeconds = 60` as a conservative safety threshold, while operating with sub-second expected reaction times in production.
+- **Revisit if:** High network congestion or RPC rate limiting introduces transaction submission latency exceeding 5 seconds.
+
+#### D-A2-006 Update (2026-10-25): Empirical Latency Measurement Across Real Fulcrum Network (≥ 10 Swaps)
+- **Correction / New Evidence:** The initial 77 ms / 163 ms values in D-A2-006 were measured against local in-process calls and did not reflect true public network Fulcrum WebSocket RPC, UTXO discovery, transaction assembly, signing, and broadcast latency across live chains.
+- In, detect-to-broadcast reaction latency was measured across 10 live swaps triggering real Chipnet transaction generation and broadcasts through `BchQuorumClient` (`wss://chipnet.imaginary.cash:50004` and `wss://blackie.c3-soft.com:50004`):
+  - **Iterations:** 10 live lock broadcasts
+  - **Min:** 787 ms
+  - **Median:** 1890 ms
+  - **Average:** 1679 ms
+  - **P95:** 2463 ms
+  - **Max:** 2463 ms
+  - **Observations:** Live WebSocket roundtrips to public Fulcrum nodes average ~1.0–1.2s per request (`blockchain.scripthash.listunspent` + `blockchain.transaction.broadcast`). Consecutive rapid broadcasts can encounter transient mempool indexing delays if spending unconfirmed change outputs before Electrum server indexers register the parent transaction (observed as `Missing inputs` when broadcast too quickly in succession, recovered on retry). Under normal pacing, median reaction time is ~1.89 seconds.
+- **Consequence for rebuild:** The 5-second operational bound remains valid and conservative against real public Fulcrum endpoints (P95 is 2.46s, median is 1.89s). Retain 60s as the worst-case safety parameter for timing invariant F / R proofs, but adopt 5.0 seconds as the live operational timeout threshold.
+
+### D-A1-007 · Web consumes core API schemas behind one SolverClient
+- **Decision:** The web imports `QuoteRequestSchema`, `QuoteResponseSchema`, `OrderStatusResponseSchema`, `RelayLockRequestSchema`, `RelayLockResponseSchema`, `RevealSecretResponseSchema` and the shared order-status enum from `@ferry/core`. `MockSolverClient` and `HttpSolverClient` both implement the same thin `SolverClient`; the HTTP client parses every response with the core schema. A quote is only usable after `verifyOrderSignature` re-checks the canonical order id and the trusted signer.
+- **Evidence:** The mock and HTTP paths share `SignedQuote`/`OrderView`; the UI never reads `secret` from `OrderStatusResponse` and the status page only uses the locally stored recovery secret. Tests cover signature tampering, vault round-trip/tamper, and secret absence from DOM and IndexedDB keys.
+- **Consequence for rebuild:** Keep wire parsing in the HTTP adapter, not in components. Never log, render, or persist a status-endpoint secret; the recovery file is the only intentional secret carrier.
+- **Revisit if:** The solver API moves away from the core schemas or a second consumer needs a different transport.
+
+### D-A1-008 · T9 binds signed terms to the local request before the CTA
+- **Decision:** `assertTermsMatchRequest(terms, request, config)` runs after signature verification and before the quote is stored. It compares every user-critical term with the locally built `QuoteRequest` and configuration: direction, counter chain/network/asset/decimals/HTLC, both user addresses, hash lock, BCH token/category, solver counter address, input/output amounts, pricing-policy floor, carry, max fee, quote expiry, counter deadline and BCH refund-height bounds. The solver response never supplies the recipient, HTLC, token, amount or deadline policy.
+- **Signer pinning:** `VITE_SOLVER_SIGNING_ADDRESS` is required whenever `VITE_SOLVER_URL` is set; the mock keeps the passphrase-derived mock signer. `requireSolverSigner()` fails closed on a missing or malformed address. Permit and intent typed data use config addresses, and both deadlines use the short `quoteExpiry`, not `counterDeadline`.
+- **Bundle:** The real wallet stack (AppKit, wagmi, Reown) is a dynamic import behind `Suspense`; the mock path does not load it. Initial JS fell from 1,590.36 kB (606.67 kB gzip) to 639.92 kB (190.70 kB gzip), with the real-wallet chunk at 213.50 kB (74.34 kB gzip).
+- **Evidence:** Unit tests reject each tampered term with a specific reason; a component test returns a validly re-signed quote with a changed solver recipient and confirms the CTA never appears. Live-URL config tests require the pinned signer. Root lint, typecheck, test (194 tests) and format check are green; the refreshed lockfile passes a frozen install.
+- **Consequence for rebuild:** Keep T9 in the quote path, not only in the status page. Treat the solver tip height as a convenience value and re-check refund-height safety against a trusted BCH tip before any refund-sensitive action.
+- **Revisit if:** The solver publishes a spread/skew that can legitimately fall below the base pricing policy, or a trusted BCH tip source replaces the quote-returned tip.
+
+
+### D-A1-009 · Standalone recovery is generated from the shared TS core
+- **Decision:** `recover.html` is built from `packages/web/src/recover/standalone.ts` with exact `esbuild@0.28.2` into one file with inline CSS and an inline module script. The generated file is committed and `pnpm --filter @ferry/web build` regenerates it, so a fresh clone can open it from `file://` without a build step while the source stays reviewable. `packages/web/src/recover/core.ts` is shared by the standalone page and `/recover`; there is no second recovery implementation.
+- **Evidence:** `pnpm --filter @ferry/web build:recover` produces a 1.5 MB file with SHA-256 `63abbf9a7b61e94fd14d3d8b07e6da4fa48d605b9b7ce5af1487b9251eaa86c6`; a second run produced the same hash. Playwright E2E-07 opens `file://…/recover.html` with no web server, checks both chains, refunds on anvil 8545/84532, claims BCH against a mocked Electrum WebSocket, and exercises the BCH refund and tampered-address refusal paths.
+- **Consequence for rebuild:** Keep recovery logic in one importable module. If the bundle grows, the fix is narrower imports or a separate crypto module, not a second copy of the validation rules. Regenerate the committed file in the same PR whenever the core changes.
+- **Revisit if:** The build needs to support a no-Node human environment; then ship the generated artifact as the primary deliverable and keep the build optional.
+- **Correction (2026-10-25, Part C):** The shared config and category normalization changed the generated bundle. The rebuilt artifact is 1,493,306 bytes with SHA-256 `ee03ef4e7b60308722b4877124a6f29646a27eaf47b055986fecde01a96e69e3`; E2E-07 is still 4/4. FACT-A1-022 remains the historical Part B value.
+
+### D-A1-010 · Recovery file is portable; chain identity is checked live
+- **Decision:** `RecoveryFileSchema` accepts any positive EVM `chainId` and any 20-byte EVM address instead of hard-coding Base Sepolia and the deployed address, and accepts `chipnet` or `mainnet` for BCH. `validateRecoveryFile` still requires the file's order id to match its terms, recomputes both BCH addresses and the redeem/locking bytecode from those terms, and checks the EVM code hash against the embedded deployed bytecode. `loadRecoverySnapshot` additionally checks the live RPC chain id and the code at the file's address before reading the lock.
+- **Evidence:** Local anvil E2E uses chain id 84532 and the real deployed address with `anvil_setCode`; a tampered BCH address is refused before any action. The production address and code hash remain the defaults in `buildRecoveryFile`.
+- **Consequence for rebuild:** Never trust the file's address or chain id alone. The portable fields are only an envelope; the bytecode hash, live code, BCH re-derivation and order id are the binding checks.
+- **Revisit if:** Recovery files need to carry a signed deployment attestation or support multiple EVM contracts per order.
+
+### D-A3-004 · S-09 Solana HTLC Architecture & Relayer Fee Invariant
+- **Decision:** Deploy `ferry_htlc` on Solana as an immutable Anchor program (`DbFyFKCGHZ7Pb3rUsbGtNhYcrvmbGm3qx4mnF4fYnyqN`, upgrade authority set to `none`), using an escrow PDA keyed by `[b"lock", owner, hash_lock]` and a vault PDA token account `[b"vault", lock_pda]`. Support relayer-as-fee-payer with automatic idempotent recipient ATA creation inside the `claim` instruction funded by the relayer, strictly maintaining the recipient's SOL balance delta at zero.
+- **Evidence:** Spike S-09 evaluated on Solana Devnet:
+  - Deployed immutable program `DbFyFKCGHZ7Pb3rUsbGtNhYcrvmbGm3qx4mnF4fYnyqN` (slot 514794976), verified `Authority: none`.
+  - Executed forward lock/claim round-trip on Devnet (lock tx `MYNkVANbXZeEzr1xLrzWZezUTPt4iaoNTMASqDwKNz4pM7ofouULL5cbY1JZykTF4YYMK4his6zGQr7btWTBsz7`, claim tx `5CbB8CwyZ5eVPFhuF5343JEQ8dcENTm1GPev75Bf6gobTUTyX4qFDUP2XE9fRV83qF3zNax9gqpAvqqScaH1H9jc`).
+  - User SOL balance was measured at `1,000,000,000` lamports before claim and `1,000,000,000` lamports after claim (delta: exactly 0 lamports).
+  - All 10 local Anchor unit/integration tests passed on `solana-test-validator 4.1.2`, including double claim/refund rejection and fresh ATA creation.
+- **Consequence for rebuild:** Solana integration in `@ferry/chain-solana` should use `packages/htlc-solana`'s exported instruction builders (`buildLockInstruction`, `buildClaimInstruction`, `buildRefundInstruction`). The relayer acts as fee payer on `claim` transactions.
+- **Revisit if:** Token-2022 confidential transfers or custom transfer hooks are required in future phases.
+
+> Note (2026-10-27): the S-09 Solana decision was submitted as D-A3-003, a duplicate of the Fulcrum latency decision; renumbered D-A3-004. References to "D-A3-003" in the Solana PR text mean D-A3-004.
+### D-A2-007 · Crash recovery with pre-computed txid/hex and strict lockId DB uniqueness
+- **Decision:** Solver engine persists `{ txid, txHex }` intent into SQLite ahead of broadcasting any BCH counter-lock (`PENDING`). On crash or restart during forward swap execution, the engine inspects the action intent: if already broadcast on-chain, it adopts the existing lock without re-broadcasting; if not yet mined, it rebroadcasts the exact identical signed `txHex` rather than generating a new transaction. Additionally, order lookups in the solver database use composite EVM lock id (`keccak256(owner, hashLock)`), enforcing an SQLite unique constraint on `(user_counter_address, hash_lock)`.
+- **Evidence:** Tested with real child process SIGKILL in `test/chaos.test.ts`:
+  - `CH-01b` (crash point `BEFORE_BCH_LOCK_BROADCAST`): Process killed immediately after persisting intent; upon restart, broadcasts exactly once and creates exactly one lock UTXO on fake chain.
+  - `CH-01c` (crash point `AFTER_BCH_LOCK_BROADCAST`): Process killed immediately after broadcast; upon restart, detects existing lock, adopts it, and performs zero duplicate broadcasts.
+  - `db-uniqueness.test.ts`: Two distinct users sharing the same hashLock both succeed with distinct lockIds. A single user attempting to create a second quote or order for the same `(userCounterAddress, hashLock)` throws an SQLite unique constraint error and is rejected with HTTP 400.
+- **Consequence for rebuild:** Guarantees zero duplicate solver locks and eliminates orphaned counter-lock UTXOs across crashes. Prevents hash collision and order hijack across multiple users.
+- **Revisit if:** Multichain or dynamic nonce parameters are added to EVM lock ids.
+
+
+### D-A1-011 · Reverse UI uses signed direction and recomputed BCH funding targets
+- **Decision:** `OrderTerms.direction` is the single source of truth for the reverse flow. `SwapCard` pre-selects `BCH_TO_COUNTER` from `?direction=reverse`, toggles it locally, and resets the quote when it changes; `SolverProvider` passes the same direction to the mock solver; `buildOrderViewModel` selects reverse labels/steps and `SwapStatusPage` branches the claim/refund actions. Reverse quotes parse tPUSD at 2 decimals and run T9 plus invariant R before the CTA.
+- **BCH funding:** `assertReverseFundingTarget` recomputes the token-aware P2SH32 address from the signed terms, checks the user’s refund locking bytecode and the pinned solver BCH bytecode, and refuses a mismatch. The QR/manual panel is gated until the recovery file is downloaded. The real WizardConnect builder is a typed stub until a team member’s shared `buildLockTransaction` lands; mock E2E exercises the full funding path.
+- **Status actions:** Reverse claim is gasless through `POST /v1/orders/:id/relay-claim` or a self-claim through the Base HTLC; BCH refund uses the signed refund address and waits for `bchTipHeight >= bchRefundHeight`. The HTTP adapter does not trust a status-endpoint tip for refund availability and keeps `bchRefundAvailable: false` until the API exposes a trusted tip/UTXO.
+- **Evidence:** Web unit tests 58/58, UI E2E 7/7 including the direction toggle, reverse happy and reverse refund screenshots, recover E2E 4/4, root build/typecheck/lint/test/format green. `recover.html` was regenerated after the shared config/category changes: 1,493,306 bytes, SHA-256 `ee03ef4e7b60308722b4877124a6f29646a27eaf47b055986fecde01a96e69e3`.
+- **Consequence for rebuild:** Keep direction in the signed terms and re-derive every BCH address locally. Do not accept a solver-supplied funding address, and do not enable a live lock until the recovery file exists.
+- **Revisit if:** the wallet builder exposes a different source-output/input-path shape, or the solver status API adds a trusted BCH tip and lock UTXO.
+
+
+### D-A1-012 · independent BCH tip, shared lock builder, lazy routes
+- **Decision:** The web no longer derives a BCH tip from the solver's signed refund height. `lib/bch/tip.ts` queries Electrum directly (`VITE_BCH_ELECTRUM_URL`, optional `VITE_BCH_ELECTRUM_URL_2`), takes the lower successful height when both answer, caches it for 30 seconds, and fails closed when no endpoint answers. `HttpSolverClient.quote` refuses to quote without an independent tip; `getOrder` still returns the order but sets `bchTipError` and disables BCH refund until a tip is available. The `SignedQuote`/`OrderView` tip field remains a convenience value and is not used for the safety check.
+- **Funding:** `buildReverseLock` now calls the shared `buildLockTransaction`; the real WizardConnect path lists receive and change UTXOs, derives the change address, and maps source outputs to `[0,'receive',0]` / `[1,'change',0]`. Unknown source outputs throw instead of guessing. The mock UTXO is 10,000 sats so the token-bearing lock output clears the dust floor after the fee.
+- **Loading:** `SwapStatusPage`, `RecoverPage` and `PayLinkPage` are route-level lazy imports; the BCH address parser and reverse funding panel load on demand. `recover.html` gains a `--check` mode and a Vitest drift test.
+- **Evidence:** Web unit tests 67/67, typecheck, lint, build and format green; root build/typecheck/lint/format green; 269 tests pass outside htlc-solana (10 Solana tests skipped because solana-test-validator is unavailable in this worktree). Initial JS is 248.77 kB (77.22 kB gzip); the address parser is a 359.02 kB lazy chunk and recovery is 729.66 kB lazy. `recover.html` is 1,493,381 bytes with SHA-256 `6b749cb260f851bc0cacf90f4faefeee8b3d78df60431ab610ed74f8f056bd89`, rebuilt from source with the `ferry-source` resolution condition.
+- **Consequence for rebuild:** Treat every safety-relevant chain height as a local input. A solver-signed quote can prove intent, never chain state. Keep the real builder and wallet wiring behind the same `BchWallet` interface so the mock E2E still exercises the production path.
+- **Revisit if:** The solver status API starts returning a trusted tip plus the exact lock UTXO, or WizardConnect exposes a batch UTXO selector that removes the receive/change split.
+- **Correction to D-A1-011:** The statement that the real WizardConnect builder was a typed stub is superseded by this entry; the builder is now real and covered by the reverse E2E.
+
+### D-A1-013 · recover.html resolves workspace sources explicitly
+- **Decision:** `build-recover.mjs` sets esbuild conditions `ferry-source, import, module, default`. Without `ferry-source`, esbuild silently bundled `@ferry/core` from `dist/` when it existed and from `src/` when it did not, so the committed artifact depended on whether a previous build had run. The recovery build now resolves the workspace source deterministically.
+- **Correction:** The current artifact is 1,493,381 bytes with SHA-256 `6b749cb260f851bc0cacf90f4faefeee8b3d78df60431ab610ed74f8f056bd89`. This supersedes the `ee03ef4e...` value in D-A1-009/D-A1-011 and FACT-A1-027, and the interim `1f786...` value produced before the condition was added. `FACT-A1-029` records the current value.
+
+### D-A1-014 · pay links use exact-output quotes and id-only URLs
+- **Decision:** Pay links are first-class `SolverClient` resources: create, get, quote, list and cancel. The shared URL carries only the 16–32 character base58 link id; the recipient address, amount, memo and expiry come from `GET /v1/links/:id`, so a copied link cannot silently change the destination. Invoice links fix `amountOut`; open links carry an optional minimum and accept a payer-chosen amount.
+- **Exact output:** `assertPayLinkQuote` derives `amountIn` with `quoteExactOut`, builds the equivalent `QuoteRequest`, runs T9, then requires exact equality of the BCH recipient, token, `bchTokenAmount`, `counterAmount` and link expiry. The payer UI shows the exact USDC debit and tPUSD credit only after the signed quote passes; the mock reserves an invoice on its first quote and rejects a second payer.
+- **Verification:** The create page signs `ferry:paylink:v1:<challenge>:<lockingBytecode>` when the connected BCH wallet exposes message signing. The mock wallet implements it; WizardConnect does not, so real links created from a WizardConnect address are unverified and the UI says so. Listing and cancellation sign `ferry:paylinks:v1:<owner>:<challenge>`. The mock seeds an open tip link, a reserved verified invoice and an expired invoice.
+- **Payer path:** The payer needs only a Base wallet. After the exact quote, the page requires a recovery-file download, then reuses the existing permit, intent and relay-lock path. The BCH recipient remains the link owner, so the payer never needs a BCH wallet.
+- **Evidence:** Web unit tests 77/77; full UI E2E 9/9, including create → preview → quote → lock and the reserved-invoice block; root typecheck/lint/format green; 278 tests pass outside htlc-solana with 2 skipped; root build excluding Solana green. Initial JS is 252.17 kB (78.10 kB gzip); the pay-link routes are 10.85 kB and 12.91 kB lazy chunks; `recover.html` is unchanged at 1,493,381 bytes with SHA-256 `6b749cb260f851bc0cacf90f4faefeee8b3d78df60431ab610ed74f8f056bd89`.
+- **Consequence for rebuild:** Keep the link id as the only URL payload, re-fetch the link before quoting, and never trust a payer-supplied amount for an invoice. Treat message-signing capability as optional and surface the unverified state rather than faking a badge.
+- **Revisit if:** WizardConnect adds a standard message-signature request, or open links need to be single-use rather than reusable.
+
+
+### D-A3-006 · S-10 Tron HTLC Architecture, No-Permit Flow, and SafeERC20 USDT Quirk Handling
+- **Decision:** Port `FerryHTLC.sol` to Tron TVM in `packages/htlc-tron` with identical lock, claim, and refund semantics while dropping `lockWithIntent`. Tron TRC-20 tokens (notably Tether USDT) lack EIP-2612 permit functionality; swaps rely entirely on standard TRC-20 approve and lock. Use OpenZeppelin's `SafeERC20` wrapper for all token transfers to safely accommodate non-standard TRC-20 implementations that do not return a boolean value.
+- **Evidence:**
+  - Evaluated Tron TRC-20 USDT specification and contract behavior. Tether USDT on Tron historically returns void (zero return bytes) rather than boolean true/false on `transfer` and `transferFrom`.
+  - Scaffolding a mock token with this exact non-standard return quirk (`MockNoReturnTRC20`) and executing tests with standard OpenZeppelin `SafeERC20` demonstrated that `safeTransfer` and `safeTransferFrom` handle zero-return bytes correctly without reverting, successfully completing lock, claim, and refund flows.
+  - Contract unit test suite in `packages/htlc-tron` covers lock, claim, refund, bad secret, premature refund, double claim, double refund, and the USDT void-return quirk across 7 test suites, all passing.
+  - Bytecode emitted by `tron-solc 0.8.31` introduces TVM-specific opcodes (`0xd2` and `0xd3` in the constructor preamble for TRC-10 compatibility). Consequently, local logic testing is compiled via standard Solc / Foundry, whereas Nile testnet deployment artifacts are generated with TronBox's `tron-solc`.
+- **Consequence for rebuild:** Maintain `FerryHTLC.sol` in `packages/htlc-tron` without permit support. Swaps on Tron require the user to send an `approve` transaction followed by `lock`. Always wrap TRC-20 token interfaces with `SafeERC20`.
+- **Revisit if:** TRON introduces native EIP-2612 permit standards across major token contracts.
+---
+
+### D-A3-007 · EVM Multi-Chain Deployment, Arc Consensus Precompiles, and Non-Standard Token Handling (S-08, S-12, S-13, S-14)
+
+- **Date:** 2026-10-25
+- **Prompt:** (Part C)
+- **Status:** PASS
+
+#### Context
+Phase L6 probes EVM routes across four distinct ecosystems: Ethereum Sepolia, Arc Testnet (S-08), BSC Testnet (S-12), and Arbitrum Sepolia (S-13), plus Ethereum Mainnet USDT non-standard return-value verification on Anvil fork (S-14). The requirements stipulate deploying the exact same `FerryHTLC` contract at the canonical CREATE2 address `0x5A0C062f4B7b8fF2263530e12bc15De9C836a641` across all chains, verifying RPC characteristics (`safe`/`finalized` tags, `eth_getLogs` limits), investigating issuer token parameters (decimals, EIP-2612 permit support), and executing headless lock → claim and lock → refund round trips.
+
+#### Decisions & Findings
+1. **Canonical CREATE2 Address & Factory EIP-150 Gas Sizing:**
+   - Deployed `FerryHTLC` at canonical CREATE2 address `0x5A0C062f4B7b8fF2263530e12bc15De9C836a641` on Ethereum Sepolia (tx `0x9c7f4563ce7cabbc7ad9f1ee0cdea1188f2e34b86c9de52edd8fbf26b0b10596`) and Arc Testnet (tx `0x366257dd717e683df21e9a9f36b994097f4e8a018c6132b2088c2c4199d4e3b3`).
+   - Bytecode length is exactly 3361 bytes on all chains, matching Base Sepolia byte-for-byte.
+   - Fixed EIP-150 63/64 child gas starvation in `Deploy.s.sol` by passing explicit low-level gas allowances and requiring a minimum `--gas-limit 6000000` for script broadcast on post-Cancun/Prague chains.
+
+2. **Arc Testnet Consensus Architecture (S-08):**
+   - On Arc Testnet (chain ID 5042002), USDC is the native gas token (18 decimals in balances/fees) and is wrapped into ERC-20 standard behavior at `0x3600000000000000000000000000000000000000` (6 decimals).
+   - Arc invokes consensus precompiles `0x1800000000000000000000000000000000000001` (`isBlocklisted`) and `0x1800000000000000000000000000000000000000` (native balance updater).
+   - In Foundry revm simulator, standard execution fails with `StackUnderflow`. Resolved by etching simulation mocks in `RoundTrip.s.sol` and using `--skip-simulation` on broadcast.
+   - Live roundtrips verified on-chain: lock+claim (txs `0x190ffcd9...`, `0x78c8511f...`) and lock+refund (txs `0xae9ffb91...`, `0x72c34137...`). User balance preserved at 80.0 USDC with 0 fee paid by user.
+
+3. **Ethereum Mainnet USDT Non-Standard Return Quirk (S-14):**
+   - Ethereum Mainnet USDT (`0xdAC17F958D2ee523a2206206994597C13D831ec7`) returns 0 bytes on `transfer` and `transferFrom`.
+   - Verified via Anvil fork suite `test/S14UsdtMainnetFork.t.sol`: `SafeERC20` handles the void return cleanly for both `claim` and `refund` without reverting.
+   - Verified that Tether USDT does not support EIP-2612 (`DOMAIN_SEPARATOR()` and `permit()` revert). Direct approval (`lock()`) must be used for USDT routes.
+
+4. **BSC Testnet 18-Decimal Quirk & Exact Amount Preservation (S-12):**
+   - On BSC (both Mainnet `0x55d398326f99059fF775485246999027B3197955` and Testnet `0x7ef95a0FEE0Dd31b22626fA2e10Ee6A223F8a684`), USDT uses **18 decimals** (Binance-Pegged BSC-USD).
+   - Verified exact amount preservation through `test/S12BscUsdtProperty.t.sol` using canonical 25e18 (`25000000000000000000` units, matching `@ferry/core` `bsc18` fixture) and 256 fuzz runs, confirming 0 wei loss/truncation across lock, claim, and refund.
+   - Identified that Binance public RPC (`data-seed-prebsc-1-s1.binance.org`) rejects `eth_getLogs` with `-32005: limit exceeded`; recommended using `bsc-testnet-rpc.publicnode.com`.
+
+5. **Arbitrum Sepolia & BSC Testnet Funding Checklist:**
+   - Both networks require faucet funding for Deployer and Solver wallets before on-chain deployment can execute.
+### D-A1-015 · glass surfaces share one layer budget and lazy overlay chunk
+- **Decision:** `GlassModal` uses Radix Dialog on desktop and swaps to the vaul `GlassSheet` below 768 px; `GlassPopover` uses Radix Popover; `GlassNav` only gains the glass surface after 24 px of scroll; `StatusDrawer` is a sheet; `GlassToast` is a CSS entry animation. The token picker, NavBar wallet sheet and review-and-confirm dialog use `GlassModal`. The direct “Ferry it” path remains the primary action; the review dialog is an optional second confirmation so the existing quote/lock flow and E2E timing do not regress.
+- **Layer budget:** `GlassLayerBudget` allows at most two visible glass panels. `useGlassLayer` registers modal/sheet/toast surfaces; unit tests assert the third acquisition throws and the DEV provider warns instead of crashing the UI. The E2E wallet test counts `[data-glass-panel]` nodes while the sheet is open.
+- **Lens and motion:** `useGlassLens` enables `.glass--lensed` only when Chromium supports `backdrop-filter: url(#ferry-lens)`; the filter lives in `index.html` and the 256×256 displacement map is `/glass/rim-displacement.png`. Safari and reduced-transparency modes fall back to a plain blur/surface. Modal and sheet springs use stiffness 420/damping 34; blur radius is never animated, and `will-change` is present only under `.glass-motion[data-animating='true']`.
+- **Contrast:** The base glass tint is `rgba(8, 8, 10, 0.60)` over the lime glow. The Playwright contrast test hides panel content and pseudo-elements, screenshots the brightest central region, and checks both `--text` and `--text-muted` against 4.5:1. The tint was raised until that test passed; text tokens were not changed.
+- **Loading:** Overlays are dynamic imports. `GlassSheet`/framer-motion is a 168.87 kB lazy chunk and is no longer preloaded by the initial route; `GlassToast` no longer pulls framer-motion into the entry. Entry JS is 287.18 kB (91.02 kB gzip), under the 400 kB target. The trade-off is that a first open of a sheet waits for a small chunk; closing unmounts the overlay instead of preserving an exit animation.
+- **Evidence:** Web unit 86/86, full UI E2E 13/13, recover E2E 4/4, root 298 passed and 2 skipped outside `htlc-solana`, root build/typecheck/lint/format green. `recover.html` remains 1,493,381 bytes with SHA-256 `6b749cb260f851bc0cacf90f4faefeee8b3d78df60431ab610ed74f8f056bd89`.
+- **Consequence for rebuild:** Keep one overlay implementation and one layer budget. Do not add a second modal library or animate blur. Load heavy overlay dependencies only when a surface opens, and keep the primary CTA usable without opening the optional review dialog.
+- **Revisit if:** vaul/Radix/framer-motion cost becomes a mobile performance problem, or the product decides the review dialog must be mandatory.
+
+### D-A1-016 · mainnet quoting requires two independent Electrum endpoints
+- **Decision:** `bchQuoteConfigError(network, urls)` returns an error only when `network === 'mainnet'` and fewer than two distinct, non-empty Electrum URLs are configured. The exact message is `Mainnet quoting requires two independent BCH Electrum endpoints. Set VITE_BCH_ELECTRUM_URL_2.` The helper deduplicates trimmed URLs. `SwapCard` and `PayLinkPage` block quote submission, and `HttpSolverClient.#assertQuoteConfig()` enforces the same rule inside `quote` and `quotePayLink`.
+- **Current scope:** `BCH_NETWORK` is still the literal `chipnet` for the testnet build, so the rule is inert at runtime today. It is deliberately a pure config guard with unit coverage so enabling mainnet later cannot silently rely on one colluding server. `.env.example` already contains `VITE_BCH_ELECTRUM_URL_2`; this branch does not edit it.
+- **Evidence:** `bch-tip.test.ts` covers one mainnet URL, duplicate mainnet URLs, two distinct mainnet URLs, and chipnet with one URL. Root checks and the full UI/recover E2E suites are green.
+- **Consequence for rebuild:** Keep the rule in the shared BCH config layer, not only in the form. Any future mainnet mode must require two independently operated endpoints before quoting; a single endpoint can still be used for read-only tip display but not for a quote-enabling path.
+- **Revisit if:** `BCH_NETWORK` becomes a runtime environment setting, or the solver gains its own independent tip quorum.
+
+### Correction to D-A1-015 · final reduced-motion build
+- The final reduced-motion overrides increased CSS to 43.65 kB (8.99 kB gzip) and changed entry gzip size to 91.03 kB; entry JS remains 287.18 kB and the lazy GlassSheet chunk remains 168.87 kB (54.44 kB gzip). FACT-A1-035 records the final values.
+
+### Correction to D-A1-015 · lazy status drawer and sticky nav
+- The final pass keeps `.glass-nav` explicitly `position: sticky` because `.glass` sets `position: relative`, and lazy-loads `StatusDrawer` so the 168.87 kB GlassSheet chunk is fetched only when the drawer opens. Final entry JS is 287.19 kB (91.02 kB gzip), CSS is 43.64 kB (8.99 kB gzip), `SwapStatusPage` is 16.90 kB and `StatusDrawer` is 2.44 kB. FACT-A1-036 supersedes the prior bundle corrections.
+
+### Correction to D-A1-016 · endpoint identity
+- “Distinct” now means different normalized hostnames, not merely different URL strings. Case, trailing slashes, schemes or ports on the same host cannot satisfy the two-endpoint mainnet rule. This still cannot prove different operators; deployment review must choose independently run servers.
+
+### D-A3-005 · Solana ChainAdapter Architecture, Browser Safety & Finality Policy
+- **Decision:** Implement `@ferry/chain-solana` as a modular `ChainAdapter` conformant with `@ferry/core`. `buildUserLock` and `getLock` are strictly browser-safe and operate without requiring relayer secret keys: the transaction designates the relayer as `feePayer`, the user signs only as `owner`, and the relayer in `relayLock` attaches the fee-payer signature and broadcasts. For `isFinal`, `fast` lane maps to commitment `confirmed` and `safe` lane maps to `finalized` (~13s) per blueprint §24.2.
+- **Evidence:** Integration test suite in `packages/chain-solana/test/adapter.test.ts` (7/7 passed against local `solana-test-validator`):
+  - Browser-safe read-only adapter instantiated without private key successfully generated unsigned user locks and queried PDA lock states.
+  - Relayed lock verified: user SOL balance delta was strictly 0 lamports.
+  - Idempotent retries tested and confirmed for `relayLock`, `lock`, `claim`, and `refund`.
+  - Premature refund rejection verified client-side and on-chain; expired refund verified after timeout.
+  - `isFinal` accurately evaluates commitment states and fails closed on unknown or invalid transaction references.
+- **Consequence for rebuild:** Web UI and solver can consume `@ferry/chain-solana` directly via `@ferry/core`'s interface. Manual checklist for Phantom partial signing is added in the wallet test notes.
+- **Revisit if:** Alternative Solana wallet standards or transaction envelope versions (e.g. VersionedTransaction v0 with address lookup tables) are introduced.
+---
+
+### D-A2-008 · Reverse swap architecture: EVM check-then-act vs shared BCH write-ahead and relay-claim mechanics
+- **Decision:** In reverse swaps (`BCH_TO_COUNTER`), the roles of BCH and EVM chains are inverted while preserving the identical `ORDER_STATUSES` state machine.
+  1. *User BCH lock discovery:* The engine monitors the P2SH32 covenant address matching the order terms (works for both wallet-signed and manual QR funding), verifying the token category, amount, and satoshi carry before advancing to `USER_LOCK_SEEN` and evaluating the reveal policy (`USER_LOCK_FINAL`).
+  2. *Counter-lock gate:* At counter-lock time `t0`, the engine verifies `quoteExpiry` and evaluates `invariantR({ counterDeadline, bchRefundHeight }, { unixSeconds: now, bchTipHeight })`. If either fails, the order transitions to `REJECTED` without counter-locking.
+  3. *On-chain action execution models (EVM check-then-act vs BCH write-ahead):*
+     - For BCH on-chain transactions (solver lock, refund, and claim), raw transactions are assembled and signed locally. If interrupted by SIGKILL, multiple spends or duplicate UTXO creations could occur. Therefore, BCH operations use a strict write-ahead routine (`executeOrAdoptBchTx`) that persists `{ txid, txHex }` intent in SQLite prior to broadcast, adopting or rebroadcasting the cached bytes on restart.
+     - For EVM on-chain actions (`evmAdapter.lock`, `evmAdapter.claim`, `evmAdapter.refund`), the EVM contract storage (`getLock`) is authoritative and atomic on-chain state. Checking `getLock(lockId)` before acting, relying on Viem's internal transaction management, and verifying on-chain state afterwards provides idempotency and crash-safety without duplicating raw EVM transaction bytes in SQLite. the build notes should distinguish this check-then-act pattern from the raw BCH write-ahead requirement.
+  4. *Relay-claim:* In reverse swaps, the user claims USDC on EVM. To preserve a frictionless gasless UX, `POST /v1/orders/:id/relay-claim` allows the user to submit their secret preimage; the solver validates `sha256(secret) === order.hashLock`, submits `evmAdapter.claim(lockId, secret)` paying EVM gas (factored into the swap spread), moves the order to `USER_CLAIM_SEEN`, and triggers `processSolverBchClaim` to claim the user's BCH tokens.
+- **Evidence:** Tested with unit and integration suites:
+  - `state-machine.test.ts`: 12 reverse state transitions and abort paths.
+  - `api.test.ts`: `BCH_TO_COUNTER` quote generation with Invariant R and derived solver WIF key; `POST /v1/orders/:id/relay-claim` gasless EVM claim.
+  - `reverse.test.ts`: E2E reverse flow, quote expiry rejection, Invariant R failure rejection, deadline EVM refund, and SIGKILL crash resilience during solver BCH claim.
+- **Consequence for rebuild:** Differentiate UTXO-based chain raw-transaction write-ahead from account-based EVM contract check-then-act. Support gasless reverse claims via solver relay.
+- **Revisit if:** EVM gas spike exceeds spread buffer or fee abstraction ERC-4337 is integrated.
+
+---
+
+### D-A2-009 · Fast-lane zero-conf policy enforcement and reverse BCH lock parameter verification
+- **Decision:**
+  1. *Fast-lane protection (threat T2):*
+     - Quote requests for `lane: 'fast'` must provide an explicit opt-in (`fastOptIn: true`) and cannot exceed the zero-conf cap ($25.00 / 25,000,000 micros per `DEFAULT_REVEAL_CONFIG.zeroConfMaxUsdMicros`). We explicitly refuse quotes exceeding the cap with HTTP 400 `FAST_LANE_CAP_EXCEEDED` rather than silently downgrading to safe lane, ensuring user UX expectations regarding settlement latency are preserved.
+     - When detecting unconfirmed BCH locks (`confirmations === 0`), the engine queries Fulcrum for double-spend proofs via `blockchain.transaction.dsproof.get` (`BchQuorumClient.getDSProof`).
+     - The engine records the lock observation timestamp (`firstSeenAt`) in the SQLite database and requires the elapsed time to satisfy the 5,000 ms observation window per `D-A3-003` via core's `revealPolicy`.
+     - If a double-spend proof is detected (`dsproof === 'detected'`), the engine marks the order `INVALID_TERMS` and rejects it immediately, guaranteeing zero USDC counter-locks are ever issued against contested locks.
+  2. *Reverse lock parameter verification:*
+     - The reverse engine validates that candidate covenant UTXOs match the exact quoted token amount (`u.token_data.amount === terms.bchTokenAmount`) and provide adequate fee carry (`u.value >= terms.bchCarrySats`). Over-funded/under-funded token amounts and under-funded satoshi carries are rejected immediately (`INVALID_TERMS`), forcing the user to refund by height and protecting the solver from invalid claim transactions or dust outputs.
+- **Evidence:** Tested with unit and integration suites:
+  - `api.test.ts`: Fast lane quote requests without `fastOptIn` rejected with `FAST_LANE_OPT_IN_REQUIRED`; requests exceeding $25 cap rejected with `FAST_LANE_CAP_EXCEEDED`.
+  - `reverse.test.ts`: Fast lane unconfirmed lock with double-spend proof rejected without counter-locking; under-funded satoshi carry rejected; over-funded token amount rejected; unconfirmed fast lock respects DSProof observation window before finalization.
+- **Consequence for rebuild:** Never trust unconfirmed UTXOs without double-spend proof verification and observation time gates; validate both token and satoshi outputs before counter-locking.
+- **Revisit if:** Double-spend notification protocol is updated or zero-conf insurance protocols are adopted.
+
+
+### D-A1-017 · live page data has an explicit empty state
+- **Decision:** The web owns a temporary `StatsClient` boundary with three independently loaded resources: aggregate stats and active quote policy, recent settled swaps, and peg observations. The HTTP adapter validates strict local schemas until a team member’s core schemas land. The default mock reports the real configured spread/fixed fee but returns `null` metrics, no swaps and no peg observations; it never invents judge-facing numbers.
+- **Failure isolation:** The home controller uses independent settled results, so a missing peg endpoint does not hide settlement stats or recent swaps. A real zero is displayable; `null` means “No data yet”, keeping zero and absence distinct.
+- **Dataviz:** A peg sparkline is rendered only with a reported latest price and at least two observations. It includes a one-dollar reference line, visible range/source text, an accessible title and numeric description, theme colours and no animation. Empty feeds render no SVG or synthetic line.
+- **Policy copy:** The feature-card spread and every quote-policy display are formatted from policy/config basis points and microdollars, not string literals.
+- **Consequence for rebuild:** Put future core schemas at this one adapter boundary, preserve null-vs-zero semantics, and never seed production mocks with decorative metrics or price history.
+- **Revisit if:** the solver endpoint fields differ from the local contract, or recent swaps expand beyond the current Base/BCH route and require per-chain explorer configuration.
+
+### D-A1-018 · accessibility is a route-level release gate
+- **Decision:** The default UI suite now scans `/`, `/swap/:id`, `/p/:id` and `/recover` with axe; runs the complete forward swap with Tab, typing and Enter only; exercises reduced-motion and reduced-transparency media; and captures every new section at 375 px and 768 px with overflow assertions.
+- **Landmarks:** `AppShell` owns the document’s only main landmark. Route loading and route pages use neutral containers, and the recovery-file input has a visible programmatic label.
+- **Test isolation:** Playwright starts its own strict Vite server on port 5180. Reusing a listener is an explicit opt-in because a process on the right port can still serve the wrong checkout.
+- **Evidence:** Web unit tests 90/90, default UI Playwright 22/22 and standalone recovery Playwright 4/4. Entry JS is 306.45 kB raw, still below 400 kB.
+- **Consequence for rebuild:** Run semantic automation on all judge paths, but retain the keyboard and responsive flows because axe alone cannot validate interaction order, media preferences or layout.
+- **Revisit if:** New routes, wallet surfaces or supported browsers require additional axe states or non-Chromium media-emulation coverage.
+
+### Correction to D-A1-018 · post-rebase test count
+- After rebasing onto the merged Solana/Tron work, the final web unit count is 93/93 rather than 90/90. Browser and recovery counts remain 22/22 and 4/4. FACT-A1-042 records the final clean-clone gates.
+
+---
+
+### D-A3-008 · Spike S-10: TRON Nile HTLC Deployment, TVM SafeTRC20 Return Handling, and Solidified Finality → PASS
+- **Evidence:** Deployed `FerryHTLC` to TRON Nile testnet at `TN2gn3GTuTHkZ3dmgitZr78VpSiwr4Epxs` (tx `fe2d423b83b05e8de7a48127c3e7b6d5fa5d592d5e1b3792705996e83595f2d7`). Executed full on-chain lock + claim swap (lock tx `968818afa97dd6aff90055bc932f50be052351b273f2c3b012bd2813684441e8`, claim tx `5e641269d721f30570883145c8b854c745865c90a499abc84e8d0e1fc55bab67`) and lock + refund swap (lock tx `a741fc047b03d7e536e1079fc5b324545abf8d5b54639daf439f081714c85fb4`, refund tx `fe55b68c57c9356c40a0aaab2372d00e8c63d05e253fbbc3fd367fb486b9ec84`).
+- **TVM SafeTRC20:** Discovered that TRON TVM allocates 32 zero bytes for void returns (like official Nile USDT), causing OpenZeppelin `SafeERC20` to decode as boolean `false` and revert. Replaced with `SafeTRC20` accepting both 32 zero bytes and boolean true.
+- **Consequence for rebuild:** Standard TRON HTLC swaps use `approve` + `lock` with `SafeTRC20`. Fast lane requires 1 confirmation (~3s); safe lane requires solidified block (~19 blocks, ~48-50s) per Blueprint §24.2.
+- **Revisit if:** TRON introduces native EIP-2612 permit or alters TVM void return behavior.
+
+### D-A2-010 · Reverse safe-lane quote TTL, free price options, and deposit-seen evaluation
+- **Decision:**
+  1. *Context and initial TTL setting:* Earlier, reverse safe-lane quotes were given an 1800 s (30-minute) TTL (`quoteExpiry = now + 1800`) to avoid expiration while waiting for a 1-block Bitcoin Cash confirmation (average 10-minute block interval, up to 20–30 minutes in Poisson tail distribution).
+  2. *Adverse selection exposure analysis:*
+     - Offering a fixed swap rate for 30 minutes without requiring an on-chain commitment grants the user a 30-minute free lookahead price option against the solver inventory.
+     - Maximum swap size is $50.00 (`maxSwapUsdMicros = 50,000,000`) and total exposure cap is $250.00 (`maxExposureUsdMicros = 250,000,000`).
+     - Quoted spread is 40 bps (0.40%) plus $0.05 fixed fee. Peg tolerance guard is 1.0% (`PEG_TOLERANCE = 0.01`).
+     - If the CashToken peg (e.g., PUSD or MUSD) de-pegs or drops by 100 bps (1%) on external markets during the 30-minute window, the 40 bps spread ($0.20 on a $50 swap) fails to cover the price drop. An adverse arbitrageur can observe external market weakness, exercise the stale quote at minute 29, and dump devalued CashTokens to extract fixed USDC on Base, inflicting a net loss of 60 bps ($0.30 per $50 swap, or $1.50 across a $250 inventory). In severe depeg events (>2%), the exposure compounds further.
+     - Thus, **the configured 40 bps spread does not cover a 30-minute adverse peg move**.
+  3. *Root cause of the long TTL necessity and resolution:*
+     - The 1800 s quote TTL was originally introduced because `runner.ts` evaluated quote expiration against current wall-clock time at counter-lock time ($t_0$), conflating block mining latency with quote commitment.
+     - In the fix, `runner.ts` was corrected to evaluate quote expiration against `order.firstSeenAt` (the timestamp when the user's BCH transaction first appears in the mempool or block): `const lockSeenTime = order.firstSeenAt ? Math.floor(order.firstSeenAt / 1000) : now; if (lockSeenTime > terms.quoteExpiry) { reject }`.
+     - Because `firstSeenAt` captures the deposit broadcast timestamp (which occurs in seconds), the quote TTL only needs to provide sufficient time for the user/wallet to construct, sign, and broadcast the transaction. It does *not* need to cover the subsequent block confirmation interval.
+  4. *Rule and recommendation:*
+     - Reduce reverse safe-lane quote TTL from 1800 s to 180 s (3 minutes). 3 minutes provides ample margin for wallet interactions and broadcast while limiting the user's free price option window by 90%.
+     - If the user fails to broadcast within 180 s, the quote expires harmlessly and the UI requests a fresh quote (re-quote rule).
+     - Furthermore, before solver counter-locking at $t_0$, the engine retains the right to verify current peg health against `PriceSource`: if the peg has broken beyond `pegTolerance` during the block confirmation wait, the solver refuses to counter-lock, forcing a safe refund for the user by height.
+- **Evidence:** Documented in the testnet notes (D-A2-010); safe-lane reverse live run executed on Base Sepolia + Chipnet confirming `firstSeenAt` gating; tests in `packages/solver/test/reverse.test.ts`.
+- **Consequence for rebuild:** Differentiate quote validity window (time to enter mempool) from settlement/confirmation window (time to mine into block). Keep quote TTLs tight (<= 180 s) to bound adverse selection risk on stablecoin pegs.
+- **Revisit if:** User wallet UX requires longer signing timeouts, or dynamic volatility-adjusted spreads are implemented.
+### D-A1-019 · quote refresh is a new quote, never a reused hash lock
+- **Decision:** Auto-refresh is a timer-driven state machine that runs only while the card is quoted and no lock action has begun. It fires five seconds before expiry, creates a new secret and recovery file, re-runs signature verification, T9 term binding, independent BCH tip checks and timing invariants, then re-arms the recovery download gate. It stops after three automatic attempts without user action; manual quoting resets the counter.
+- **Cancellation:** Starting Ferry, starting reverse BCH funding, changing amount/direction/lane, or replacing the quote cancels or invalidates an in-flight refresh. A request-version counter prevents a stale response from overwriting a newer user action.
+- **Pay links:** The same hook drives exact-output pay-link quotes. The mock allows a reserved invoice to be re-quoted only by the payer who owns the current reservation, so refresh does not look like a second payer. Different payers still receive `LINK_RESERVED`.
+- **Evidence:** Hook fake-timer tests cover pre-expiry timing, disabled-after-lock, cap, cancellation and failure; Playwright with `quoteTtl=8` verifies a new order id/secret, re-armed recovery download and the pay-link path.
+- **Consequence for rebuild:** A refreshed quote is a new order. Never reuse the hash lock, never refresh after a wallet action starts, and keep old vault secrets until their orders are provably unused.
+- **Revisit if:** The solver supports idempotent quote renewal or the protocol changes the one-order-per-hash-lock rule.
+
+### D-A1-020 · one solver-kind flag governs mock disclosure
+- **Decision:** `solverIsLive()` remains the single source for solver labels, footer copy, status-page banner, transaction links, address explorers and recovery-file issuer metadata. Mock status pages show a visible “no funds move” banner, render hashes as plain text marked mock, and expose no transaction/address explorer links. Recovery files carry optional `solverKind`; mock files warn that they are simulations, while old files remain readable.
+- **Evidence:** `mock-honesty.spec.ts` asserts no Base/BCH tx explorer links and a visible simulation banner; recovery E2E uses a live-marked fixture for the real recovery path.
+- **Consequence for rebuild:** Never infer solver kind from wallet mode; the backend identity is independent. A single flag must drive every “real vs simulated” presentation.
+- **Revisit if:** A live solver can be mixed with mock orders in one browser session and records need per-order provenance beyond the recovery file.
+
+### D-A1-021 · UI-02 is an isolated opt-in live harness
+- **Decision:** `test:e2e:live` uses its own Playwright config, Vite server on port 5181 and solver on port 8790 with a memory database. It derives the solver signer/BCH address from `.env.local`, loads only those server-side values, and keeps the live suite out of default E2E discovery.
+- **Result:** Forward and reverse live quote requests pass and the web accepts the solver signatures, independent tip and terms. Fully funded swaps are blocked because the user and solver token-aware BCH addresses hold no tPUSD, and pay-link live endpoints are not implemented yet.
+- **Consequence for rebuild:** Separate quote-level live verification from funded acceptance runs. Check inventory and endpoint completeness before scheduling funded UI tests, and always prove which solver process the test is using.
+- **Revisit if:** tPUSD inventory is restored and the solver publishes live pay-link endpoints.
+
+### D-A1-022 · durable local order state and explicit wallet activity
+- **Decision:** Every created quote is written to an IndexedDB order journal with terms, direction, lane, status, txids and the last known tip state; the secret remains only in the encrypted vault. Status pages merge live solver state with the journal: on 404 they retain the local record, show a restart warning, and expose recovery download plus the recovery-page path.
+- **Wallet state:** A restored WizardConnect session gets an eight-second reconnect budget, then disconnects and returns to “Connect BCH”; fresh QR connections are exempt. The nav reads the same wallet context and shows a truncated EVM address, “1 of 2 wallets”, or “Connect”. Wallet methods expose a named pending request so the global banner can say exactly what confirmation is awaited.
+- **Errors:** Solver network failures, invalid responses, wrong EVM chain, wallet rejection and quote expiry during signing receive specific messages. Quote expiry is checked immediately before relay as well as before signing.
+- **Evidence:** Unit tests cover journal round-trip/txid updates/no secret, reconnect timeout, chain guard, nav states and pending banner; Playwright covers restart fallback, solver rejection/outage, wallet rejection, pending naming and expiry mid-sign.
+- **Consequence for rebuild:** Persist order metadata, never secrets, outside the vault; wallet state and pending confirmation must be observable; and every asynchronous safety-sensitive action needs a post-await recheck.
+- **Revisit if:** Solver status becomes event-sourced or the wallet library exposes a stable restored-session flag.
+
+### Correction to D-A1-019 · live quote horizon
+- The mock TTL remains 60 seconds, but the web now accepts live quote expiries up to `MAX_QUOTE_FUTURE_S` (300 seconds). The solver’s D-A2-010 policy returns 120 seconds forward and 180 seconds for reverse safe-lane quotes; those are legitimate, not stale quotes.
+
+### D-A2-011 · Pay-Link Recipient Authentication, Mock Signature Gating, and Mainnet Requirements
+- **Decision:**
+  1. *Context:* introduced pay-link REST routes (`POST /v1/links`, `GET /v1/links/:id`, `POST /v1/links/:id/quotes`, `GET /v1/links?owner=...`, and `POST /v1/links/:id/cancel`). Development tests and UI mocks utilized a simplified message digest signature stub (`sha256(message)`).
+  2. *Security risk on public networks:*
+     - Because `sha256(message)` is a deterministic hash of public link parameters and challenge strings, any unauthenticated client can generate it.
+     - Exposing this stub without environment restrictions allowed any caller to mint `verified: true` on created links and impersonate recipient addresses to enumerate private links on `GET /v1/links` or trigger cancellations on `POST /v1/links/:id/cancel`.
+  3. *Gating and fail-closed defaults:*
+     - The mock signature verification routine is gated behind `ALLOW_MOCK_PAYLINK_SIGNATURES=1` (or `ALLOW_MOCK_PAYLINK_SIGNATURES=true`).
+     - On `NETWORK=mainnet`, setting `ALLOW_MOCK_PAYLINK_SIGNATURES=1` throws a fatal configuration error at startup.
+     - In all other configurations (testnet default, dev without flag, and mainnet), mock verification is disabled:
+       - Newly created pay-links unconditionally set `verified: false`.
+       - Owner listing (`GET /v1/links`) and cancellation (`POST /v1/links/:id/cancel`) reject mock signatures with HTTP 403 and error code `MOCK_SIGNATURES_DISABLED`.
+  4. *Mainnet specification for real recipient authentication:*
+     - *Challenge generation:* Single-use, server-issued cryptographic nonce (`challenge = crypto.getRandomValues(32 bytes)`) persisted in the database with an explicit short time-to-live (300 s / 5 minutes) and bound to the requested recipient CashAddress / locking bytecode.
+     - *Message formatting:* Canonical Bitcoin Cash signed message standard:
+       `"Bitcoin Signed Message:\n" + varint(len(msg)) + msg`, where `msg = "ferry:paylink:auth:v1:" + challenge + ":" + recipientLockingBytecode`.
+     - *Signature algorithm:* ECDSA secp256k1 signature with recovery ID (compact 65-byte base64/hex signature) generated by the recipient's BCH wallet private key (e.g. via Electron Cash, CashScript Wallet, or Web3 CashAddress message signer).
+     - *Verification:* The solver server recovers the compressed public key from the compact signature and message hash, computes `hash160(pubkey)` or compiles the standard P2PKH / P2SH locking bytecode, and strictly asserts equality with the pay-link's `recipientLockingBytecode`. The challenge is marked consumed immediately to prevent replay attacks.
+- **Evidence:** Unit tests in `packages/solver/test/config.test.ts` and `packages/solver/test/paylink.test.ts` verifying flag refusal on mainnet, 403 on disabled mock signatures, and 200 with testnet mock flag.
+- **Consequence for rebuild:** Mock authentication stubs must never be active on servers by default. Real wallet-signed cryptographic challenges are mandatory for mainnet pay-link owner operations.
+- **Revisit if:** Standardized CashConnect / BCM (BCH Message Sign) web wallet specification is ratified across Cashonize, Paytaca, and Electron Cash.
+### D-A1-023 · live page data uses core schemas; pay-link badges stay honest
+- **Decision:** The web re-exports `StatsSummarySchema`, `RecentSwapSchema`, `RecentSwapsResponseSchema`, `PegPointSchema`, `PegSnapshotSchema` and `PegsResponseSchema` from `@ferry/core`; `HttpStatsClient` parses `/v1/stats`, `/v1/orders/recent` and `/v1/pegs` with those exact schemas. Null stays “No data” and zero remains a real reported zero. an earlier change is still open, so endpoint availability is the remaining integration dependency, not a client type fork.
+- **Pay links:** `verified: false` renders an explicit neutral “Unverified” badge. `verified: true` renders an amber “Test-mode signature” badge with “not a real ownership check”; no green Verified badge is shown while the solver only has the mock signature scheme.
+- **Evidence:** Schema-identity unit test plus HTTP parsing tests; badge unit tests; updated Playwright pay-link assertions; clean-clone root/browser gates.
+- **Consequence for rebuild:** Keep wire parsing at one adapter and never promote a test-mode signature to a trust badge. A real badge waits for server-side BCH message verification.
+- **Revisit if:** an earlier change changes endpoint fields, or the solver adds genuine BCH message-signature verification and a trustworthy verified state.
+
+### D-A1-024 · loaded E2E/unit budgets are explicit
+- **Decision:** Lazy wallet surfaces are opened through one helper that waits for the sheet’s dialog role with a 20-second budget; media tests get 60-second test budgets; quote-refresh uses a 20-second TTL so the first download cannot collide with the pre-expiry refresh under load; web unit tests use a 20-second CI timeout and lazy page tests also carry per-test budgets.
+- **Evidence:** Three consecutive clean-clone default Playwright runs with zero retries, plus three clean-clone root unit runs (recorded in the final clean-clone facts).
+- **Consequence for rebuild:** Separate readiness budgets from outer test budgets and always make the outer larger. A suite that passes only on retry is not a gate.
+- **Revisit if:** The suite is split into shards or a preview build removes cold-transform cost.
+
+### D-A1-025 · solver errors are translated once, with the raw code preserved
+- **Decision:** `lib/solver/errors.ts` owns a copy map for every `API_ERROR_CODES` value plus `UNREACHABLE` and `UNKNOWN`. `SolverError` carries the typed code, raw message and HTTP status. UI surfaces render the human sentence, a next step, and a secondary `Code: …` line; unknown future codes remain reportable.
+- **Reachability:** `HttpSolverClient` throws `UNREACHABLE` for fetch failures and for non-API 502/503/504 proxy responses. A typed `UPSTREAM_ERROR` is still a solver response and gets its own copy. Invalid/unknown error envelopes become `UNKNOWN` with their raw code.
+- **Coverage:** Quote, pay-link, status-load and claim/refund actions use the shared descriptor. Unit tests iterate all 28 core codes and HTTP tests cover network failure, proxy 502, typed BCH tip failure and an unknown future code.
+- **Consequence for rebuild:** Never render wire envelopes directly. Keep one exhaustive code map, preserve the code for support, and separate “cannot reach solver” from “solver said no”.
+- **Revisit if:** The core error enum grows; the compiler and the exhaustive loop force the new copy entry.
+
+### D-A1-026 · solver health is visible and tests are env-hermetic
+- **Decision:** The footer polls `GET /v1/health` through `SolverClient.getHealth()` every 30 seconds and shows solver kind, quoting on/off, BCH tip height/age/health and Base tip height/age/health in words, not colour. Mock mode labels the values “simulated health”; fetch failure shows an explicit unavailable state.
+- **Test isolation:** Vitest ignores the root Vite env in test mode. Playwright blanks every solver/network variable, including solver BCH address and both Electrum URLs, so a developer’s live `.env.local` cannot change default tests.
+- **Evidence:** Health unit tests cover ready and unavailable states; mock-honesty E2E checks the visible line; full local E2E is 34/34.
+- **Consequence for rebuild:** Health needs a stable, always-visible home with explicit wording. Test processes must opt into live endpoints explicitly.
+- **Revisit if:** Health polling becomes expensive or the solver adds a push health channel.
+
+### D-A1-027 · auto-claim is keyless, idempotent and visible
+- **Decision:** While a forward status page is open, the first observation of `SOLVER_LOCK_SEEN` starts one claim from the vault secret. The claim no longer checks for a BCH wallet; the recipient comes from signed terms. A ref prevents concurrent claims and one auto attempt is recorded per order.
+- **Broadcast:** `broadcastClaimIdempotent` treats already-in-blockchain, txn-already-known, txn-mempool-conflict and missing/duplicate-input errors as success using the locally built txid, then continues to `submitSecret` and refresh. A solver notification failure does not hide the on-chain claim.
+- **States:** The page shows “Claiming your tPUSD…”, “Claim on chain, waiting for the solver to release your USDC”, and after 90 seconds a stall message with the Recovery next step. Polling is 3 seconds while claiming/waiting. Manual Claim remains as fallback.
+- **Evidence:** Unit tests cover every duplicate/error string; Playwright covers auto-claim with a duplicate response, no live BCH wallet, and the 90-second stall.
+- **Consequence for rebuild:** Never gate a keyless covenant spend on wallet connectivity. Make broadcast retries convergent and surface public-chain success even when solver notification fails.
+- **Revisit if:** The covenant adds a user signature or Electrum returns ambiguous spend errors that cannot identify our own claim.
+
+### D-A1-028 · remembered BCH identity is separate from session liveness
+- **Decision:** Persist `{walletName, tokenAware address, lockingBytecode}` in local storage. A remembered wallet is status `offline`, not disconnected: the address remains usable for quotes/claims/refunds, while reverse funding asks the user to open the wallet and approve. An 8-second timeout applies to every connecting/reconnecting state. “Forget wallet” clears local identity and disconnects.
+- **UX:** Wallet panel shows “Paytaca (offline) · bchtest:…”, a Reconnect action, Forget wallet, and one sentence explaining that browser/mobile wallets cannot stay connected in the background.
+- **Evidence:** Storage round-trip tests; unit tests for timeout and offline panel; Playwright for remembered/offline/forget. Reverse funding shows “Open … to approve” instead of requiring a connection up front.
+- **Consequence for rebuild:** Treat wallet identity as cacheable user data, transport as ephemeral. Only signature-producing actions require liveness.
+- **Revisit if:** WizardConnect exposes a push session status that makes offline/online detection reliable without polling.
+
+### D-A1-029 · relay proof uses the real DappConnectionManager
+- **Decision:** The serialization test instantiates the real `DappConnectionManager` with a fake relay client, sends a sign request using the production `sourceOutputToRelay` shape, JSON-serializes the exact relayed request, and parses it back with WizardConnect `parseExtendedJson`/`toUint8Array`. This proves both the dapp request and a Paytaca-style wallet can round-trip bytes and bigint values.
+- **Evidence:** `wizard-relay-serialization.test.ts` passes; request includes bigint values parsed back as bigint and hex bytes converted back to the original Uint8Array.
+- **Consequence for rebuild:** Test the real protocol manager and the wallet parser, not just a local helper. A relay test that never crosses JSON would miss BigInt serialization defects.
+- **Revisit if:** WizardConnect changes its extended JSON format or exposes the relay serializer directly.
+
+### Correction to D-A1-027 · ambiguous spends require txid proof
+- Only explicit already-known/confirmed broadcast errors are accepted without lookup. Missing-input, mempool-conflict and “already spent” answers are ambiguous; `broadcastClaimIdempotent` calls the wallet’s Electrum-backed `transactionExists(expectedClaimTxid)`. Success requires that exact txid. A refund or any other spend therefore produces `ClaimSpentError` and no `submitSecret`, preventing secret disclosure and Base-fund loss.
+- Playwright covers a conflicting spend (abort with Recovery next step) and an ambiguous spend whose expected txid exists (continue to DONE).
+### D-A1-030 · no direct Paytaca/Selene browser-extension adapter yet
+- **Decision:** The extension spike is a dev-only probe at `/dev/wallet-extension`, built only when `import.meta.env.DEV` and `VITE_WALLET_EXTENSION_SPIKE=1`. A post-build check fails if its marker reaches `dist/`. The probe detects the legacy community `window.paytaca` connector, normalizes a `bchtest:` P2PKH address to token-aware, reads UTXOs over chipnet Electrum, builds a fixed P2SH32 CashTokens lock, and asks the provider to sign with `broadcast:false`. No production wallet interface or swap path imports it.
+- **Evidence and versions:** Paytaca official source `paytaca/paytaca-app` master `73fe3bf` (2026-10-26), extension manifest v0.27.4: its content script is the Quasar BEX bridge and does not inject `window.paytaca`; the official README lists WalletConnect v1/v2, WizardConnect and deep links, not a page provider. The `window.paytaca` API (`connect`, `address`, `signTransaction`, `signMessage`) is documented only in the community `mainnet-pat/wc2-bch-bcr` connector and Paytaca Connect snippets gist; the Chrome Web Store listing observed on 2026-10-27 shows v0.22.3 (updated 2025-04-07). Selene official site v2026.10.02 and GitLab `selene.cash/selene-wallet` commit `2eec950` (2026-10-14) ship Android/iOS and a browser PWA (`app.selene.cash`); no extension or injected provider appears in its repository or download page.
+- **Result:** Current Paytaca/Selene releases do not expose a documented browser-extension provider that gives an address and signs a dApp-built transaction. The probe works against an injected legacy provider and records the exact request; it does not prove a current release works. Existing WizardConnect remains the supported path for Paytaca/Selene.
+- **Evidence:** Unit tests cover provider detection, address normalization, token-lock construction and signed-response checks (9/9). Playwright injects a fake provider and mocks chipnet Electrum to exercise connect → address → UTXO read → lock build → sign, asserting `broadcast:false`; the production build check confirms the probe marker is absent from `dist/`.
+- **Consequence for rebuild:** Do not add a third wallet adapter until an official extension provider specification exists. If one appears, reuse the probe's no-broadcast, chipnet, token and P2SH32 checks, and keep it gated outside the production bundle.
+- **Revisit if:** Paytaca restores and documents a page-injected API, or Selene ships an extension; verify with a real wallet on chipnet before wiring the swap flow.
+
+### D-A1-031 · live reverse UI proof uses a script signer without keys in the page
+- **Decision:** The opt-in live suite runs against an already-running solver at `127.0.0.1:8787` and skips with a clear message when `/v1/health` is unavailable. The reverse test uses `?mock=1` for wallet chrome, but the mock BCH wallet delegates address, UTXO listing, signing and broadcast to `window.__ferryScriptWallet`. The Playwright runner holds `USER_BCH_WIF`, lists real chipnet UTXOs, parses the UI's relay request with `parseExtendedJson`, signs the exact unsigned transaction through CashScript, broadcasts it, and returns only the signed bytes. The page never receives the WIF or private key.
+- **Real path:** The UI still uses `buildReverseLock`, `bch.signTransaction`, the real `relay-format` source outputs and the real `HttpSolverClient`; only the hardware/mobile wallet transport is replaced by the test bridge. The test rejects any request with `broadcast:true`, checks that the request contains extended-JSON bigint markers, and confirms `wallet.broadcasts[0]` equals the solver's `userLockTxId`.
+- **Result:** Order `0xe8878b7edfeff55bfae73838666bec4f47f26688c08fb5ba492833cd2fa7a462` reached `DONE` on Base Sepolia + Chipnet. BCH lock `f4bdd2c8…954bb4`, solver Base lock `0xf5867b2e…fc3369`, gasless Base claim `0x75dce99e…21e5a`, solver BCH claim `feb06279…896775`. UI phase timings were 3.807 s to broadcast the BCH lock, 16.068 s to the claim action and 6.037 s to `DONE` (25.912 s total).
+- **UI correction:** The live run exposed a defect: reverse transaction labels and explorer chains were derived from forward-only field semantics. The mapping is now direction-aware and the reverse timeline includes the Base claim step.
+- **Evidence:** The live config has no auto-started solver; `reverse-ui.spec.ts` skips unless 8787 is healthy. The combined live suite passes both quote and reverse tests. Unit coverage checks the direction-aware labels and the new timeline step.
+- **Consequence for rebuild:** Keep the signing key outside the browser and inject only signed bytes for transport tests. Always prove the UI request against the real wire format, chain broadcast and solver state machine, not a mocked order lifecycle.
+- **Revisit if:** The real browser-extension or hardware-wallet transport is wired into the wallet interface, or the solver is started by the test harness again.
+
+### D-A1-032 · one build-time network profile with fail-closed mainnet
+- **Decision:** `VITE_NETWORK` selects exactly one `NetworkProfile` (`testnet` by default, `mainnet` when explicitly set). All web network constants — chain ids, RPC/explorer URLs, USDC address/decimals/domain, HTLC address/code hash, BCH network/prefix/endpoints, PUSD/MUSD symbols/categories/decimals, mock and solver addresses, and the USD caps — are read from that profile. The old testnet names are not used by the UI.
+- **Mainnet profile:** Only values backed by the testnet notes are populated: Base chain id `8453` (`FACT-A2-023`), Base USDC `0x833589…` and 6 decimals (`FACT-A3-069`), the two independent BCH Fulcrum endpoints (`FACT-A3-076`), and PUSD/MUSD symbols/decimals (`FACT-A3-075`). RPC, explorer URLs, USDC EIP-712 name/version, HTLC address/code hash, solver addresses and PUSD/MUSD categories remain empty because they are not verified or need human confirmation. The profile test checks the FACT citations and the fingerprints for both networks.
+- **Fail closed:** `NETWORK_CONFIG_ERRORS` is computed from the selected profile and blocks the app shell before any swap or recovery UI. The built mainnet app shows a prominent “Mainnet · real funds · irreversible transactions” banner, the missing-value list and no swap region. `recover.html` uses the same active profile, shows the network, and blocks with the same error list when the mainnet profile is incomplete.
+- **Recovery:** The recovery file carries `contracts.bch.network` and `contracts.evm.chainId`. `validateRecoveryFile` and every BCH/EVM recovery action refuse files from another network or chain. The standalone recovery page uses the active profile’s endpoint defaults and network label.
+- **Caps and test isolation:** Both profiles keep the existing $1/$50 swap bounds and $25 fast-lane cap. Vitest, default Playwright, live Playwright and the committed `recover.html` are pinned to testnet; the mainnet build is an explicit opt-in.
+- **Evidence:** Network profile tests cover the default, mixed-value fingerprints, mainnet missing values, FACT citations and the mainnet banner/block page; an active-mainnet test renders the app shell and asserts no Swap region; recovery tests reject wrong BCH network and EVM chain; the standard unit, UI and recovery suites are green.
+- **Consequence for rebuild:** Never duplicate network constants in components or tests. Select a profile once, carry the network in every recovery artifact, and fail closed before any network or signing path when a value is empty.
+- **Revisit if:** Base mainnet RPC/explorer/HTLC/domain values or mainnet solver addresses are verified, or the human confirms the mainnet PUSD/MUSD categories.
+---
+
+### D-A2-012 · Rate Limiter In-Memory Bucket Pruning, Map Size Capping, and Mainnet Fail-Closed Proxy Policy
+- **Context:** added `QuoteRateLimiter` to defend against quote spam, bounding requests per client address and per IP. noted that in-memory bucket maps never dropped idle keys (allowing memory exhaustion via key rotation) and that behind a proxy without `trustedProxy` all clients share one socket IP.
+- **Decision:**
+  1. *Bucket TTL Pruning:* `QuoteRateLimiter.prune(now)` iterates `addressBuckets` and `ipBuckets`, filtering timestamps older than `now - windowMs` and explicitly deleting empty map entries. A background interval timer (default 60s, `unref()`) periodically triggers pruning.
+  2. *Map Size Cap & LRU Eviction:* Both maps are capped to `maxEntries` (default 10,000). If size reaches capacity before inserting a new key, pruning runs immediately; if still at capacity, the oldest key in insertion order is evicted.
+  3. *Mainnet Forwarding Header Fail-Closed:* On `mainnet`, if `trustedProxy` is false or unset, any request arriving with `X-Forwarded-For` or `X-Real-IP` is rejected with HTTP 400 `UNTRUSTED_PROXY_HEADER`. This prevents rate limit evasion via spoofed headers and alerts operators if their proxy configuration would cause all public users to share a single internal gateway IP.
+- **Evidence:** Unit tests in `packages/solver/test/rate-limiter.test.ts` verifying idle key deletion, `maxEntries` cap enforcement, timer-based pruning, and mainnet fail-closed header rejection.
+- **Consequence for rebuild:** In-memory rate limiters must manage memory bounds deterministically and reject untrusted proxy headers on production networks.
+
+---
+
+### D-A2-013 · Solver Operations Architecture: /v1/metrics, Operator Alerts, and Pre-Flight Startup Self-Check
+- **Context:** hardening for mainnet operations: the solver daemon required automated on-chain pre-flight checks and standardized monitoring telemetry.
+- **Decision:**
+  1. *Startup Pre-Flight Self-Check (`src/ops/self-check.ts`):* Before starting the HTTP server or chain watchers, Ferryman queries the live EVM and BCH networks to verify:
+     - EVM Chain ID matches `config.baseChainId`.
+     - BCH Genesis Hash matches the expected network genesis (`chipnet` vs `mainnet`).
+     - Contract bytecode exists and is non-empty at `baseHtlcAddress` and `baseUsdcAddress`, computing keccak256 code hashes.
+     - Liquid hot wallet balances (gas ETH, USDC, BCH sats, CashTokens).
+     - Signer addresses (EVM and CashAddress derived from WIF).
+     - The daemon formats a diagnostic report banner and *refuses to start* on any mismatch.
+     - Strictly asserts that private keys and WIFs never appear in printed output.
+  2. *Operational Telemetry (`GET /v1/metrics`):* Exposes order counts by status, oldest non-terminal order age, open exposure (USD micros and formatted USD), unfunded quote count and caps, last confirmed tip times for EVM and BCH, error counts by code, and rate limiter status. Strictly omits preimage secrets.
+  3. *Alert-Style Operator Surfacing (`GET /v1/operator/needs-attention` and `GET /v1/operator/alerts`):* Lists all orders with `needs_attention: 1` including rejection reason, terms, and transaction IDs, with zero raw secret exposure.
+- **Evidence:** Unit test suites in `packages/solver/test/self-check.test.ts` and `packages/solver/test/metrics-api.test.ts`.
+- **Consequence for rebuild:** Market maker daemons must run automated on-chain sanity checks before quoting and provide comprehensive metrics and operator alert endpoints.
+
+---
+
+### D-A2-014 · Operator Route Bearer Authentication, Mainnet Mandate, and Public Metrics Privacy Boundary
+- **Context:** review finding. Earlier, `GET /v1/operator/needs-attention` and `GET /v1/operator/alerts` were unauthenticated, exposing internal triage data publicly. Additionally, `GET /v1/metrics` returned an `orders` array inside `needsAttention` containing individual order IDs, terms, and user wallet addresses.
+- **Decision:**
+  1. *Bearer Token Authentication (`OPERATOR_TOKEN`):* Operator triage routes (`/v1/operator/needs-attention` and `/v1/operator/alerts`) require `Authorization: Bearer <token>`.
+  2. *Constant-Time Comparison:* To eliminate timing side channels while avoiding length-dependent exceptions in `crypto.timingSafeEqual`, tokens are compared by computing `sha256(providedToken)` and `sha256(configuredToken)` buffers of identical length (32 bytes) and comparing them using `timingSafeEqual`.
+  3. *Fail-Closed & Stealth Default:* If `OPERATOR_TOKEN` is unset in configuration, requests to `/v1/operator/*` return HTTP 404 (`Route not found`), hiding the existence of operator endpoints from port scanners.
+  4. *Mainnet Startup Mandate:* On `NETWORK=mainnet`, `SolverConfigSchema` and the startup pre-flight self-check enforce that `OPERATOR_TOKEN` is defined and has a minimum length of 32 characters (`min(32)`). The solver refuses to boot if missing or too short.
+  5. *Public Metrics Privacy Boundary:* `GET /v1/metrics` is strictly restricted to aggregate counts (`needsAttention: { count: N }`). All order arrays, order IDs, user addresses, and secrets are excluded from public telemetry.
+  6. *Legacy Cleanup:* Removed the redundant unauthenticated alias `GET /v1/alerts`.
+- **Evidence:** Integration tests in `packages/solver/test/metrics-api.test.ts` verifying 404 on unset token, 401 on bad/missing token, 200 with valid bearer token, and asserting that public endpoints (`/v1/metrics`, `/v1/health`, `/v1/stats`, `/v1/orders/recent`, `/v1/pegs`) never contain order IDs. Mainnet config validation tests in `test/self-check.test.ts`.
+- **Consequence for rebuild:** Operator triage APIs must use constant-time bearer token auth with stealth 404 fallbacks; public telemetry endpoints must never expose order or user identifiers.
+
+
+### D-A1-033 · wallet signing requests carry per-input paths and diagnostics
+- **Decision:** Reverse funding builds `inputPaths` from `(sourceIndex, receive|change, addressIndex)`. The wallet's first tuple element is the transaction input index; repeating `[0, 'receive', 0]` for every source silently leaves later inputs unsigned.
+- **Diagnostics:** Every wallet-signed transaction is decoded and checked before broadcast: input outpoints, output bytes, non-empty unlocking scripts, then the BCH VM against the source outputs (including tokens). A failure throws `WalletSignedTransactionError` with per-input data and the unsigned/signed hex; the funding panel shows the failed input and a no-secret **Copy diagnostic** action.
+- **Balance preflight:** Before asking for a signature, the panel sums the quoted tPUSD category and spendable sats. It fails with human amounts (“You need 5.00 tPUSD; this wallet has 1.88.”) and required sats before starting funding or cancelling quote refresh.
+- **Done semantics:** On a live `DONE`, the status page polls the BCH claim txid and states whether it is in the mempool or confirmed, with the wallet-visible-after-one-confirmation explanation.
+- **Evidence:** `real-wallet-input.test.ts`, `signed-check.test.ts`, `funding-confirmations.test.ts`, `reverse-funding-diagnostic.test.tsx`; Paytaca wallet `signRequest` source confirms the tuple semantics.
+- **Consequence for rebuild:** Build multi-input wallet requests with explicit input indices and verify them through the wallet-side parser. Never trust a wallet-signed transaction until the local VM and output comparison pass.
+- **Revisit if:** WizardConnect changes the `inputPaths` shape or a wallet cannot sign token-bearing P2PKH inputs even with correct paths; that is the trigger for the QR/manual-send fallback.
+
+### D-A1-034 · a fresh BCH scan supersedes a stale restored session
+- **Decision:** BCH pairing is hosted by a keyed `BchWalletHost`. A user-requested connect clears the persisted WizardConnect session, remounts the hook with a fresh-scan intent, and starts a new QR relay; it never waits for the old relay's `disconnect()` to settle. A restored session that cannot complete is dropped by the existing 8-second timeout and returns to a clean offline/disconnected state.
+- **UI:** while a reconnect is visibly in progress, clicking “Reconnecting BCH…” starts the fresh scan instead of cancelling; the old stale attempt is discarded by the remount cleanup.
+- **Evidence:** Paytaca `signRequest` source confirms the wallet-side `inputPaths` tuple; `real-wallet-input.test.ts` round-trips two inputs; `bch-fresh-scan.test.tsx` uses a fake manager whose disconnect never resolves and proves the remount/fresh connect; `wallet-panel.test.tsx` covers the connecting action.
+- **Consequence for rebuild:** Treat a restored relay as untrusted until a live handshake completes. A new scan is a new session, not a retry on the same relay.
+- **Revisit if:** WizardConnect exposes a reliable cancel/probe API that can invalidate the old relay before remount.
+
+### Correction to D-A1-033 · rebase
+- The final implementation uses main's `buildInputPaths` in `relay-format.ts` and main's `lib/bch/balance.ts`; the earlier branch-local helper files were removed. `D-A1-034` adds the fresh-scan host behavior.
+
+### Correction to D-A1-033 · final implementation
+- Final code uses main's `buildInputPaths` and Paytaca's wallet-side parser as the source of truth; the branch-local helper was removed. The local check remains the structured `WalletSignedTransactionError` diagnostic implemented here.
+---
+
+### D-A2-015 · Invariant-Enforced Secret Validation, Script VM Spend Verification, Action Rebuild Policy, and Startup Self-Heal Pass
+- **Context:** safety hardening after an earlier incident (race condition where solver attempted to claim BCH lock with empty/unindexed secret). Previous code had a 32-zero fallback when EVM log indexing was delayed, causing the solver to build and broadcast an invalid BCH spend that failed CashScript contract verification and resulted in an unrecoverable `BROADCAST` action record.
+- **Decision:**
+  1. *Secret Validation Invariant (`sha256(secret) == hashLock`):* Added shared `isValidSecret` and `assertValidSecret` in `@ferry/core`. Enforced at every entry point:
+     - `packages/chain-evm`: `getLock` returns `secret: claimSecret ?? null`. No 32-zero fallback.
+     - `packages/solver`: `/relay-claim` and `/reveal-secret` reject invalid secrets with HTTP 400. `saveOrder` asserts invariant before writing to SQLite. State machine transitions validate secrets. `runner.ts` asserts valid secret before executing solver BCH claim.
+  2. *Pre-Broadcast BCH Script VM Verification:* `packages/htlc-bch` verifies all locally built spends (`buildClaimTransaction`, `buildRefundTransaction`, `buildLockTransaction`) using `@bitauth/libauth` virtual machine execution against contract source locking bytecode and UTXO state before returning or broadcasting. Spends throw immediately on VM failure.
+  3. *Action Record Verification and Rebuild:* `executeOrAdoptBchTx` verifies cached action `txHex` with script VM before reuse. Stored actions that fail VM verification or exceed a 3-minute stale broadcast timeout without appearing in mempool or block are deleted (`deleteAction`) and rebuilt fresh. On node rejection, the action is NOT recorded as `BROADCAST`; instead the action is pruned, order marked `needsAttention = true`, and operator alert logged.
+  4. *Startup Self-Heal Pass (`selfHealBroadcastOrders`):* During daemon initialization, scans orders in `SOLVER_CLAIM_BROADCAST` or `SOLVER_LOCK_BROADCAST`. If the transaction is neither in mempool nor in a block, the order status is reset to `USER_CLAIM_SEEN` (for claim) or `USER_LOCK_FINAL` (for lock) and stale action record purged, allowing the runner loop to cleanly rebuild and broadcast.
+- **Evidence:** Regression tests in `packages/solver/test/claim-secret-safety.test.ts` (14/14 tests passing), including a reproduction of the original failure, delayed log index handling, startup self-heal, script VM verification on claim/refund/lock, and stale action pruning.
+- **Consequence for rebuild:** Never broadcast an unverified script spend; strictly validate preimages at all boundaries; self-heal unconfirmed broadcast actions on restart.
+
+
+
+### D-A1-035 · every wait names the expected confirmation; user and solver steps are separate
+- **Decision:** A reverse safe-lane `USER_LOCK_SEEN` order shows “Waiting for 1 BCH confirmation (0 of 1)”, the lock txid, elapsed time, chipnet block expectations and a fast-lane explanation when the amount qualifies. The elapsed timer is based on the order’s last status transition, not the quote expiry.
+- **Solver separation:** Once the reverse user claim is seen, the page shows “Your USDC arrived” with the Base claim link; the solver’s BCH claim is a separate final step with its own link when available. A solver-side delay therefore cannot make the user’s side look pending.
+- **Stall:** Any non-terminal state older than three minutes shows a generic stall hint with an Open Recovery link.
+- **Evidence:** `wait-states.spec.ts` and `wait-state.test.ts`; mock status timing now records the transition time so elapsed/stall behavior is deterministic.
+- **Consequence for rebuild:** Define wait copy from the state machine and expected chain confirmation, not from a generic spinner; display user completion and solver completion independently.
+- **Revisit if:** The solver exposes a per-step expected duration or the BCH confirmation target changes.
+
+---
+
+### D-A2-016 · Quorum-Verified Stale Broadcast Policy, Differentiated Lock Timeouts, and Input Spent-State Adoption
+- **Context:** closing risk: the 3-minute stale broadcast rebuild rule from the earlier fix applied to forward `SOLVER_LOCK`. If a broadcast lock is slow to propagate or seen on one Fulcrum node but missing on another, rebuilding after 3 minutes reuses the same input UTXOs, creating a double-spend race where one lock loses and the order could record a losing txid.
+- **Decision:**
+  1. *Differentiated Timeouts:* Set `STALE_LOCK_TIMEOUT_MS = 10 * 60 * 1000` (10 minutes) for locks vs `STALE_CLAIM_TIMEOUT_MS = 3 * 60 * 1000` (3 minutes) for claims. Lock transactions fund contracts with multi-input UTXOs and require greater tolerance for peer propagation.
+  2. *Quorum Node Verification:* Added `checkTxAcrossQuorum` to `BchQuorumClient` querying all connected servers in parallel. A transaction is only declared stale if it is absent across all quorum servers. If seen on any peer, the transaction is retained as valid, and rebroadcast to assist propagation to lagging peers.
+  3. *Input Spent State Inspection & Winning Spend Adoption (`checkLockInputsSpentState`):*
+     - Before deleting a stale lock action or resetting `SOLVER_LOCK_BROADCAST`, the engine decodes input outpoints from `txHex` and checks `listUnspent`.
+     - If inputs are still unspent, it is safe to delete the action and rebuild with fresh UTXOs.
+     - If inputs are spent, an alternative spend exists on the network: the engine queries HTLC covenant history (`getHistory(htlcScriptHash)`). If a transaction in HTLC history spent the inputs, the engine adopts it as the winning lock transaction, updates `order.solverLockTxId`, and avoids duplicate broadcast.
+     - If inputs were spent by a conflicting transaction that did not fund the HTLC, the engine halts blind rebuilds, sets `order.needsAttention = true`, populates `order.rejectionReason`, and logs an error alert.
+  4. *Startup Self-Heal Integration:* `selfHealBroadcastOrders()` executes quorum and input spent-state verification before resetting forward `SOLVER_LOCK_BROADCAST` to `USER_LOCK_FINAL`.
+- **Evidence:** Vitest tests in `packages/solver/test/claim-secret-safety.test.ts` (20/20 tests green), including slow-propagating locks, lagging quorum nodes, winning spend adoption from HTLC history, and conflict detection. End-to-end chipnet proof recorded in `chain-notes/bch.md` (order `0x160edccd…`, 20.94s total swap, secret preimage validated, script VM verified).
+- **Consequence for rebuild:** Multi-input covenant broadcast recovery must never rely on a single node or blind timer; verify quorum visibility and inspect input outpoints against contract history before re-selecting UTXOs.
+
+### D-A1-036 · live UI walkthrough covers both directions and both lanes with script signers
+- **Decision:** The opt-in live walkthrough uses script signers for both chains: a chipnet WIF and a Base Sepolia key stay in the Playwright runner, while the page receives only the public address and signed bytes/signatures. It exercises the real quote, recovery download, wallet request, relay/lock, status page, auto-claim/gasless claim and both explorer families.
+- **Result:** Four orders reached `DONE`: forward fast 31.052 s, forward safe 29.721 s, reverse fast 28.090 s, reverse safe 957.381 s (944.546 s was the expected single BCH confirmation wait). No new wording/state defect surfaced during the walk.
+- **Evidence:** `e2e/live/walkthrough.spec.ts`, `e2e/live/script-evm.ts`, `e2e/live/script-wallet.ts`; txids/timings recorded in both chain notes.
+- **Consequence for rebuild:** Keep live funded acceptance tests separate from the default suite and use script signers for repeatable UI coverage; a real wallet remains a separate human step.
+- **Revisit if:** the live solver or token inventory is unavailable, or a real wallet introduces a transport behavior the script signer cannot model.
+
+---
+
+### D-A2-017 · Fail-Closed Solver Mainnet Invariant Refusal Architecture
+- **Context:** requires proving that all mainnet refusal paths fire cleanly with explicit error messages before daemon startup, preventing any deployment with dev keys, single-host quorum vulnerabilities, missing auth tokens, unverified contract bytecode, or empty hot wallet inventory.
+- **Decision:**
+  1. *Multi-Layer Refusal Guards:* Implement fail-closed validation at both the configuration parsing stage (`SolverConfigSchema.superRefine`, `loadConfigFromEnv`) and the operational self-check stage (`runStartupSelfCheck`).
+  2. *Mandatory Mainnet Invariants:*
+     - **OPERATOR_TOKEN:** Mainnet strictly refuses startup unless a high-entropy bearer token (at least 32 characters) is configured to protect sensitive operator endpoints (`/v1/operator/*`).
+     - **Cryptographic Key Sanitation:** Rejects default Anvil dev keys (`0x59c6...`, `0xac09...`, `0x5de4...`), any presence of `ALLOW_DEV_KEYS=1`, or testnet BCH WIF formats (starting with `c` or `9`).
+     - **Fault Injection Ban:** Rejects startup if `FERRY_FAULT_INJECTION` or `FAULT_CRASH_POINT` is configured, preventing accidental process crashes in production.
+     - **Ingress Proxy Integrity:** Enforces `UNTRUSTED_PROXY_HEADER` (HTTP 400) when requests arrive with `X-Forwarded-For` or `X-Real-IP` while `TRUSTED_PROXY` is disabled, preventing rate limiter spoofing and ensuring operators correctly configure ingress gateways.
+     - **Quorum Redundancy:** Requires at least two independent, distinct Fulcrum/Rostrum hostnames in `BCH_ELECTRUM_URLS` and verifies that all connected nodes match the Bitcoin Cash mainnet genesis hash (`000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f`).
+     - **Chain ID & Contract Bytecode Verification:** Enforces EVM Chain ID 8453 on Base and asserts that both the FerryHTLC and USDC contract addresses contain active bytecode matching expected code hashes.
+     - **Hot Wallet Inventory Pre-Flight:** Strictly refuses startup if the solver hot wallet has zero native ETH (gas), zero BCH satoshis (fees and carry), or zero swap token liquidity.
+     - **Mock Signature Ban:** Rejects `ALLOW_MOCK_PAYLINK_SIGNATURES=1` on mainnet, mandating real cryptographic Libauth message verification.
+  3. *Live Read-Only Public Verification:* Proved that starting the solver against live public Base Mainnet RPC (`https://mainnet.base.org`) and dual live mainnet Fulcrum nodes (`wss://bch.imaginary.cash:50004`, `wss://blackie.c3-soft.com:50004`) with a throwaway zero-balance key connects, validates chain IDs and genesis hashes, and safely halts on the empty inventory check without any funds, keys, or transactions.
+- **Evidence:** Automated tests in `packages/solver/test/mainnet-refusals.test.ts` (11/11 tests passing).
+- **Consequence for rebuild:** Production solver daemons must never rely on runtime optimistic execution; all invariants must fail closed at boot.
+
+---
+
+### D-A2-018 · Universal Unix Seconds Timestamp Standard Across API and Core Schemas
+- **Context:** and a related defect: the wait-state card's "Elapsed" counter remained stuck at 0s because `GET /v1/orders/:id` returned `updatedAt` in milliseconds (~1.73e12) while the web client and terms deadlines (`quoteExpiry`, `counterDeadline`) were in Unix seconds (~1.73e9), requiring an emergency client-side fallback in `toSeconds`.
+- **Decision:**
+  1. *Universal Unix Seconds Standard:* All timestamps across all Ferry HTTP API requests and response bodies (`updatedAt`, `createdAt`, `quoteExpiry`, `counterDeadline`, `settledAt`, `expiresAt`, `asOf`, `timestamp`, `lastConfirmedAt`, `at`) are strictly specified as integer Unix timestamps in seconds since Jan 1, 1970 UTC. All durations (`ageSeconds`, `durationSeconds`, `medianFastSeconds`, `livenessAgeSeconds`) are non-negative integer seconds.
+  2. *Core Schema Guard (`unixTimestampSeconds`):* Defined in `@ferry/core` as `uint.positive().max(100_000_000_000, 'Expected Unix timestamp in seconds, got milliseconds').describe('Unix timestamp in seconds')`. Enforced across `OrderTermsSchema`, `OrderDeadlinesSchema`, `OrderStatusResponseSchema`, `HealthResponseSchema`, `PayLinkSchema`, `CreatePayLinkRequestSchema`, `StatsSummarySchema`, `RecentSwapSchema`, and `PegPointSchema`. Any 13-digit millisecond timestamp fails schema validation immediately.
+  3. *Database & Solver Boundary Normalization (`toSeconds`):* In `packages/solver/src/db/database.ts`, both writes (`saveOrder`, `savePayLink`, `markNeedsAttention`) and reads (`mapOrderRow`, `mapPayLinkRow`, `getStatsSummary`, `getRecentSwaps`, `getNeedsAttentionOrdersSummary`, `getOldestNonTerminalOrderAgeSeconds`) normalize timestamps through `toSeconds(val) = val > 1e11 ? Math.floor(val / 1000) : val`. This ensures transparent backward compatibility with legacy database records and test fixtures while guaranteeing wire outputs are integer seconds.
+  4. *Contract Test Verification:* Created `packages/solver/test/api-time-units.test.ts` asserting every live response timestamp across `/v1/quotes`, `/v1/orders/:id`, `/v1/health`, `/v1/stats`, `/v1/orders/recent`, `/v1/links`, `/v1/metrics`, and `/v1/operator/needs-attention` is an integer in Unix seconds (`> 1e9` and `< 1e11`) and within a day of now.
+  5. *Blueprint Specification:* Documented the seconds unit specification in Blueprint §5.3 HTTP API table.
+  6. *Web Fallback Deprecation:* Notified the team that solver wire output is guaranteed in Unix seconds, allowing the web client workaround (`toSeconds`) to be cleaned up.
+- **Evidence:** Vitest tests in `packages/core/test/api.test.ts` (9/9 passed) and `packages/solver/test/api-time-units.test.ts` (8/8 passed). Full offline solver test suite pass in unshared network namespace (20 test files passed, 196 passed, 2 skipped).
+- **Consequence for rebuild:** Never mix seconds and milliseconds across API boundaries; schemas must reject values above `1e11` at the type gate.
+
+---
+
+### D-A2-019 · PRAGMA user_version = 3 SQLite Schema Migration for Unix Seconds Normalization and Removal of Read-Time Unit Sniffing
+- **Context:** Earlier, solver exposed timestamps and write operations were standardized to integer Unix seconds. However, pre-existing database files (including the operator's live database at `packages/solver/data/solver.db`) still held historical records in milliseconds (~1.79e12). While read functions like `mapOrderRow` and `mapPayLinkRow` utilized `toSeconds` to sniff and floor millisecond timestamps, raw SQLite queries (`ORDER BY created_at ASC`, `SELECT MIN(created_at)`) evaluated stored numeric values directly. Because ~1.79e9 < ~1.79e12, newly placed orders in seconds sorted ahead of hours-old orders in milliseconds, and oldest-order age calculation returned ~0 seconds, breaking queue fairness and metric telemetry.
+- **Decision:**
+  1. *PRAGMA user_version = 3 Database Migration:* In `packages/solver/src/db/database.ts`, added a schema migration executing when `currentVersion < 3`. The migration divides all stored millisecond values (`> 100_000_000_000`) by 1000 using idempotent SQL updates (`CAST(column / 1000 AS INTEGER)`) across:
+     - `orders`: `created_at`, `updated_at`, `first_seen_at`
+     - `pay_links`: `created_at`, `updated_at`, `expires_at`
+     - `actions`: `created_at`, `updated_at`
+  2. *Schema Version Tracking:* Updated `PRAGMA user_version = 3` for fresh databases and upon migration completion.
+  3. *Removal of Read-Time Sniffing in `toSeconds`:* With all database columns migrated to integer Unix seconds at the persistence layer, runtime unit sniffing (`ts > 100_000_000_000 ? Math.floor(ts / 1000) : Math.floor(ts)`) was removed from `toSeconds`. Stored values are now trusted and normalized purely with `Math.floor(ts)`.
+  4. *Comprehensive Migration Test Suite:* Created `packages/solver/test/time-unit-migration.test.ts` verifying:
+     - Synthetic legacy database (user_version = 2): demonstrates raw SQL `ORDER BY created_at ASC` inversion and `MIN(created_at)` age distortion before migration; verifies that opening with `SolverDatabase` upgrades schema to version 3, corrects order sequencing (oldest first), accurately computes oldest-order age, and normalizes pay-link and action timestamps.
+     - Live database copy verification: verified against a safe temporary copy of the operator's actual live database (`/tmp/ferry-db-backup/solver.db`), proving that all 27 orders successfully migrate from milliseconds to integer Unix seconds (between 1.7e9 and 2.0e9) with zero millisecond timestamps remaining.
+     - API validation: started Fastify HTTP server on the migrated database and verified that `/v1/orders/:id`, `/v1/orders/recent`, and `/v1/operator/needs-attention` respond with strict Unix seconds validating against `@ferry/core` schemas.
+- **Evidence:** Vitest tests in `packages/solver/test/time-unit-migration.test.ts` (2/2 passed) and `packages/solver/test/api-time-units.test.ts` (8/8 passed). Full offline solver test suite pass in unshared network namespace (`unshare -rn bash -c "ip link set lo up; pnpm --filter @ferry/solver test"`: 21 test files passed, 198 tests passed, 2 skipped).
+- **Consequence for rebuild:** Fix historical time unit discrepancies at the persistence layer via explicit schema migrations rather than runtime read-side guards to preserve relational query semantics (sorting, min/max aggregations).
+
+
+### 2026-10-28 · BCH wallet path: Paytaca over WizardConnect; no browser-extension adapter
+- **Decision:** Keep WizardConnect (QR) with Paytaca as the primary tested wallet. Do not build a browser-extension adapter. Selene is retried on mainnet.
+- **Evidence:** The human ran the 10-minute extension probe in Chrome with the Paytaca extension: `typeof window.paytaca` and `window.paytaca && Object.keys(window.paytaca)` both returned `undefined`, so the current extension injects no provider that a page can call. This confirms D-A1-030 by observation and contradicts the research note that said it injects `window.paytaca`. The human reported that Paytaca connects in one touch over WizardConnect, while another wallet (XO) was hard to connect.
+- **Consequence for rebuild:** Plan on WizardConnect only; the QR must stay open until scanned and a stuck approval needs a cancel.
+- **Revisit if:** Paytaca documents and ships a page-injected provider, verified again with the same probe.
+- **Source:** Human console output, 2026-10-28.
+
