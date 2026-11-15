@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
+  DEFAULT_HOLD_FEE_BPS_PER_DAY,
+  MAX_SEND_LINK_WINDOW_SECONDS,
   checkLimits,
   convertCeil,
   convertFloor,
+  effectiveSendLinkSpreadBps,
   effectiveSpreadBps,
+  holdFeeBps,
   pegGuard,
   quoteExactIn,
   quoteExactOut,
@@ -105,6 +109,29 @@ describe('pricing and decimal conversion', () => {
     ).toThrow(RangeError);
     expect(() => pegGuard([1_000_000n], -1n)).toThrow(RangeError);
     expect(() => effectiveSpreadBps(50, 10, 'EVM_TO_BCH', -1)).toThrow(
+      RangeError,
+    );
+  });
+});
+
+describe('send-link hold fee pricing', () => {
+  it('computes holdFeeBps = HOLD_FEE_BPS_PER_DAY * days for 24h, 3d, 7d', () => {
+    expect(DEFAULT_HOLD_FEE_BPS_PER_DAY).toBe(10);
+    expect(holdFeeBps(0)).toBe(0);
+    expect(holdFeeBps(86_400)).toBe(10);
+    expect(holdFeeBps(3 * 86_400)).toBe(30);
+    expect(holdFeeBps(MAX_SEND_LINK_WINDOW_SECONDS)).toBe(70);
+    expect(holdFeeBps(86_401)).toBe(20); // partial day rounds up
+    expect(effectiveSendLinkSpreadBps(30, 3 * 86_400)).toBe(60);
+  });
+
+  it('rejects negative, oversized, or invalid hold fee inputs', () => {
+    expect(() => holdFeeBps(-1)).toThrow(RangeError);
+    expect(() => holdFeeBps(MAX_SEND_LINK_WINDOW_SECONDS + 1)).toThrow(
+      RangeError,
+    );
+    expect(() => holdFeeBps(86_400, -1)).toThrow(RangeError);
+    expect(() => effectiveSendLinkSpreadBps(10_000, 86_400)).toThrow(
       RangeError,
     );
   });
