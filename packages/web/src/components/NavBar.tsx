@@ -3,17 +3,30 @@ import { Link } from 'react-router';
 import { BANNER_CONFIG, NETWORK_LABEL, IS_MAINNET } from '../lib/config';
 import { GlassNav } from './GlassNav';
 import { GlassPopover } from './GlassPopover';
-import { GlassModal } from './GlassModal';
+import { WalletSheet } from './WalletSheet';
+import { useWallets } from '../lib/wallet/context';
 import { InfoIcon, WalletIcon } from './icons';
 
 export function NavBar() {
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [walletSheetOpen, setWalletSheetOpen] = useState(false);
+  const { evm, bch } = useWallets();
+
+  const isConnected = evm.status === 'connected' || bch.status === 'connected';
+
+  let buttonLabel = 'Connect';
+  if (evm.status === 'connected' && bch.status === 'connected') {
+    buttonLabel = 'Wallets connected';
+  } else if (evm.status === 'connected') {
+    buttonLabel = `${evm.address?.slice(0, 6)}…`;
+  } else if (bch.status === 'connected') {
+    buttonLabel = `${bch.address?.address.slice(0, 10)}…`;
+  }
 
   return (
     <GlassNav>
       <nav
         aria-label="Main"
-        className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6"
+        className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6"
       >
         <div className="flex items-center gap-8">
           <Link
@@ -56,7 +69,7 @@ export function NavBar() {
             trigger={
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-2.5 py-1.5 text-[11px] text-text-muted transition-colors hover:text-text sm:px-3"
+                className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-2.5 py-1 text-[11px] text-text-muted transition-colors hover:text-text sm:px-3"
               >
                 <span
                   className="size-1.5 rounded-full bg-ok shadow-[0_0_10px_var(--ok)]"
@@ -79,40 +92,25 @@ export function NavBar() {
 
           <button
             type="button"
-            onClick={() => setWalletModalOpen(true)}
+            onClick={() => setWalletSheetOpen(true)}
             aria-haspopup="dialog"
-            aria-expanded={walletModalOpen}
-            className="inline-flex h-9 items-center gap-1.5 rounded-pill bg-text px-3.5 text-xs font-semibold text-bg transition-colors hover:bg-lime hover:text-lime-ink sm:px-4 cursor-pointer"
+            aria-expanded={walletSheetOpen}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-pill px-3.5 text-xs font-semibold transition-colors cursor-pointer sm:px-4 ${
+              isConnected
+                ? 'bg-surface-3 text-text border border-hairline hover:border-lime/40'
+                : 'bg-text text-bg hover:bg-lime hover:text-lime-ink'
+            }`}
           >
-            <WalletIcon className="size-3.5" />
-            Connect
+            <WalletIcon className="size-3.5 text-lime" />
+            <span>{buttonLabel}</span>
           </button>
         </div>
       </nav>
 
-      <GlassModal
-        open={walletModalOpen}
-        onOpenChange={setWalletModalOpen}
-        title="Connect Wallet"
-        description="Select a wallet to begin swapping stablecoins."
-      >
-        <div className="space-y-3">
-          <div className="rounded-xl border border-hairline bg-surface-2 p-3 text-xs text-text-muted">
-            <p className="font-medium text-text">Mock Interface Active</p>
-            <p className="mt-1 text-text-dim">
-              Wallet connections and live settlement arrive in the subsequent
-              phase. No funds move in this mock shell.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setWalletModalOpen(false)}
-            className="w-full rounded-pill bg-surface-3 py-2 text-xs font-medium text-text hover:bg-surface-2 transition-colors cursor-pointer"
-          >
-            Dismiss
-          </button>
-        </div>
-      </GlassModal>
+      <WalletSheet
+        open={walletSheetOpen}
+        onClose={() => setWalletSheetOpen(false)}
+      />
     </GlassNav>
   );
 }

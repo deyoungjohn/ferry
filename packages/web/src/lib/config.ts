@@ -54,3 +54,6 @@ export function getBannerWarnings(
 
 export const SPREAD_BPS = 40; // 0.40%
 export const FIXED_FEE_USD = 0.05; // $0.05 fixed network cost offset
+
+export const REOWN_PROJECT_ID =
+  (import.meta.env?.VITE_REOWN_PROJECT_ID as string | undefined) ?? '';

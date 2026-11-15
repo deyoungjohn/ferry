@@ -7,6 +7,9 @@ import type {
   PaginatedRecentSwaps,
   RecentSwap,
   PegPrice,
+  SwapOrder,
+  OrderStatus,
+  OrderTransaction,
 } from './types';
 
 // 25 realistic mock swaps for testing pagination (10 per page => 3 pages)
@@ -58,12 +61,12 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
     timestampSeconds: 1731661000,
     fromToken: 'USDT',
     fromAmount: 15.0,
-    fromChain: 'TRON Nile',
+    fromChain: 'BNB Smart Chain Testnet',
     toToken: 'tMUSD',
     toAmount: 14.89,
     toChain: 'Bitcoin Cash Chipnet',
     durationSeconds: 44,
-    sourceTxHash: 'mocktrona1b2c3d4e5f604',
+    sourceTxHash: '0xmocka1b2c3d4e5f604',
     targetTxHash: 'mockbcha1b2c3d4e5f604',
     isMock: true,
   },
@@ -86,12 +89,12 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
     timestampSeconds: 1731653000,
     fromToken: 'USDC',
     fromAmount: 5.0,
-    fromChain: 'Solana Devnet',
+    fromChain: 'Base Sepolia',
     toToken: 'tPUSD',
     toAmount: 4.93,
     toChain: 'Bitcoin Cash Chipnet',
     durationSeconds: 40,
-    sourceTxHash: 'mocksolana1b2c3d4e5f606',
+    sourceTxHash: '0xmocka1b2c3d4e5f606',
     targetTxHash: 'mockbcha1b2c3d4e5f606',
     isMock: true,
   },
@@ -187,10 +190,10 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
     fromChain: 'Bitcoin Cash Chipnet',
     toToken: 'USDC',
     toAmount: 39.79,
-    toChain: 'Solana Devnet',
+    toChain: 'Arbitrum Sepolia',
     durationSeconds: 37,
     sourceTxHash: 'mockbcha1b2c3d4e5f613',
-    targetTxHash: 'mocksolana1b2c3d4e5f613',
+    targetTxHash: '0xmocka1b2c3d4e5f613',
     isMock: true,
   },
   {
@@ -211,13 +214,13 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
     id: 'mock-15',
     timestampSeconds: 1731617000,
     fromToken: 'USDT',
-    fromChain: 'TRON Nile',
+    fromChain: 'BNB Smart Chain Testnet',
     fromAmount: 19.0,
     toToken: 'tMUSD',
     toAmount: 18.87,
     toChain: 'Bitcoin Cash Chipnet',
     durationSeconds: 46,
-    sourceTxHash: 'mocktrona1b2c3d4e5f615',
+    sourceTxHash: '0xmocka1b2c3d4e5f615',
     targetTxHash: 'mockbcha1b2c3d4e5f615',
     isMock: true,
   },
@@ -285,10 +288,10 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
     fromChain: 'Bitcoin Cash Chipnet',
     toToken: 'USDC',
     toAmount: 12.9,
-    toChain: 'Solana Devnet',
+    toChain: 'Base Sepolia',
     durationSeconds: 40,
     sourceTxHash: 'mockbcha1b2c3d4e5f620',
-    targetTxHash: 'mocksolana1b2c3d4e5f620',
+    targetTxHash: '0xmocka1b2c3d4e5f620',
     isMock: true,
   },
   {
@@ -310,12 +313,12 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
     timestampSeconds: 1731589000,
     fromToken: 'USDT',
     fromAmount: 21.0,
-    fromChain: 'TRON Nile',
+    fromChain: 'BNB Smart Chain Testnet',
     toToken: 'tMUSD',
     toAmount: 20.86,
     toChain: 'Bitcoin Cash Chipnet',
     durationSeconds: 45,
-    sourceTxHash: 'mocktrona1b2c3d4e5f622',
+    sourceTxHash: '0xmocka1b2c3d4e5f622',
     targetTxHash: 'mockbcha1b2c3d4e5f622',
     isMock: true,
   },
@@ -453,5 +456,154 @@ export class MockSolverClient implements SolverClient {
         sparkline: [0.999, 1.0, 1.001, 1.0, 0.999, 1.0, 1.0],
       },
     ];
+  }
+
+  async getOrder(orderId: string): Promise<SwapOrder | null> {
+    if (orderId === 'not-found') {
+      return null;
+    }
+
+    const mode: 'swap' | 'pay-link' | 'send-link' = orderId.includes('paylink')
+      ? 'pay-link'
+      : orderId.includes('sendlink')
+        ? 'send-link'
+        : 'swap';
+
+    let status: OrderStatus = 'DONE';
+    let waitDescription = 'Swap completed successfully.';
+    let currentConfirmations = 1;
+    const requiredConfirmations = 1;
+    let estimatedSecondsRemaining = 0;
+    let elapsedSeconds = 42;
+
+    const transactions: OrderTransaction[] = [];
+
+    if (orderId.includes('quoted')) {
+      status = 'QUOTED';
+      waitDescription = 'Waiting for user lock transaction signature...';
+      currentConfirmations = 0;
+      estimatedSecondsRemaining = 60;
+      elapsedSeconds = 5;
+    } else if (orderId.includes('lock-seen')) {
+      status = 'USER_LOCK_SEEN';
+      waitDescription =
+        'Waiting for block confirmation (0 of 1 confirmations)...';
+      currentConfirmations = 0;
+      estimatedSecondsRemaining = 45;
+      elapsedSeconds = 15;
+      transactions.push({
+        id: 'tx-user-lock',
+        label: 'User Lock Transaction',
+        actor: 'user',
+        chainName: 'Base Sepolia',
+        hash: '0xmocklock1111111111111111111111111111111111111111111111111111111111',
+        isMock: true,
+      });
+    } else if (orderId.includes('solver-lock')) {
+      status = 'USER_LOCK_FINAL';
+      waitDescription = 'Waiting for solver counter-lock transaction...';
+      currentConfirmations = 1;
+      estimatedSecondsRemaining = 30;
+      elapsedSeconds = 30;
+      transactions.push({
+        id: 'tx-user-lock',
+        label: 'User Lock Transaction',
+        actor: 'user',
+        chainName: 'Base Sepolia',
+        hash: '0xmocklock1111111111111111111111111111111111111111111111111111111111',
+        isMock: true,
+      });
+    } else if (orderId.includes('claim')) {
+      status = 'SOLVER_LOCK_FINAL';
+      waitDescription = 'Waiting for user claim submission...';
+      currentConfirmations = 1;
+      estimatedSecondsRemaining = 15;
+      elapsedSeconds = 45;
+      transactions.push(
+        {
+          id: 'tx-user-lock',
+          label: 'User Lock Transaction',
+          actor: 'user',
+          chainName: 'Base Sepolia',
+          hash: '0xmocklock1111111111111111111111111111111111111111111111111111111111',
+          isMock: true,
+        },
+        {
+          id: 'tx-solver-lock',
+          label: 'Solver Counter-Lock',
+          actor: 'solver',
+          chainName: 'Bitcoin Cash Chipnet',
+          hash: 'mockbchasolverlock22222222222222222222222222222222222222222222222222',
+          isMock: true,
+        },
+      );
+    } else if (orderId.includes('refunded')) {
+      status = 'REFUNDED';
+      waitDescription = 'Order refunded to sender after expiry deadline.';
+      currentConfirmations = 1;
+      estimatedSecondsRemaining = 0;
+      elapsedSeconds = 120;
+      transactions.push({
+        id: 'tx-user-refund',
+        label: 'User Refund Transaction',
+        actor: 'user',
+        chainName: 'Base Sepolia',
+        hash: '0xmockrefund33333333333333333333333333333333333333333333333333333333',
+        isMock: true,
+      });
+    } else {
+      // Completed (DONE)
+      transactions.push(
+        {
+          id: 'tx-user-lock',
+          label: 'User Lock Transaction',
+          actor: 'user',
+          chainName: 'Base Sepolia',
+          hash: '0xmocklock1111111111111111111111111111111111111111111111111111111111',
+          isMock: true,
+        },
+        {
+          id: 'tx-solver-lock',
+          label: 'Solver Counter-Lock',
+          actor: 'solver',
+          chainName: 'Bitcoin Cash Chipnet',
+          hash: 'mockbchasolverlock22222222222222222222222222222222222222222222222222',
+          isMock: true,
+        },
+        {
+          id: 'tx-user-claim',
+          label: 'User Claim Transaction',
+          actor: 'user',
+          chainName: 'Bitcoin Cash Chipnet',
+          hash: 'mockbchclaim33333333333333333333333333333333333333333333333333333333',
+          isMock: true,
+        },
+      );
+    }
+
+    return {
+      id: orderId,
+      mode,
+      status,
+      lane: 'fast',
+      fromToken: 'USDC',
+      toToken: 'tPUSD',
+      fromAmount: 20.0,
+      toAmount: 19.87,
+      fromChain: 'Base Sepolia',
+      toChain: 'Bitcoin Cash Chipnet',
+      userAddress: '0x71C95911E9A5D330f4D621842EC243EE1343292e',
+      recipientAddress: 'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk',
+      solverAddress: '0x3333333333333333333333333333333333333333',
+      currentConfirmations,
+      requiredConfirmations,
+      estimatedSecondsRemaining,
+      elapsedSeconds,
+      waitDescription,
+      transactions,
+      createdAtSeconds: 1731670000,
+      updatedAtSeconds: 1731670042,
+      isMock: true,
+    };
   }
 }
