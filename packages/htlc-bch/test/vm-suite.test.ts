@@ -7,12 +7,14 @@ import {
   sha256,
   type Transaction,
 } from '@bitauth/libauth';
+import { TransactionBuilder } from 'cashscript';
 import {
   buildClaimTransaction,
   buildRefundTransaction,
   deriveHtlcAddresses,
   displayHexToInternalHex,
   encodeHtlcParameters,
+  getHtlcContract,
   verifyBchTransactionWithVm,
   verifyHtlcAddressMatch,
 } from '../src/index.js';
@@ -115,14 +117,72 @@ describe('FerryHTLC Libauth VM suite (BCH-U-01 .. BCH-U-13)', () => {
     ).toBe(false);
 
     // Building a claim against the wrong-order contract funded with display category fails in VM
+    const wrongContract = getHtlcContract(paramsDisplayWrong);
+    const wrongUtxo = {
+      txid: BASE_UTXO.txid,
+      vout: BASE_UTXO.vout,
+      satoshis: BigInt(BASE_UTXO.satoshis),
+      lockingBytecode: wrongContract.lockingBytecode,
+      token: {
+        category: DISPLAY_CATEGORY,
+        amount: paramsDisplayWrong.tokenAmount,
+      },
+    };
+    const wrongBuilder = new TransactionBuilder({
+      provider: wrongContract.provider,
+    });
+    wrongBuilder.addInput(wrongUtxo, wrongContract.unlock.claim(SECRET));
+    wrongBuilder.addOutput({
+      to: RECIPIENT_BYTECODE,
+      amount: BigInt(BASE_UTXO.satoshis) - 500n,
+      token: {
+        category: DISPLAY_CATEGORY,
+        amount: paramsDisplayWrong.tokenAmount,
+      },
+    });
+    const wrongTxHex = wrongBuilder.build();
+    const wrongVmResult = verifyBchTransactionWithVm({
+      transaction: wrongTxHex,
+      sourceOutputs: [
+        {
+          lockingBytecode: hexToBin(wrongContract.lockingBytecode),
+          valueSatoshis: BigInt(BASE_UTXO.satoshis),
+          token: {
+            category: hexToBin(DISPLAY_CATEGORY),
+            amount: paramsDisplayWrong.tokenAmount,
+          },
+        },
+      ],
+    });
+    expect(wrongVmResult).not.toBe(true);
+  });
+
+  it('rejects a UTXO whose lockingBytecode belongs to a different covenant', () => {
+    const params = baseParams();
+    const otherParams = {
+      ...params,
+      refundHeight: params.refundHeight + 10,
+    };
+    const otherContract = getHtlcContract(otherParams);
+    const mismatchedUtxo = {
+      ...BASE_UTXO,
+      lockingBytecode: otherContract.lockingBytecode,
+    };
+
     expect(() =>
       buildClaimTransaction({
-        params: paramsDisplayWrong,
-        utxo: BASE_UTXO,
+        params,
+        utxo: mismatchedUtxo,
         secret: SECRET,
-        overrideDisplayCategory: DISPLAY_CATEGORY,
       }),
-    ).toThrow(/VM verification failed/);
+    ).toThrow(/lockingBytecode/i);
+
+    expect(() =>
+      buildRefundTransaction({
+        params,
+        utxo: mismatchedUtxo,
+      }),
+    ).toThrow(/lockingBytecode/i);
   });
 
   it('BCH-U-01: claim with correct 32-byte secret and output succeeds', () => {
