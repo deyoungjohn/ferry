@@ -1,0 +1,682 @@
+import {
+  CHAIN_IDS,
+  NETWORKS,
+  isVerified,
+  parseChainConfigData,
+  type ChainConfigData,
+  type FactEvidence,
+  type NetworkFacts,
+  type RpcFact,
+  type TokenFacts,
+} from './schema.js';
+import { loadChainData, routeIneligibilityReasons } from './config.js';
+
+interface JsonRpcError {
+  code: number;
+  message: string;
+}
+
+interface JsonRpcResponse<T> {
+  result?: T;
+  error?: JsonRpcError;
+}
+
+interface BlockHeader {
+  number: string;
+  timestamp: string;
+}
+
+interface Difference {
+  network: string;
+  fact: string;
+  expected: string;
+  actual: string;
+}
+
+interface Summary {
+  checked: number;
+  skipped: number;
+  differences: Difference[];
+}
+
+class RpcError extends Error {
+  readonly code: number | null;
+
+  constructor(message: string, code: number | null = null) {
+    super(message);
+    this.name = 'RpcError';
+    this.code = code;
+  }
+}
+
+function hexToNumber(value: string): number {
+  return Number(BigInt(value));
+}
+
+function hexToBigInt(value: string): bigint {
+  return BigInt(value);
+}
+
+function normalizeHex(value: string): string {
+  return value.toLowerCase();
+}
+
+function padAddress(address: string): string {
+  return address.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+}
+
+function decodeAbiString(value: string): string {
+  const body = value.startsWith('0x') ? value.slice(2) : value;
+  if (body.length < 128) return '';
+  const offsetBytes = Number(BigInt(`0x${body.slice(0, 64)}`));
+  const lengthBytes = Number(
+    BigInt(`0x${body.slice(offsetBytes * 2, offsetBytes * 2 + 64)}`),
+  );
+  if (lengthBytes <= 0 || lengthBytes > 4096) return '';
+  const dataStart = offsetBytes * 2 + 64;
+  return Buffer.from(
+    body.slice(dataStart, dataStart + lengthBytes * 2),
+    'hex',
+  ).toString('utf8');
+}
+
+async function rpc<T>(
+  url: string,
+  method: string,
+  params: unknown[],
+  timeoutMs = 30_000,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      signal: controller.signal,
+    });
+    const payload = (await response.json()) as JsonRpcResponse<T>;
+    if (payload.error) {
+      throw new RpcError(payload.error.message, payload.error.code);
+    }
+    if (payload.result === undefined) {
+      throw new RpcError('RPC returned no result');
+    }
+    return payload.result;
+  } catch (error) {
+    if (error instanceof RpcError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new RpcError(message);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isTransient(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /rate limit|request limit|too many|timeout|aborted|fetch failed|temporarily|try again/i.test(
+    message,
+  );
+}
+
+async function withRetry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts || !isTransient(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+function record(
+  summary: Summary,
+  network: string,
+  fact: string,
+  expected: string,
+  actual: string,
+): void {
+  summary.differences.push({ network, fact, expected, actual });
+}
+
+function check(
+  value: boolean,
+  summary: Summary,
+  network: string,
+  fact: string,
+  expected: string,
+  actual: string,
+): void {
+  summary.checked += 1;
+  if (!value) record(summary, network, fact, expected, actual);
+}
+
+function skip(summary: Summary): void {
+  summary.skipped += 1;
+}
+
+async function checkRpc(
+  network: string,
+  rpcFact: RpcFact,
+  chain: NetworkFacts,
+  summary: Summary,
+): Promise<void> {
+  try {
+    const chainIdHex = await withRetry(() =>
+      rpc<string>(rpcFact.url, 'eth_chainId', []),
+    );
+    const expectedChainId = `0x${chain.chainId.toString(16)}`;
+    check(
+      normalizeHex(chainIdHex) === expectedChainId,
+      summary,
+      network,
+      `rpc ${rpcFact.url} chainId`,
+      expectedChainId,
+      normalizeHex(chainIdHex),
+    );
+  } catch (error) {
+    if (isTransient(error)) {
+      skip(summary);
+    } else {
+      record(
+        summary,
+        network,
+        `rpc ${rpcFact.url} chainId`,
+        `0x${chain.chainId.toString(16)}`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  const maxRange = rpcFact.getLogsMaxRange;
+  if (maxRange === null || maxRange === 0) {
+    skip(summary);
+  } else {
+    try {
+      const latest = hexToNumber(
+        await withRetry(() => rpc<string>(rpcFact.url, 'eth_blockNumber', [])),
+      );
+      const fromBlock = `0x${(latest - maxRange + 1).toString(16)}`;
+      const toBlock = `0x${latest.toString(16)}`;
+      await withRetry(
+        () =>
+          rpc<unknown[]>(
+            rpcFact.url,
+            'eth_getLogs',
+            [
+              {
+                fromBlock,
+                toBlock,
+                address: '0x0000000000000000000000000000000000000001',
+              },
+            ],
+            45_000,
+          ),
+        2,
+      );
+      check(
+        true,
+        summary,
+        network,
+        `rpc ${rpcFact.url} eth_getLogs range`,
+        `${maxRange} blocks accepted`,
+        'accepted',
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isTransient(error)) {
+        skip(summary);
+      } else {
+        record(
+          summary,
+          network,
+          `rpc ${rpcFact.url} eth_getLogs range`,
+          `${maxRange} blocks accepted`,
+          message,
+        );
+      }
+    }
+  }
+
+  try {
+    const safe = await withRetry(() =>
+      rpc<BlockHeader | null>(rpcFact.url, 'eth_getBlockByNumber', [
+        'safe',
+        false,
+      ]),
+    );
+    check(
+      (safe !== null) === chain.finality.safeTagWorks,
+      summary,
+      network,
+      `rpc ${rpcFact.url} safe tag`,
+      String(chain.finality.safeTagWorks),
+      String(safe !== null),
+    );
+  } catch (error) {
+    if (isTransient(error)) {
+      skip(summary);
+    } else {
+      record(
+        summary,
+        network,
+        `rpc ${rpcFact.url} safe tag`,
+        String(chain.finality.safeTagWorks),
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  try {
+    const finalized = await withRetry(() =>
+      rpc<BlockHeader | null>(rpcFact.url, 'eth_getBlockByNumber', [
+        'finalized',
+        false,
+      ]),
+    );
+    check(
+      (finalized !== null) === chain.finality.finalizedTagWorks,
+      summary,
+      network,
+      `rpc ${rpcFact.url} finalized tag`,
+      String(chain.finality.finalizedTagWorks),
+      String(finalized !== null),
+    );
+  } catch (error) {
+    if (isTransient(error)) {
+      skip(summary);
+    } else {
+      record(
+        summary,
+        network,
+        `rpc ${rpcFact.url} finalized tag`,
+        String(chain.finality.finalizedTagWorks),
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+}
+
+async function checkChainFacts(
+  network: string,
+  chain: NetworkFacts,
+  rpcFact: RpcFact,
+  summary: Summary,
+): Promise<void> {
+  try {
+    const latest = await withRetry(() =>
+      rpc<BlockHeader | null>(rpcFact.url, 'eth_getBlockByNumber', [
+        'latest',
+        false,
+      ]),
+    );
+    if (!latest || hexToNumber(latest.number) < 51) {
+      skip(summary);
+    } else {
+      const older = await withRetry(() =>
+        rpc<BlockHeader | null>(rpcFact.url, 'eth_getBlockByNumber', [
+          `0x${(hexToNumber(latest.number) - 50).toString(16)}`,
+          false,
+        ]),
+      );
+      if (!older) {
+        skip(summary);
+      } else {
+        const measured =
+          (hexToNumber(latest.timestamp) - hexToNumber(older.timestamp)) / 50;
+        const expected = chain.finality.blockTimeSeconds;
+        const tolerance = Math.max(0.2, expected * 0.5);
+        check(
+          Math.abs(measured - expected) <= tolerance,
+          summary,
+          network,
+          'typical block time',
+          `${expected}s (+/-${tolerance.toFixed(2)}s)`,
+          `${measured.toFixed(2)}s`,
+        );
+      }
+    }
+  } catch (error) {
+    if (isTransient(error)) {
+      skip(summary);
+    } else {
+      record(
+        summary,
+        network,
+        'typical block time',
+        `${chain.finality.blockTimeSeconds}s`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  try {
+    const code = await withRetry(() =>
+      rpc<string>(rpcFact.url, 'eth_getCode', [
+        chain.create2Factory.address,
+        'latest',
+      ]),
+    );
+    check(
+      (code !== '0x') === chain.create2Factory.hasCode,
+      summary,
+      network,
+      'CREATE2 factory code',
+      String(chain.create2Factory.hasCode),
+      String(code !== '0x'),
+    );
+  } catch (error) {
+    if (isTransient(error)) {
+      skip(summary);
+    } else {
+      record(
+        summary,
+        network,
+        'CREATE2 factory code',
+        String(chain.create2Factory.hasCode),
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+}
+
+async function ethCall(
+  url: string,
+  token: string,
+  data: string,
+): Promise<string> {
+  return rpc<string>(url, 'eth_call', [{ to: token, data }, 'latest']);
+}
+
+async function checkToken(
+  network: string,
+  token: TokenFacts,
+  url: string,
+  summary: Summary,
+): Promise<void> {
+  if (token.address === null) {
+    skip(summary);
+    return;
+  }
+  const address = token.address;
+
+  try {
+    const code = await withRetry(() =>
+      rpc<string>(url, 'eth_getCode', [address, 'latest']),
+    );
+    check(
+      code !== '0x',
+      summary,
+      network,
+      `${token.symbol} code exists`,
+      'true',
+      String(code !== '0x'),
+    );
+  } catch (error) {
+    if (isTransient(error)) {
+      skip(summary);
+    } else {
+      record(
+        summary,
+        network,
+        `${token.symbol} code exists`,
+        'true',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  if (token.decimals !== null) {
+    try {
+      const raw = await withRetry(() => ethCall(url, address, '0x313ce567'));
+      const actual = Number(hexToBigInt(raw));
+      check(
+        actual === token.decimals,
+        summary,
+        network,
+        `${token.symbol} decimals`,
+        String(token.decimals),
+        String(actual),
+      );
+    } catch (error) {
+      if (isTransient(error)) {
+        skip(summary);
+      } else {
+        record(
+          summary,
+          network,
+          `${token.symbol} decimals`,
+          String(token.decimals),
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+  }
+
+  if (token.permit) {
+    if (token.name !== null) {
+      try {
+        const raw = await withRetry(() => ethCall(url, address, '0x06fdde03'));
+        const actual = decodeAbiString(raw);
+        check(
+          actual === token.name,
+          summary,
+          network,
+          `${token.symbol} name`,
+          token.name,
+          actual,
+        );
+      } catch (error) {
+        if (isTransient(error)) {
+          skip(summary);
+        } else {
+          record(
+            summary,
+            network,
+            `${token.symbol} name`,
+            token.name,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+    }
+
+    if (token.version !== null) {
+      try {
+        const raw = await withRetry(() => ethCall(url, address, '0x54fd4d50'));
+        const actual = decodeAbiString(raw);
+        check(
+          actual === token.version,
+          summary,
+          network,
+          `${token.symbol} EIP-712 version`,
+          token.version,
+          actual,
+        );
+      } catch (error) {
+        if (isTransient(error) || token.domainSeparator !== null) {
+          skip(summary);
+        } else {
+          record(
+            summary,
+            network,
+            `${token.symbol} EIP-712 version`,
+            token.version,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+    }
+
+    if (token.domainSeparator !== null) {
+      try {
+        const raw = await withRetry(() => ethCall(url, address, '0x3644e515'));
+        check(
+          normalizeHex(raw) === normalizeHex(token.domainSeparator),
+          summary,
+          network,
+          `${token.symbol} DOMAIN_SEPARATOR`,
+          token.domainSeparator,
+          raw,
+        );
+      } catch (error) {
+        if (isTransient(error)) {
+          skip(summary);
+        } else {
+          record(
+            summary,
+            network,
+            `${token.symbol} DOMAIN_SEPARATOR`,
+            token.domainSeparator,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+    }
+
+    try {
+      const raw = await withRetry(() =>
+        ethCall(
+          url,
+          address,
+          `0x7ecebe00${padAddress('0x0000000000000000000000000000000000000000')}`,
+        ),
+      );
+      check(
+        raw.length > 2,
+        summary,
+        network,
+        `${token.symbol} nonces`,
+        'returns a value',
+        'empty',
+      );
+    } catch (error) {
+      if (isTransient(error)) {
+        skip(summary);
+      } else {
+        record(
+          summary,
+          network,
+          `${token.symbol} nonces`,
+          'returns a value',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+  } else {
+    try {
+      await ethCall(url, address, '0x3644e515');
+      record(
+        summary,
+        network,
+        `${token.symbol} permit absence`,
+        'DOMAIN_SEPARATOR reverts',
+        'returned a value',
+      );
+    } catch (error) {
+      if (isTransient(error)) {
+        skip(summary);
+      } else {
+        check(
+          true,
+          summary,
+          network,
+          `${token.symbol} permit absence`,
+          'DOMAIN_SEPARATOR reverts',
+          'reverts',
+        );
+      }
+    }
+  }
+}
+
+function evidenceLabel(evidence: FactEvidence): string {
+  return `${evidence.status} (${evidence.source})`;
+}
+
+async function main(): Promise<void> {
+  const data: ChainConfigData = parseChainConfigData(loadChainData());
+  const summary: Summary = { checked: 0, skipped: 0, differences: [] };
+
+  console.log('Chain facts verification');
+  console.log(`Baseline date: ${data.generatedAt}`);
+  console.log('Read-only JSON-RPC calls; no transaction is sent.');
+  console.log('');
+
+  for (const id of CHAIN_IDS) {
+    for (const network of NETWORKS) {
+      const chain = data.chains[id][network];
+      const label = `${id}/${network}`;
+      console.log(`- ${label}: chain ${chain.chainId}`);
+
+      for (const rpcFact of chain.rpcUrls) {
+        if (!isVerified(rpcFact.evidence)) {
+          console.log(
+            `  - rpc ${rpcFact.url}: ${evidenceLabel(rpcFact.evidence)}`,
+          );
+          continue;
+        }
+        await checkRpc(label, rpcFact, chain, summary);
+      }
+
+      const firstRpc = chain.rpcUrls.find((rpcFact) =>
+        isVerified(rpcFact.evidence),
+      );
+      if (!firstRpc) {
+        console.log('  - no verified RPC URL; chain facts not checked');
+        continue;
+      }
+
+      await checkChainFacts(label, chain, firstRpc, summary);
+
+      for (const token of chain.tokens) {
+        if (token.address === null) {
+          console.log(`  - ${token.symbol}: no address; skipped`);
+          skip(summary);
+          continue;
+        }
+        await checkToken(label, token, firstRpc.url, summary);
+      }
+    }
+  }
+
+  console.log('');
+  console.log(
+    `Checked ${summary.checked} facts, skipped ${summary.skipped}, differences ${summary.differences.length}.`,
+  );
+
+  console.log('');
+  console.log('Routes:');
+  for (const id of CHAIN_IDS) {
+    const mainnet = data.chains[id].mainnet;
+    for (const token of mainnet.tokens) {
+      const key = `${token.symbol.toLowerCase()}:${id}`;
+      const reasons = routeIneligibilityReasons(mainnet, token);
+      if (reasons.length === 0) {
+        console.log(`  ${key}: eligible`);
+      } else {
+        console.log(`  ${key}: disabled (${reasons.join('; ')})`);
+      }
+    }
+  }
+
+  if (summary.differences.length > 0) {
+    console.log('');
+    console.log('Differences:');
+    for (const difference of summary.differences) {
+      console.log(
+        `  ${difference.network} ${difference.fact}: expected ${difference.expected}, got ${difference.actual}`,
+      );
+    }
+    process.exitCode = 1;
+  }
+}
+
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});
