@@ -1,0 +1,1064 @@
+{
+  "version": 1,
+  "generatedAt": "2026-11-15",
+  "chains": {
+    "base": {
+      "name": "Base",
+      "mainnet": {
+        "chainId": 8453,
+        "rpcUrls": [
+          {
+            "url": "https://mainnet.base.org",
+            "getLogsMaxRange": 200,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x2105; eth_getLogs accepts 200 blocks and reports a 200-block limit for larger ranges",
+              "date": "2026-11-15",
+              "note": "The primary endpoint rate-limits bursts; use the second endpoint for wide log scans."
+            }
+          },
+          {
+            "url": "https://base-rpc.publicnode.com",
+            "getLogsMaxRange": 50000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x2105; eth_getLogs succeeds at 50,000 blocks and rejects 100,000",
+              "date": "2026-11-15"
+            }
+          }
+        ],
+        "explorerUrl": "https://basescan.org",
+        "nativeGas": "ETH",
+        "finality": {
+          "fastBlocks": 10,
+          "safeTag": "safe",
+          "blockTimeSeconds": 0.2,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://mainnet.base.org; safe=57937206, finalized=57933212, latest=57937461",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://mainnet.base.org = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [
+          {
+            "symbol": "USDC",
+            "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "decimals": 6,
+            "name": "USD Coin",
+            "version": "2",
+            "domainSeparator": "0x02fa7265e7c5d81118673727957699e4d68f74cd74b7db77da710fe8a2c7834f",
+            "permit": true,
+            "nonces": true,
+            "nativeOrBridged": "native",
+            "issuer": "Circle",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://developers.circle.com/stablecoins/usdc-contract-addresses; eth_getCode at 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 returns 1852 bytes",
+                "date": "2026-11-15"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 \"decimals()(uint8)\" via https://mainnet.base.org = 6",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "cast call name() = USD Coin, version() = 2, DOMAIN_SEPARATOR() = 0x02fa7265e7c5d81118673727957699e4d68f74cd74b7db77da710fe8a2c7834f",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) returns 0; permit(...) reverts with EIP2612: invalid signature",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Circle-issued native USDC with EIP-2612."
+          }
+        ]
+      },
+      "testnet": {
+        "chainId": 84532,
+        "rpcUrls": [
+          {
+            "url": "https://sepolia.base.org",
+            "getLogsMaxRange": 200,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x14a34; eth_getLogs reports a 200-block limit",
+              "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://base-sepolia-rpc.publicnode.com",
+            "getLogsMaxRange": 50000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x14a34; eth_getLogs succeeds at 50,000 blocks and rejects 100,000",
+              "date": "2026-11-15"
+            }
+          }
+        ],
+        "explorerUrl": "https://sepolia.basescan.org",
+        "nativeGas": "ETH",
+        "finality": {
+          "fastBlocks": 10,
+          "safeTag": "safe",
+          "blockTimeSeconds": 0.2,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://sepolia.base.org; safe=59279851, finalized=59274179, latest=59280550",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://sepolia.base.org = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [
+          {
+            "symbol": "USDC",
+            "address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+            "decimals": 6,
+            "name": "USDC",
+            "version": "2",
+            "domainSeparator": "0x71f17a3b2ff373b803d70a5a07c046c1a2bc8e89c09ef722fcb047abe94c9818",
+            "permit": true,
+            "nonces": true,
+            "nativeOrBridged": "native",
+            "issuer": "Circle",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://developers.circle.com/stablecoins/usdc-contract-addresses; eth_getCode at 0x036CbD53842c5426634e7929541eC2318f3dCF7e returns 1798 bytes",
+                "date": "2026-11-15"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0x036CbD53842c5426634e7929541eC2318f3dCF7e \"decimals()(uint8)\" via https://sepolia.base.org = 6",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "cast call name() = USDC, version() = 2, DOMAIN_SEPARATOR() = 0x71f17a3b2ff373b803d70a5a07c046c1a2bc8e89c09ef722fcb047abe94c9818",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) returns 0; domain separator is present",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Circle test USDC with EIP-2612."
+          }
+        ]
+      }
+    },
+    "ethereum": {
+      "name": "Ethereum",
+      "mainnet": {
+        "chainId": 1,
+        "rpcUrls": [
+          {
+            "url": "https://ethereum-rpc.publicnode.com",
+            "getLogsMaxRange": 10000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x1; eth_getLogs succeeds at 10,000 blocks and fails at 50,000 on the public tier",
+              "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://rpc.flashbots.net",
+            "getLogsMaxRange": 2000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x1; eth_getLogs succeeds at 1,000 blocks and reports a 2,000-block maximum",
+              "date": "2026-11-15"
+            }
+          }
+        ],
+        "explorerUrl": "https://etherscan.io",
+        "nativeGas": "ETH",
+        "finality": {
+          "fastBlocks": 3,
+          "safeTag": "finalized",
+          "blockTimeSeconds": 12,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://ethereum-rpc.publicnode.com; safe=26423043, finalized=26423011, latest=26423080",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://ethereum-rpc.publicnode.com = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [
+          {
+            "symbol": "USDC",
+            "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+            "decimals": 6,
+            "name": "USD Coin",
+            "version": "2",
+            "domainSeparator": "0x06c37168a7db5138defc7866392bb87a741f9b3d104deb5094588ce041cae335",
+            "permit": true,
+            "nonces": true,
+            "nativeOrBridged": "native",
+            "issuer": "Circle",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://developers.circle.com/stablecoins/usdc-contract-addresses; eth_getCode at 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 returns 2186 bytes",
+                "date": "2026-11-15"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 \"decimals()(uint8)\" via https://ethereum-rpc.publicnode.com = 6",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "cast call name() = USD Coin, version() = 2, DOMAIN_SEPARATOR() = 0x06c37168a7db5138defc7866392bb87a741f9b3d104deb5094588ce041cae335",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) returns 0; permit(...) reverts with EIP2612: invalid signature",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Circle-issued native USDC with EIP-2612."
+          },
+          {
+            "symbol": "USDT",
+            "address": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+            "decimals": 6,
+            "name": "Tether USD",
+            "version": null,
+            "domainSeparator": null,
+            "permit": false,
+            "nonces": false,
+            "nativeOrBridged": "native",
+            "issuer": "Tether",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://tether.to/en/supported-protocols/; eth_getCode at 0xdAC17F958D2ee523a2206206994597C13D831ec7 returns 11075 bytes",
+                "date": "2026-11-15"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0xdAC17F958D2ee523a2206206994597C13D831ec7 \"decimals()(uint8)\" via https://ethereum-rpc.publicnode.com = 6",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "version() and DOMAIN_SEPARATOR() revert; there is no EIP-2612 domain",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) and DOMAIN_SEPARATOR() revert; permit(...) reverts with empty data",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Tether's ERC-20 transfer and transferFrom return no value; SafeERC20 is required. No permit; approve plus lock."
+          }
+        ]
+      },
+      "testnet": {
+        "chainId": 11155111,
+        "rpcUrls": [
+          {
+            "url": "https://ethereum-sepolia-rpc.publicnode.com",
+            "getLogsMaxRange": 10000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0xaa36a7; eth_getLogs succeeds at 10,000 blocks and fails at 50,000",
+              "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://1rpc.io/sepolia",
+            "getLogsMaxRange": 50,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0xaa36a7; eth_getLogs reports a 50-block range limit",
+              "date": "2026-11-15"
+            }
+          }
+        ],
+        "explorerUrl": "https://sepolia.etherscan.io",
+        "nativeGas": "ETH",
+        "finality": {
+          "fastBlocks": 3,
+          "safeTag": "finalized",
+          "blockTimeSeconds": 12.5,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://ethereum-sepolia-rpc.publicnode.com; safe=12142819, finalized=12142788, latest=12142874",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://ethereum-sepolia-rpc.publicnode.com = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [
+          {
+            "symbol": "USDC",
+            "address": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+            "decimals": 6,
+            "name": "USDC",
+            "version": "2",
+            "domainSeparator": "0xb90e5057db141a932946e64d09ccb7ffc9b00bd79fec26f698d29af0c83320a6",
+            "permit": true,
+            "nonces": true,
+            "nativeOrBridged": "native",
+            "issuer": "Circle",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://developers.circle.com/stablecoins/usdc-contract-addresses; eth_getCode at 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238 returns 1798 bytes",
+                "date": "2026-11-15"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238 \"decimals()(uint8)\" via https://ethereum-sepolia-rpc.publicnode.com = 6",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "cast call name() = USDC, version() = 2, DOMAIN_SEPARATOR() = 0xb90e5057db141a932946e64d09ccb7ffc9b00bd79fec26f698d29af0c83320a6",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) returns 0; domain separator is present",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Circle test USDC with EIP-2612. No issuer-documented testnet USDT contract was found, so the USDT row is omitted."
+          }
+        ]
+      }
+    },
+    "arbitrum": {
+      "name": "Arbitrum One",
+      "mainnet": {
+        "chainId": 42161,
+        "rpcUrls": [
+          {
+            "url": "https://arb1.arbitrum.io/rpc",
+            "getLogsMaxRange": 100000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0xa4b1; eth_getLogs succeeds at 100,000 blocks",
+              "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://1rpc.io/arb",
+            "getLogsMaxRange": 50,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0xa4b1; eth_getLogs reports a 50-block range limit",
+              "date": "2026-11-15"
+            }
+          }
+        ],
+        "explorerUrl": "https://arbiscan.io",
+        "nativeGas": "ETH",
+        "finality": {
+          "fastBlocks": 10,
+          "safeTag": "safe",
+          "blockTimeSeconds": 0.25,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://arb1.arbitrum.io/rpc; safe=524565907, finalized=524564785, latest=524567787",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://arb1.arbitrum.io/rpc = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [
+          {
+            "symbol": "USDC",
+            "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "decimals": 6,
+            "name": "USD Coin",
+            "version": "2",
+            "domainSeparator": "0x08d11903f8419e68b1b8721bcbe2e9fc68569122a77ef18c216f10b3b5112c78",
+            "permit": true,
+            "nonces": true,
+            "nativeOrBridged": "native",
+            "issuer": "Circle",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://developers.circle.com/stablecoins/usdc-contract-addresses; eth_getCode at 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 returns 1852 bytes",
+                "date": "2026-11-15"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 \"decimals()(uint8)\" via https://arb1.arbitrum.io/rpc = 6",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "cast call name() = USD Coin, version() = 2, DOMAIN_SEPARATOR() = 0x08d11903f8419e68b1b8721bcbe2e9fc68569122a77ef18c216f10b3b5112c78",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) returns 0; permit(...) reverts with EIP2612: invalid signature",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Circle-issued native USDC with EIP-2612."
+          },
+          {
+            "symbol": "USDT",
+            "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+            "decimals": 6,
+            "name": "USD₮0",
+            "version": "1",
+            "domainSeparator": "0x566af68fb471b22d6421762f84aa7bd761c670a2e4d5c8a47d4085d5957b127c",
+            "permit": true,
+            "nonces": true,
+            "nativeOrBridged": "wrapped",
+            "issuer": "USDT0 (Everdawn Labs; 1:1 backed by Tether USDT)",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://docs.usdt0.to/technical-documentation/deployments; eth_getCode at 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9 returns 2141 bytes",
+                "date": "2026-11-15"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9 \"decimals()(uint8)\" via https://arb1.arbitrum.io/rpc = 6",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "DOMAIN_SEPARATOR() = 0x566af68fb471b22d6421762f84aa7bd761c670a2e4d5c8a47d4085d5957b127c, which equals the EIP-712 domain for name USD₮0, version 1, chainId 42161 and the token address; version() itself reverts",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) returns 0; permit(...) reverts with EIP2612: invalid signature",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Canonical USDT on Arbitrum One after the USDT0 upgrade; upgradeable proxy; Tether transitioned contract ownership to USDT0."
+          }
+        ]
+      },
+      "testnet": {
+        "chainId": 421614,
+        "rpcUrls": [
+          {
+            "url": "https://sepolia-rollup.arbitrum.io/rpc",
+            "getLogsMaxRange": 100000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x66eee; eth_getLogs succeeds at 100,000 blocks",
+              "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://arbitrum-sepolia-rpc.publicnode.com",
+            "getLogsMaxRange": 50000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x66eee; eth_getLogs succeeds at 50,000 blocks and rejects 100,000",
+              "date": "2026-11-15"
+            }
+          }
+        ],
+        "explorerUrl": "https://sepolia.arbiscan.io",
+        "nativeGas": "ETH",
+        "finality": {
+          "fastBlocks": 10,
+          "safeTag": "safe",
+          "blockTimeSeconds": 0.3,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://sepolia-rollup.arbitrum.io/rpc; safe=329577553, finalized=329575856, latest=329580129",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://sepolia-rollup.arbitrum.io/rpc = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [
+          {
+            "symbol": "USDC",
+            "address": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+            "decimals": 6,
+            "name": "USD Coin",
+            "version": "2",
+            "domainSeparator": "0x85944e1292d007732838d6eadfa67589b78ffcededbd4df60488d0af251308bb",
+            "permit": true,
+            "nonces": true,
+            "nativeOrBridged": "native",
+            "issuer": "Circle",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://developers.circle.com/stablecoins/usdc-contract-addresses; eth_getCode at 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d returns 1798 bytes",
+                "date": "2026-11-15"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d \"decimals()(uint8)\" via https://sepolia-rollup.arbitrum.io/rpc = 6",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "cast call name() = USD Coin, version() = 2, DOMAIN_SEPARATOR() = 0x85944e1292d007732838d6eadfa67589b78ffcededbd4df60488d0af251308bb",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) returns 0; domain separator is present",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Circle test USDC with EIP-2612. No issuer-documented testnet USDT contract was found, so the USDT row is omitted."
+          }
+        ]
+      }
+    },
+    "arc": {
+      "name": "Arc",
+      "mainnet": {
+        "chainId": 5042,
+        "rpcUrls": [
+          {
+            "url": "https://rpc.mainnet.arc.io",
+            "getLogsMaxRange": 10000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x13b2; eth_getLogs succeeds at 10,000 blocks and rejects 50,000",
+              "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://rpc.drpc.mainnet.arc.io",
+            "getLogsMaxRange": 0,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x13b2; the free tier rejects eth_getLogs at every probed range",
+              "date": "2026-11-15",
+              "note": "Read-only fallback only; it cannot serve event logs."
+            }
+          }
+        ],
+        "explorerUrl": "https://explorer.arc.io",
+        "nativeGas": "USDC",
+        "finality": {
+          "fastBlocks": 1,
+          "safeTag": "finalized",
+          "blockTimeSeconds": 0.5,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://rpc.mainnet.arc.io; safe=31434280, finalized=31434282, latest=31434282; deterministic sub-second finality",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://rpc.mainnet.arc.io = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [
+          {
+            "symbol": "USDC",
+            "address": "0x3600000000000000000000000000000000000000",
+            "decimals": 6,
+            "name": "USDC",
+            "version": "2",
+            "domainSeparator": "0x940506929bba468048a19b567f4f0d534714bc06604b5c3017e5d16785ccdf84",
+            "permit": true,
+            "nonces": true,
+            "nativeOrBridged": "native-gas",
+            "issuer": "Circle (Arc native USDC; ERC-20 interface)",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://docs.arc.io/arc/references/contract-addresses and https://developers.circle.com/stablecoins/usdc-contract-addresses; eth_getCode at 0x3600000000000000000000000000000000000000 returns 1798 bytes",
+                "date": "2026-11-15"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0x3600000000000000000000000000000000000000 \"decimals()(uint8)\" via https://rpc.mainnet.arc.io = 6",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "cast call name() = USDC, version() = 2, DOMAIN_SEPARATOR() = 0x940506929bba468048a19b567f4f0d534714bc06604b5c3017e5d16785ccdf84",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) returns 0; permit(...) reverts with EIP2612: invalid signature",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Native gas is USDC with 18 decimals; this ERC-20 interface uses 6 decimals. Gas is paid in USDC."
+          }
+        ]
+      },
+      "testnet": {
+        "chainId": 5042002,
+        "rpcUrls": [
+          {
+            "url": "https://rpc.testnet.arc.io",
+            "getLogsMaxRange": 10000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x4cef52; eth_getLogs succeeds at 10,000 blocks and rejects 50,000",
+              "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://rpc.drpc.testnet.arc.io",
+            "getLogsMaxRange": 0,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x4cef52; the free tier rejects eth_getLogs at every probed range",
+              "date": "2026-11-15",
+              "note": "Read-only fallback only; it cannot serve event logs."
+            }
+          }
+        ],
+        "explorerUrl": "https://explorer.testnet.arc.io",
+        "nativeGas": "USDC",
+        "finality": {
+          "fastBlocks": 1,
+          "safeTag": "finalized",
+          "blockTimeSeconds": 0.66,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://rpc.testnet.arc.io; safe=72477925, finalized=72477926, latest=72477928",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://rpc.testnet.arc.io = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [
+          {
+            "symbol": "USDC",
+            "address": "0x3600000000000000000000000000000000000000",
+            "decimals": 6,
+            "name": "USDC",
+            "version": "2",
+            "domainSeparator": "0x361191522483d32a83e70ae7183b4b9629442c13a78bc9921d6f707911c8c6b0",
+            "permit": true,
+            "nonces": true,
+            "nativeOrBridged": "native-gas",
+            "issuer": "Circle (Arc native USDC; ERC-20 interface)",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://docs.arc.io/arc/references/contract-addresses and https://developers.circle.com/stablecoins/usdc-contract-addresses; eth_getCode at 0x3600000000000000000000000000000000000000 returns 1798 bytes",
+                "date": "2026-11-15"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0x3600000000000000000000000000000000000000 \"decimals()(uint8)\" via https://rpc.testnet.arc.io = 6",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "cast call name() = USDC, version() = 2, DOMAIN_SEPARATOR() = 0x361191522483d32a83e70ae7183b4b9629442c13a78bc9921d6f707911c8c6b0",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) returns 0; domain separator is present",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Native gas is USDC with 18 decimals; this ERC-20 interface uses 6 decimals."
+          }
+        ]
+      }
+    },
+    "bnb": {
+      "name": "BNB Chain",
+      "mainnet": {
+        "chainId": 56,
+        "rpcUrls": [
+          {
+            "url": "https://bsc-rpc.publicnode.com",
+            "getLogsMaxRange": 50000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x38; eth_getLogs succeeds at 50,000 blocks and rejects 100,000",
+              "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://1rpc.io/bnb",
+            "getLogsMaxRange": 50,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x38; eth_getLogs reports a 50-block range limit",
+              "date": "2026-11-15",
+              "note": "The Binance data-seed endpoint rejects eth_getLogs entirely with -32005."
+            }
+          }
+        ],
+        "explorerUrl": "https://bscscan.com",
+        "nativeGas": "BNB",
+        "finality": {
+          "fastBlocks": 1,
+          "safeTag": "finalized",
+          "blockTimeSeconds": 0.45,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://bsc-rpc.publicnode.com; safe=133807237, finalized=133807239, latest=133807241",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://bsc-rpc.publicnode.com = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [
+          {
+            "symbol": "USDC",
+            "address": "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+            "decimals": 18,
+            "name": "USD Coin",
+            "version": null,
+            "domainSeparator": null,
+            "permit": false,
+            "nonces": false,
+            "nativeOrBridged": "wrapped",
+            "issuer": "Binance (Binance-Peg USD Coin)",
+            "verification": {
+              "address": {
+                "status": "reported",
+                "source": "The contract exists at 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d, but it is a Binance-Peg token; Circle's USDC contract list has no BNB Chain entry",
+                "date": "2026-11-15",
+                "note": "Bridged Binance-Peg USDC is not the canonical Circle USDC, so the route stays disabled."
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d \"decimals()(uint8)\" via https://bsc-rpc.publicnode.com = 18",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "version() and DOMAIN_SEPARATOR() revert; there is no EIP-2612 domain",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) and DOMAIN_SEPARATOR() revert",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Bridged Binance-Peg USDC with 18 decimals. Not Circle-issued; no permit; approve plus lock."
+          },
+          {
+            "symbol": "USDT",
+            "address": "0x55d398326f99059fF775485246999027B3197955",
+            "decimals": 18,
+            "name": "Tether USD",
+            "version": null,
+            "domainSeparator": null,
+            "permit": false,
+            "nonces": false,
+            "nativeOrBridged": "wrapped",
+            "issuer": "Binance (Binance-Peg BSC-USD)",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://www.binance.com/en/collateral-btokens lists the BEP20 wrapped token at 0x55d398326f99059fF775485246999027B3197955; BscScan has the verified contract; https://tether.to/en/supported-protocols/ lists only XAU₮ for BNB Smart Chain",
+                "date": "2026-11-15"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0x55d398326f99059fF775485246999027B3197955 \"decimals()(uint8)\" via https://bsc-rpc.publicnode.com = 18",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "version() and DOMAIN_SEPARATOR() revert; there is no EIP-2612 domain",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) and DOMAIN_SEPARATOR() revert; permit(...) reverts",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Binance-Peg BSC-USD, not Tether-issued. 18 decimals; no permit; approve plus lock. The route ships only with this disclosure."
+          }
+        ]
+      },
+      "testnet": {
+        "chainId": 97,
+        "rpcUrls": [
+          {
+            "url": "https://bsc-testnet-rpc.publicnode.com",
+            "getLogsMaxRange": 50000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x61; eth_getLogs succeeds at 50,000 blocks and rejects 100,000",
+              "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://data-seed-prebsc-1-s1.binance.org:8545",
+            "getLogsMaxRange": 0,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x61; eth_getLogs is rejected with -32005 at every probed range",
+              "date": "2026-11-15",
+              "note": "Read-only fallback only; it cannot serve event logs."
+            }
+          }
+        ],
+        "explorerUrl": "https://testnet.bscscan.com",
+        "nativeGas": "BNB",
+        "finality": {
+          "fastBlocks": 1,
+          "safeTag": "finalized",
+          "blockTimeSeconds": 0.44,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://bsc-testnet-rpc.publicnode.com; safe=142944812, finalized=142944813, latest=142944815",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://bsc-testnet-rpc.publicnode.com = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [
+          {
+            "symbol": "USDT",
+            "address": "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd",
+            "decimals": 18,
+            "name": "USDT Token",
+            "version": null,
+            "domainSeparator": null,
+            "permit": false,
+            "nonces": false,
+            "nativeOrBridged": "wrapped",
+            "issuer": "Binance testnet peg (not issuer-documented)",
+            "verification": {
+              "address": {
+                "status": "reported",
+                "source": "On-chain contract at 0x337610d27c682E347C9cD60BD4b3b107C9d34dDd; no issuer documentation was found for this testnet token",
+                "date": "2026-11-15",
+                "note": "Testnet-only evidence. It does not enable a mainnet route."
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0x337610d27c682E347C9cD60BD4b3b107C9d34dDd \"decimals()(uint8)\" via https://bsc-testnet-rpc.publicnode.com = 18",
+                "date": "2026-11-15"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "version() and DOMAIN_SEPARATOR() revert; there is no EIP-2612 domain",
+                "date": "2026-11-15"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) and DOMAIN_SEPARATOR() revert",
+                "date": "2026-11-15"
+              }
+            },
+            "notes": "Testnet-only token used for decimal-path experiments; not a mainnet route."
+          }
+        ]
+      }
+    },
+    "robinhood": {
+      "name": "Robinhood Chain",
+      "mainnet": {
+        "chainId": 4663,
+        "rpcUrls": [
+          {
+            "url": "https://rpc.mainnet.chain.robinhood.com",
+            "getLogsMaxRange": 100000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x1237; eth_getLogs succeeds at 100,000 blocks",
+              "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://robinhood.drpc.org",
+            "getLogsMaxRange": 0,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x1237; the free tier rejects eth_getLogs at every probed range",
+              "date": "2026-11-15",
+              "note": "Read-only fallback only; it cannot serve event logs."
+            }
+          }
+        ],
+        "explorerUrl": "https://robinhoodchain.blockscout.com",
+        "nativeGas": "ETH",
+        "finality": {
+          "fastBlocks": 1,
+          "safeTag": "finalized",
+          "blockTimeSeconds": 0.1,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://rpc.mainnet.chain.robinhood.com; safe=115251190, finalized=115246875, latest=115256555",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://rpc.mainnet.chain.robinhood.com = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [],
+        "notes": "https://docs.robinhood.com/chain/contracts/ lists WETH and USDG only. Circle's USDC list and Tether's supported protocols do not list Robinhood Chain. No USDC or USDT route."
+      },
+      "testnet": {
+        "chainId": 46630,
+        "rpcUrls": [
+          {
+            "url": "https://rpc.testnet.chain.robinhood.com",
+            "getLogsMaxRange": 100000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0xb626; eth_getLogs succeeds at 100,000 blocks",
+              "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://robinhood-testnet.drpc.org",
+            "getLogsMaxRange": 0,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0xb626; the free tier rejects eth_getLogs at every probed range",
+              "date": "2026-11-15",
+              "note": "Read-only fallback only; it cannot serve event logs."
+            }
+          }
+        ],
+        "explorerUrl": "https://explorer.testnet.chain.robinhood.com",
+        "nativeGas": "ETH",
+        "finality": {
+          "fastBlocks": 1,
+          "safeTag": "finalized",
+          "blockTimeSeconds": 0.25,
+          "safeTagWorks": true,
+          "finalizedTagWorks": true,
+          "evidence": {
+            "status": "verified",
+            "source": "eth_getBlockByNumber safe/finalized via https://rpc.testnet.chain.robinhood.com; safe=153799509, finalized=153799509, latest=153805933",
+            "date": "2026-11-15"
+          }
+        },
+        "create2Factory": {
+          "address": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+          "hasCode": true,
+          "evidence": {
+            "status": "verified",
+            "source": "cast codesize 0x4e59b44847b379578588920cA78FbF26c0B4956C via https://rpc.testnet.chain.robinhood.com = 69",
+            "date": "2026-11-15"
+          }
+        },
+        "tokens": [],
+        "notes": "The official token-contract page documents WETH and USDG only. No USDC or USDT route."
+      }
+    }
+  }
+}
