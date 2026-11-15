@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Refuse to push when the cheap repo-wide checks fail. Never bypass with --no-verify.
+set -u
+root="$(git rev-parse --show-toplevel)"
+cd "$root" || exit 1
+for check in format:check typecheck lint check:private; do
+  if ! pnpm --silent "$check" >/tmp/ferry-prepush-"$check".log 2>&1; then
+    echo "pre-push: 'pnpm $check' failed; see /tmp/ferry-prepush-$check.log" >&2
+    tail -n 20 /tmp/ferry-prepush-"$check".log >&2
+    exit 1
+  fi
+done
+exit 0
