@@ -161,3 +161,41 @@ export function effectiveSpreadBps(
     (direction === 'EVM_TO_BCH' ? 1 : -1);
   return Math.max(0, Math.min(9999, baseSpreadBps + skew));
 }
+
+export const DEFAULT_HOLD_FEE_BPS_PER_DAY = 10;
+export const MAX_SEND_LINK_WINDOW_SECONDS = 7 * 86_400;
+
+/**
+ * Compute send-link hold fee in basis points: HOLD_FEE_BPS_PER_DAY * ceil(windowDays).
+ * Window is capped at 7 days (604,800 seconds).
+ */
+export function holdFeeBps(
+  windowSeconds: number,
+  holdFeeBpsPerDay = DEFAULT_HOLD_FEE_BPS_PER_DAY,
+): number {
+  if (
+    !Number.isFinite(windowSeconds) ||
+    windowSeconds < 0 ||
+    windowSeconds > MAX_SEND_LINK_WINDOW_SECONDS
+  ) {
+    throw new RangeError(
+      `Invalid send-link windowSeconds: must be 0..${MAX_SEND_LINK_WINDOW_SECONDS}`,
+    );
+  }
+  if (!Number.isInteger(holdFeeBpsPerDay) || holdFeeBpsPerDay < 0) {
+    throw new RangeError('Invalid holdFeeBpsPerDay');
+  }
+  if (windowSeconds === 0) return 0;
+  const days = Math.ceil(windowSeconds / 86_400);
+  return days * holdFeeBpsPerDay;
+}
+
+export function effectiveSendLinkSpreadBps(
+  baseSpreadBps: number,
+  windowSeconds: number,
+  holdFeeBpsPerDay = DEFAULT_HOLD_FEE_BPS_PER_DAY,
+): number {
+  assertValidSpread(baseSpreadBps);
+  const feeBps = holdFeeBps(windowSeconds, holdFeeBpsPerDay);
+  return Math.min(9999, baseSpreadBps + feeBps);
+}

@@ -10,15 +10,13 @@ import {
   decodeTransaction,
   hexToBin,
   sha256,
+  type Output,
+  type Transaction,
 } from '@bitauth/libauth';
 import { assertValidSecret } from '@ferry/core';
 import { internalToDisplayCategory } from './byte-order.js';
 import { getHtlcContract } from './contract.js';
 import type { BchHtlcParameters, CashAddressNetwork } from './types.js';
-
-interface TransactionBuilderWithLibauth {
-  buildLibauthTransaction(): unknown;
-}
 
 function computeTxId(txHex: string): string {
   const raw = hexToBin(txHex);
@@ -28,6 +26,27 @@ function computeTxId(txHex: string): string {
     reversed[i] = hash[hash.length - 1 - i]!;
   }
   return binToHex(reversed);
+}
+
+function normalizeLockingBytecodeHex(lockingBytecode: string): string {
+  return lockingBytecode.replace(/^0x/i, '').toLowerCase();
+}
+
+function resolveValidatedUtxoLockingBytecode(
+  provided: string | undefined,
+  derived: string,
+): string {
+  const derivedNormalized = normalizeLockingBytecodeHex(derived);
+  if (provided !== undefined) {
+    const providedNormalized = normalizeLockingBytecodeHex(provided);
+    if (providedNormalized !== derivedNormalized) {
+      throw new Error(
+        `UTXO lockingBytecode (${providedNormalized}) does not match HTLC contract lockingBytecode (${derivedNormalized})`,
+      );
+    }
+    return providedNormalized;
+  }
+  return derivedNormalized;
 }
 
 export interface HtlcUtxo {
@@ -44,7 +63,6 @@ export interface BuildClaimTxOptions {
   feeSats?: bigint | number;
   network?: CashAddressNetwork;
   provider?: NetworkProvider;
-  overrideDisplayCategory?: string;
 }
 
 export interface BuildRefundTxOptions {
@@ -53,22 +71,25 @@ export interface BuildRefundTxOptions {
   feeSats?: bigint | number;
   network?: CashAddressNetwork;
   provider?: NetworkProvider;
-  overrideDisplayCategory?: string;
   locktime?: number;
 }
+
+export interface HtlcSourceOutput extends Output {
+  token: {
+    category: Uint8Array;
+    amount: bigint;
+  };
+}
+
+export type VmSourceOutput = Omit<Output, 'token'> & {
+  token?: Output['token'] | undefined;
+};
 
 export interface BuiltTransaction {
   txHex: string;
   txid: string;
-  libauthTx: unknown;
-  sourceOutput: {
-    lockingBytecode: Uint8Array;
-    valueSatoshis: bigint;
-    token: {
-      category: Uint8Array;
-      amount: bigint;
-    };
-  };
+  libauthTx: Transaction;
+  sourceOutput: HtlcSourceOutput;
   builder: TransactionBuilder;
 }
 
@@ -77,29 +98,31 @@ export interface BuiltTransaction {
  * using the Libauth BCH VM. Returns true or a descriptive error string.
  */
 export function verifyBchTransactionWithVm(params: {
-  transaction: unknown;
-  sourceOutputs: unknown[];
+  transaction: Transaction | string;
+  sourceOutputs: VmSourceOutput[];
 }): true | string {
-  let tx = params.transaction;
-  if (typeof tx === 'string') {
-    const decoded = decodeTransaction(hexToBin(tx));
+  let tx: Transaction;
+  if (typeof params.transaction === 'string') {
+    const decoded = decodeTransaction(hexToBin(params.transaction));
     if (typeof decoded === 'string') {
       return `Failed to decode transaction hex: ${decoded}`;
     }
     tx = decoded;
+  } else {
+    tx = params.transaction;
   }
   const vm = createVirtualMachineBCH();
-  type VerifyParams = Parameters<typeof vm.verify>[0];
   return vm.verify({
-    transaction: tx as VerifyParams['transaction'],
-    sourceOutputs: params.sourceOutputs as VerifyParams['sourceOutputs'],
+    transaction: tx,
+    sourceOutputs: params.sourceOutputs as Output[],
   });
 }
 
 /**
  * Build a claim transaction for FerryHTLC.claim(secret).
  * Validates that secret is 32 bytes and sha256(secret) === params.hashLock before building,
- * and verifies the resulting transaction in the Libauth VM against its source output.
+ * validates utxo.lockingBytecode if provided, and verifies the resulting transaction
+ * in the Libauth VM against the UTXO source output.
  */
 export function buildClaimTransaction(
   options: BuildClaimTxOptions,
@@ -144,16 +167,20 @@ export function buildClaimTransaction(
     );
   }
 
+  const utxoLockingBytecode = resolveValidatedUtxoLockingBytecode(
+    options.utxo.lockingBytecode,
+    contract.lockingBytecode,
+  );
   const outputAmount = utxoSatoshis - fee;
-  const displayCategory =
-    options.overrideDisplayCategory ??
-    internalToDisplayCategory(options.params.tokenCategory);
+  const displayCategory = internalToDisplayCategory(
+    options.params.tokenCategory,
+  );
 
   const utxo = {
     txid: options.utxo.txid,
     vout: options.utxo.vout,
     satoshis: utxoSatoshis,
-    lockingBytecode: options.utxo.lockingBytecode ?? contract.lockingBytecode,
+    lockingBytecode: utxoLockingBytecode,
     token: {
       category: displayCategory,
       amount: options.params.tokenAmount,
@@ -172,13 +199,14 @@ export function buildClaimTransaction(
   });
 
   const txHex = builder.build();
-  const libauthTx = (
-    builder as unknown as TransactionBuilderWithLibauth
-  ).buildLibauthTransaction();
+  const decodedTx = decodeTransaction(hexToBin(txHex));
+  if (typeof decodedTx === 'string') {
+    throw new Error(`Failed to decode built claim transaction: ${decodedTx}`);
+  }
   const txid = computeTxId(txHex);
 
-  const sourceOutput = {
-    lockingBytecode: hexToBin(contract.lockingBytecode),
+  const sourceOutput: HtlcSourceOutput = {
+    lockingBytecode: hexToBin(utxo.lockingBytecode),
     valueSatoshis: utxoSatoshis,
     token: {
       category: hexToBin(displayCategory),
@@ -187,7 +215,7 @@ export function buildClaimTransaction(
   };
 
   const vmResult = verifyBchTransactionWithVm({
-    transaction: libauthTx,
+    transaction: decodedTx,
     sourceOutputs: [sourceOutput],
   });
   if (vmResult !== true) {
@@ -197,7 +225,7 @@ export function buildClaimTransaction(
   return {
     txHex,
     txid,
-    libauthTx,
+    libauthTx: decodedTx,
     sourceOutput,
     builder,
   };
@@ -206,7 +234,8 @@ export function buildClaimTransaction(
 /**
  * Build a refund transaction for FerryHTLC.refund().
  * Sets nLockTime >= refundHeight and input sequence 0xfffffffe,
- * and verifies the resulting transaction in the Libauth VM against its source output.
+ * validates utxo.lockingBytecode if provided, and verifies the resulting transaction
+ * in the Libauth VM against the UTXO source output.
  */
 export function buildRefundTransaction(
   options: BuildRefundTxOptions,
@@ -242,16 +271,20 @@ export function buildRefundTransaction(
     );
   }
 
+  const utxoLockingBytecode = resolveValidatedUtxoLockingBytecode(
+    options.utxo.lockingBytecode,
+    contract.lockingBytecode,
+  );
   const outputAmount = utxoSatoshis - fee;
-  const displayCategory =
-    options.overrideDisplayCategory ??
-    internalToDisplayCategory(options.params.tokenCategory);
+  const displayCategory = internalToDisplayCategory(
+    options.params.tokenCategory,
+  );
 
   const utxo = {
     txid: options.utxo.txid,
     vout: options.utxo.vout,
     satoshis: utxoSatoshis,
-    lockingBytecode: options.utxo.lockingBytecode ?? contract.lockingBytecode,
+    lockingBytecode: utxoLockingBytecode,
     token: {
       category: displayCategory,
       amount: options.params.tokenAmount,
@@ -271,13 +304,14 @@ export function buildRefundTransaction(
   });
 
   const txHex = builder.build();
-  const libauthTx = (
-    builder as unknown as TransactionBuilderWithLibauth
-  ).buildLibauthTransaction();
+  const decodedTx = decodeTransaction(hexToBin(txHex));
+  if (typeof decodedTx === 'string') {
+    throw new Error(`Failed to decode built refund transaction: ${decodedTx}`);
+  }
   const txid = computeTxId(txHex);
 
-  const sourceOutput = {
-    lockingBytecode: hexToBin(contract.lockingBytecode),
+  const sourceOutput: HtlcSourceOutput = {
+    lockingBytecode: hexToBin(utxo.lockingBytecode),
     valueSatoshis: utxoSatoshis,
     token: {
       category: hexToBin(displayCategory),
@@ -286,7 +320,7 @@ export function buildRefundTransaction(
   };
 
   const vmResult = verifyBchTransactionWithVm({
-    transaction: libauthTx,
+    transaction: decodedTx,
     sourceOutputs: [sourceOutput],
   });
   if (vmResult !== true) {
@@ -296,7 +330,7 @@ export function buildRefundTransaction(
   return {
     txHex,
     txid,
-    libauthTx,
+    libauthTx: decodedTx,
     sourceOutput,
     builder,
   };
