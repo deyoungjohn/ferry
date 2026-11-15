@@ -156,12 +156,18 @@ importers:
 
   packages/htlc-evm:
     devDependencies:
+      '@ferry/chain-config':
+        specifier: workspace:*
+        version: link:../chain-config
       '@openzeppelin/contracts':
         specifier: 5.6.1
         version: 5.6.1
       forge-std:
         specifier: github:foundry-rs/forge-std#v1.9.7
         version: https://codeload.github.com/foundry-rs/forge-std/tar.gz/77041d2ce690e692d6e03cc812b57d1ddaa4d505
+      tsx:
+        specifier: 4.23.15
+        version: 4.23.15
       viem:
         specifier: 2.57.20
         version: 2.57.20(typescript@5.9.3)(zod@4.6.7)
