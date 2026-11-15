@@ -42,6 +42,7 @@ To our knowledge Ferry is the first live, two-way stablecoin swap between Bitcoi
 | Judge path | Either direction | Lead with **PUSD → USDC**: judges already hold PUSD and only paste an EVM address | §13, §19 |
 | Launch | Mainnet on Day 6 | Mainnet by **Day 3–4**, shared publicly, so real swaps happen during the week | §12 |
 | Decentralisation | "Open the solver role" after the event | Open-source solver with a runbook, multi-solver quotes and an IPFS mirror this week; permissionless discovery as a stretch | §25 |
+| Quotes | Price and inventory checks internal to the solver | **Checkable quotes:** reference prices, sources and timestamps are signed inside the terms and shown in the quote row; the page cross-checks Cauldron itself. **Clear liquidity refusals** with the current maximum, and short quote reservations. Contracts unchanged. | §3.5, §5.3 |
 | Wording | "trustless" in places | "Trust-minimised atomic swap with a solver for liquidity" everywhere | §22 |
 
 ### Open items
@@ -106,6 +107,8 @@ To our knowledge Ferry is the first live, two-way stablecoin swap between Bitcoi
 | FR-13 | **My Activity is rebuilt from the Bitcoin Cash chain**, not from our database: the user's swaps are found from their BCH address and joined to EVM locks by hash lock | Trust, BCH as the main chain | Works on testnet |
 | FR-14 | **Multi-solver quotes:** the web app takes a list of solver URLs, verifies each signed quote and uses the best one | Decentralisation (§25) | New this week |
 | FR-15 | **Required banner** on the home page: deck, repo, token-aware address for EMBER2026 votes, prior repo and prior demo | Event rules | New this week |
+| FR-17 | **Checkable pricing:** every quote carries the reference price of each asset, its source and timestamp inside the signed terms; the page shows them in the quote row and warns if the PUSD reference disagrees with its own Cauldron read | Honest pricing claim: "every quote shows its reference price and you can check it" | New this week (§3.5) |
+| FR-18 | **Clear liquidity refusal:** a request above available liquidity is refused with a typed reason and the current maximum; the swap card shows the maximum before the user types | UX, trust | New this week (§3.5, §5.3) |
 | FR-16 | *Stretch:* the static site and the recovery page are also served from IPFS | Decentralisation (§25) | New this week |
 
 ### 1.2 Non-functional
@@ -238,6 +241,14 @@ interface OrderTerms {
   bchMaxFee: bigint;
   quoteId: string;
   quoteExpiry: number;
+  pricing: PricingEvidence;         // signed with the terms, see §3.5
+}
+
+interface PricingEvidence {
+  refs: { asset: string; usdPrice: string; source: string; asOf: number }[]; // decimal strings, asOf in Unix seconds
+  spreadBps: number;
+  fixedFeeBase: bigint;             // in the receive token's base units
+  rounding: "floor";
 }
 ```
 
@@ -310,6 +321,18 @@ sequenceDiagram
 - `out = in × (1 − SPREAD_BPS / 10_000) − FIXED_FEE`, converted between 6 and 2 decimals with **floor** rounding in the solver's favour. The rounding is disclosed in the quote.
 - **Peg guard:** the solver refuses to quote if `|pusdUsdPrice − 1| > PEG_TOLERANCE`, using the Paryon stats API, or if the Cauldron spot price for the token disagrees by more than the tolerance. For MUSD, only the Cauldron spot is used.
 - A quote is valid for `QUOTE_TTL_S`, and is capped by `MAX_SWAP_USD` and by solver inventory minus open exposure.
+
+**Checkable quotes (new in this version).**
+- Before any quote the solver fetches a live reference price for **both** assets: PUSD or MUSD from the Cauldron spot and, for PUSD, the Paryon stats API; the EVM stablecoin from a documented source (a Chainlink USDC/USD feed on the chain if one exists ◇ unverified, else the issuer's or a second independent price source). Prices older than `PRICE_MAX_AGE_S` (default 30) are not used; if a source is missing the solver refuses with `PRICE_UNAVAILABLE`, never a stale or guessed price.
+- The signed terms carry `pricing`: each reference price, its source and its timestamp, the spread and the fixed fee. Because `orderId` hashes the terms, the user verifies the evidence with the signature before locking.
+- The page shows one line in the quote row ("PUSD $0.998 (Cauldron) · USDC $1.000 · spread 0.4%"), reads the Cauldron price itself, and warns if the quote's PUSD reference differs from its own read by more than `PEG_TOLERANCE`. Cauldron is on Bitcoin Cash, so this check needs no trust in us.
+- **Claim wording:** "every quote shows its reference price and you can check it". Not "oracle-priced", not "trustless".
+- The stablecoin-side source is spike **S-17** (verify a Chainlink USDC/USD feed on each enabled chain; Agent 5 records the result in `chain-config`; chains without a feed use the fallback source and say so).
+
+**Liquidity refusals and reservations (new).**
+- Available liquidity for a route = solver inventory of the *receive* asset − open exposure − reservations. `GET /v1/liquidity?route=…` returns it, and the swap card shows the maximum before the user types.
+- A request above it is refused with `INSUFFICIENT_LIQUIDITY` and a body `{ maxAmount, asset, reason }` (for example "Only 42 PUSD available; try 42 or less"). Other typed refusals use the same shape: `PEG_GUARD`, `PRICE_UNAVAILABLE`, `ROUTE_DISABLED`, `OVER_MAX_SWAP`, `QUOTING_PAUSED`.
+- **Reservation:** an accepted quote reserves its receive amount for `QUOTE_TTL_S` (60 s), released on expiry or when the user's lock arrives (then it becomes exposure, counted from the lock as before). Reservations are capped per user address and per IP (`MAX_RESERVED_PER_ADDRESS_USD`, default 2× `MAX_SWAP_USD`), so free quotes cannot drain inventory. The loser of a race is refused at quote time and never locks.
 
 ---
 
@@ -624,6 +647,7 @@ The reverse direction mirrors this with the chains swapped.
 | `POST` | `/v1/orders/:orderId/relay-lock` | Forward direction: submit the user's permit + EIP-712 intent via `lockWithIntent` (gas-free for the user). The server checks the intent matches the signed terms before relaying. |
 | `POST` | `/v1/orders/:orderId/relay-claim` | Reverse direction: the solver broadcasts the user's Base `claim` and pays gas, recovered in the spread |
 | `GET` | `/v1/health` | Tips, tip ages (`ageSeconds`), inventory per chain, quoting flag, `timestamp` (Unix timestamp in seconds) |
+| `GET` | `/v1/liquidity` | Available amount per route after exposure and reservations, with `asOf`. Typed refusals (`INSUFFICIENT_LIQUIDITY` with `maxAmount`, `PEG_GUARD`, `PRICE_UNAVAILABLE`, …) are returned by `/v1/quotes` with HTTP 422 and the same shape. |
 | `GET` | `/v1/chains` | Enabled chains and tokens, with decimals, permit support and confirmation policy |
 | `GET` | `/v1/stats` | Summary of completed swaps, total volume, `medianFastSeconds`, quote policy, `asOf` (Unix timestamp in seconds) |
 | `GET` | `/v1/orders/recent` | Recent settled swaps with `settledAt` (Unix timestamp in seconds) and `durationSeconds` |
@@ -873,6 +897,8 @@ VITE_SOLVER_URLS=                     # new: comma list; the page takes the best
 | `EVM_CONFS` | per chain; Base 10 (≈20 s) | Soft-confirmation margin at small size; see §24.2 |
 | `BCH_CARRY_SATS` / `BCH_MAX_FEE_SATS` | 3,000 / 1,500 | Claim and refund pay their own fee; output stays above dust |
 | `PEG_TOLERANCE` | 1% | Stop quoting if PUSD or MUSD depegs |
+| `PRICE_MAX_AGE_S` | 30 | A reference price older than this is not used |
+| `MAX_RESERVED_PER_ADDRESS_USD` | 100 | Cap on quote reservations per user address and per IP |
 | `HOLD_FEE_BPS_PER_DAY` | 10 (proposed) | Send links tie up the solver's stablecoin for the whole window (§23.2) |
 | `SEND_LINK_MAX_WINDOW_S` | 604,800 (7 days) | Bounds the hold and the timelock margins |
 
@@ -920,6 +946,8 @@ VITE_SOLVER_URLS=                     # new: comma list; the page takes the best
 | T24 | ◇ A wallet on the wrong network connects and hands back addresses for the other network | Check the address prefix after connecting; refuse to continue on a mismatch |
 | T25 | A leaked send link is used by a thief | The secret can only trigger a claim, and the claim pays the named address. Nothing else can be done with it (§23.2). |
 | T26 | A bridged or non-canonical stablecoin is accepted on a chain | Only token addresses from the chain configuration are accepted, each taken from the issuer's documentation (§24.2) |
+| T28 | Quoted price is questioned ("price we feel like") | Reference prices, sources and timestamps are signed in the terms; the page cross-checks Cauldron itself (§3.5) |
+| T29 | Two users quote against the same inventory and one waits for a refund | Quote reservations with per-address and per-IP caps; refusal at quote time with the current maximum (§3.5) |
 | T27 | A long send-link window breaks the timing invariants | Invariants F and R are recomputed for the window; the window is capped at 7 days; property tests cover 24 hours, 3 days and 7 days (S-16) |
 
 ### 9.3 Review gates
@@ -1032,6 +1060,8 @@ Each spike answers one unknown from §10 with a pass/fail result, and is logged 
 
 | ID | Scenario | Pass |
 |---|---|---|
+| E2E-PRICE | Quote with a stale or missing reference price; quote with the page's own Cauldron read differing by more than the tolerance | Solver refuses `PRICE_UNAVAILABLE`; page warns; the signed `pricing` verifies against the signature |
+| E2E-LIQ | Request above available liquidity; two simultaneous quotes for the last inventory | Typed refusal with `maxAmount`; the second quote is refused, never locked |
 | E2E-01 | Forward happy path, tPUSD, safe lane | All four transactions confirm; balances match quote |
 | E2E-02 | Forward, fast lane | Completes < 60 s; secret revealed only after the DSProof window |
 | E2E-03 | Reverse happy path, WizardConnect funding | Same |
@@ -1091,7 +1121,7 @@ Ask the organisers in Telegram if anything is unclear (§15).
 | 2 | Sun 15 Nov | Create `ferry`; add this blueprint and the spike results to `/preparation`. Confirm the eligibility gates (§14.1). Ask the organisers and General Protocols the questions in §15. 🔒 Fund the three disposable mainnet addresses at the minimum tier (§21). Host the testnet demo of `ferry-testnet`. **Start the 24-hour agent build** of the core, both contracts, the solver, the web app and the recovery page, with EVM chains as configuration. | Repo and preparation folder exist; addresses funded |
 | 3 | Mon 16 Nov | The build lands. 🔒 Base mainnet CREATE2 deploy and verification. Solver on the VPS with the mainnet configuration, caps 5 / 10. 🔒 $1 reverse probe (PUSD → USDC), then 🔒 $1 forward probe. Fix what breaks, writing each problem down before fixing it. | Mainnet acceptance runs 1–2 recorded |
 | 4 | Tue 17 Nov | Selene on mainnet, both directions. MUSD run. Banner (FR-15). 🔒 Public site live; the team lead shares the link in the BLAZE Telegram and on X. Start the pre-expired refund order (run 4). | **A stranger can complete a swap** |
-| 5 | Wed 18 Nov | Enable chains one at a time, each after its own probe and funded inventory: Arbitrum, Ethereum, Arc, then BNB Chain and Robinhood Chain once their tokens are verified (§24.2). Pay links on mainnet (scenario 1 of §23.1). Multi-solver quotes (FR-14). | At least three chains live; a pay link paid from a second chain |
+| 5 | Wed 18 Nov | Enable chains one at a time, each after its own probe and funded inventory: Arbitrum, Ethereum, Arc, then BNB Chain and Robinhood Chain once their tokens are verified (§24.2). Pay links on mainnet (scenario 1 of §23.1). Multi-solver quotes (FR-14). Checkable pricing and liquidity refusals (FR-17, FR-18) land with the solver HTTP API on Day 3–4 so the first public swap already shows them. | At least three chains live; a pay link paid from a second chain |
 | 6 | Thu 19 Nov | XO: template published, lock invitation in the debug tool, evidence saved; the team lead writes the XO feedback essay. Send links with an address-bound recipient and a time window (§23.2, mode A). IPFS mirror of the site and recovery page. | XO bounty package ready; one send link received on another chain |
 | 7 | Fri 20 Nov | Polish and first-impression checklist (§19) on a phone and a laptop. Three outside test users, watched without help. Code-quality pass on the repo (§16). Deck from the WidgetFactory template. Prior-art search re-run (§22). Raise caps to the recommended tier if the week was clean. | No open problem on the judge path |
 | 8 | Sat 21 Nov | Demo video (§13) with the refund on camera. README, `PROTOCOL.md`, evidence folder. ◇ Final check-in stream at 14:00 UTC: attend if a roll call is still owed. Freeze. | Everything in §14 ticked |
@@ -1835,6 +1865,7 @@ interface ChainAdapter {
 | S-14 | Ethereum USDT: non-standard transfer (no return value) through SafeERC20 on a mainnet fork | Lock/claim/refund pass on the fork |
 | S-15 | Robinhood Chain: chain ID, RPC, explorer, CREATE2 factory, canonical stablecoin contracts, finality, AppKit custom-chain configuration | Round trip on its testnet, or the route is dropped |
 | S-16 | Send-link windows of 24 hours, 3 days and 7 days: invariants F and R hold, and the solver prices the hold | Property tests green; one round trip with a 24-hour window on testnet |
+| S-17 | A documented live USDC/USD price source per enabled chain (Chainlink feed address and decimals, or the fallback); the PUSD reference from Cauldron and Paryon | Source, address and read command recorded in `chain-config` with date; chains without a feed say so |
 | E2E-09…14 | Forward and reverse happy paths, plus one refund drill, for each chain on its testnet | All green |
 | MA-chains | Mainnet acceptance: one forward and one reverse swap per enabled chain | Txids recorded in `docs/evidence/` |
 
