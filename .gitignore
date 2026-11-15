@@ -1,0 +1,45 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.key
+*.wif
+*.pem
+*.pkcs8
+*keypair*.json
+id.json
+
+# deps / builds
+node_modules/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+coverage/
+
+# foundry
+packages/htlc-evm/out/
+packages/htlc-evm/cache/
+packages/htlc-evm/broadcast/
+**/broadcast/
+
+# solver data and runtime state (holds swap secrets)
+packages/solver/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# web / test output
+playwright-report/
+test-results/
+.vite/
+
+# os / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
