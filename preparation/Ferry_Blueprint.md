@@ -1260,7 +1260,7 @@ SolidCash, the DID/Nostr bounty (sponsored by Paytaca ✔) and FoldingCash. Each
 | USDC on Base | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`, 6 decimals; EIP-712 domain name "USD Coin", version "2" | ✔ Circle docs and on-chain read |
 | Base chain ID | 8453 (Sepolia 84532) | ✔ chain documentation |
 | Other counter chains | Ethereum 1, Arbitrum One 42161, BNB Chain 56, Robinhood Chain 4663 ◇, Arc: verify | §24.2; verify each before use |
-| `FerryHTLC` address | `0x5A0C062f4B7b8fF2263530e12bc15De9C836a641` on five testnets; the same address is **predicted** on every chain that has the canonical CREATE2 factory | ✔ testnets; mainnet unverified until deployed |
+| `FerryHTLC` address | Predicted `0x8b968625F983420B571C102eC0b57F7e509c916e` on every chain that has the canonical CREATE2 factory (init code hash `0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430`, from `forge script script/Deploy.s.sol:Deploy --sig "predict()"`). The testnet build used other compiler settings and so another address (`0x5A0C062f…a641`). | ✔ computed; unverified on any chain until deployed |
 | CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C` | ✔ verified on chain |
 | Mainnet Fulcrum servers | `wss://blackie.c3-soft.com:50004`, `wss://bch.imaginary.cash:50004` | ✔ genesis hash checked. `fulcrum.fountainhead.cash` refused connections. |
 | BCH mainnet genesis hash | `000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f` | ✔ |
