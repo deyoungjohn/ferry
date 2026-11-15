@@ -1,8 +1,8 @@
 # Chain and token facts
 
 Baseline date: **2026-11-15**. This file records the facts the EVM routes depend
-on. The machine-readable copy is `src/data/chains.json`; every value there has a
-source and a status here.
+on. The machine-readable copy is `src/data/chains.json`; the tables below record
+the value, source, date and status for the facts that gate a route.
 
 ## Status legend
 
@@ -303,12 +303,13 @@ Both values are present for mainnet and testnet.
 
 ### Robinhood Chain
 
-| Asset                              | Fact               | Value                                                                                                         | Source                                                 | Date       | Status |
-| ---------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ---------- | ------ |
-| USDC mainnet/testnet               | Canonical contract | none; the official token page lists WETH and USDG only                                                        | R1                                                     | 2026-11-15 | ✗      |
-| USDT mainnet/testnet               | Canonical contract | none; the official token page lists WETH and USDG only                                                        | R1                                                     | 2026-11-15 | ✗      |
-| USDC mainnet (third-party bridged) | Contract           | `0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8` reported by a third-party payment integration                    | Third-party documentation, not an issuer page          | 2026-11-15 | ◇      |
-| USDG mainnet (not a Ferry asset)   | Contract           | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`; 6 decimals; `name()` = `Global Dollar`; EIP-2612 domain present | R1; CALL via `https://rpc.mainnet.chain.robinhood.com` | 2026-11-15 | ✔      |
+| Asset                              | Fact                   | Value                                                                                                                  | Source                                                 | Date       | Status |
+| ---------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ---------- | ------ |
+| USDC mainnet/testnet               | Canonical contract     | none; the official token page lists WETH and USDG only                                                                 | R1                                                     | 2026-11-15 | ✗      |
+| USDT mainnet/testnet               | Canonical contract     | none; the official token page lists WETH and USDG only                                                                 | R1                                                     | 2026-11-15 | ✗      |
+| USDC mainnet (third-party bridged) | Contract               | `0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8` reported by a third-party payment integration; 835 bytes of code on-chain | Third-party documentation, not an issuer page; CODE    | 2026-11-15 | ◇      |
+| USDC mainnet (third-party bridged) | Decimals, symbol, name | 6; `USDC`; `USD Coin`                                                                                                  | CALL via `https://rpc.mainnet.chain.robinhood.com`     | 2026-11-15 | ✔      |
+| USDG mainnet (not a Ferry asset)   | Contract               | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`; 6 decimals; `name()` = `Global Dollar`; EIP-2612 domain present          | R1; CALL via `https://rpc.mainnet.chain.robinhood.com` | 2026-11-15 | ✔      |
 
 ## Decision memo: Robinhood Chain and BNB Chain
 
@@ -323,8 +324,9 @@ WETH (`0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73`) and USDG
 (`0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`) (R1). Circle's USDC contract list
 has no Robinhood Chain entry (C1). Tether's supported protocols list has no
 Robinhood Chain entry (T1). Third-party pages report a bridged USDC at
-`0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8`, but no issuer document confirms it,
-and a bridged representation is not the canonical token Ferry requires.
+`0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8`; the contract exists on-chain with
+6 decimals, but no issuer document confirms it, and a bridged representation is
+not the canonical token Ferry requires.
 
 **Recommendation: skip.** Do not show the route. Revisit only if Circle or
 Tether publishes a contract on Robinhood Chain and a testnet round trip passes
