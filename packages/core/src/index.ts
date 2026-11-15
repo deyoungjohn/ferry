@@ -13,4 +13,5 @@ export * from './cashaddr.js';
 export * from './pay-link.js';
 export * from './send-link.js';
 export * from './link-url.js';
+export * from './balance.js';
 export * from './api/index.js';

@@ -5,3 +5,6 @@ export * from './spends.js';
 export * from './lock.js';
 export * from './parse.js';
 export * from './electrum.js';
+export * from './wallet-request.js';
+export * from './signed-check.js';
+export * from './activity.js';
