@@ -19,11 +19,16 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.3
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test:unit
+      - name: Package tests
+        run: pnpm test
       - name: No private references in files or commit messages
         run: pnpm check:private
       - name: No private references in the pull request text
