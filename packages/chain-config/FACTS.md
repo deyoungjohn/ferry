@@ -186,6 +186,11 @@ On-chain commands use these forms:
 | testnet | Typical block time        | 0.25 s (50-block sample)                                                        | block timestamps                                           | 2026-11-15 | ✔      |
 | testnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code                  | CODE                                                       | 2026-11-15 | ✔      |
 
+AppKit custom-chain configuration uses the chain ID, RPC URL, explorer URL and
+native gas token recorded in each network table above. Arc is a custom chain
+with USDC gas (A2); Robinhood Chain is a custom Arbitrum L2 with ETH gas (R2).
+Both values are present for mainnet and testnet.
+
 ## Token facts
 
 ### Base
