@@ -137,6 +137,151 @@ describe('ActionExecutor (executeOrAdopt)', () => {
     }
   });
 
+  describe('Unknown Outcome Errors', () => {
+    const unknownOutcomeMessages = [
+      'Connection timed out after 5000ms',
+      'socket hang up',
+      'read ECONNRESET',
+      'connect ECONNREFUSED 127.0.0.1:50004',
+      'websocket is not open: readyState 3 (CLOSED)',
+      'closed socket during transmission',
+    ];
+
+    for (const msg of unknownOutcomeMessages) {
+      it(`keeps write-ahead intent when "${msg}" occurs and txid is NOT on chain`, async () => {
+        createTestOrder('ord-unknown-fail');
+
+        const fakeChainPort: ChainPort = {
+          broadcast: vi.fn().mockRejectedValue(new Error(msg)),
+          isOnChain: vi.fn().mockResolvedValue(false),
+        };
+
+        const executor = new ActionExecutor(db, fakeChainPort);
+        await expect(
+          executor.executeOrAdopt({
+            orderId: 'ord-unknown-fail',
+            actionType: 'SOLVER_LOCK',
+            buildTx: async () => ({
+              txid: 'txid_unknown_pending',
+              txHex: '020000unknownhex',
+            }),
+          }),
+        ).rejects.toThrow(msg);
+
+        // Invariant: A write-ahead record is deleted ONLY when the outcome is known!
+        // For unknown outcome (timeout/socket closed), the intent must remain in DB for retry
+        const action = db.getAction('ord-unknown-fail', 'SOLVER_LOCK');
+        expect(action).not.toBeNull();
+        expect(action?.status).toBe('PENDING');
+        expect(action?.txid).toBe('txid_unknown_pending');
+
+        // Should not be flagged with terminal attention yet
+        const order = db.getOrder('ord-unknown-fail');
+        expect(order?.needsAttention).toBeFalsy();
+      });
+
+      it(`adopts transaction when "${msg}" occurs but txid IS found on chain`, async () => {
+        createTestOrder('ord-unknown-adopted');
+
+        const fakeChainPort: ChainPort = {
+          broadcast: vi.fn().mockRejectedValue(new Error(msg)),
+          isOnChain: vi.fn().mockResolvedValue(true),
+        };
+
+        const executor = new ActionExecutor(db, fakeChainPort);
+        const result = await executor.executeOrAdopt({
+          orderId: 'ord-unknown-adopted',
+          actionType: 'SOLVER_LOCK',
+          buildTx: async () => ({
+            txid: 'txid_unknown_adopted',
+            txHex: '020000adoptedhex',
+          }),
+        });
+
+        expect(result.adopted).toBe(true);
+        expect(result.txid).toBe('txid_unknown_adopted');
+        const action = db.getAction('ord-unknown-adopted', 'SOLVER_LOCK');
+        expect(action?.status).toBe('BROADCAST');
+      });
+    }
+  });
+
+  describe('Resumed Broadcast Error Handling', () => {
+    it('definitively rejected resumed broadcast deletes intent and flags order (not recorded as broadcast)', async () => {
+      createTestOrder('ord-resumed-reject');
+
+      // Pre-seed write-ahead intent
+      db.recordIntent('ord-resumed-reject', 'SOLVER_LOCK', {
+        txid: 'txid_resumed_bad',
+        txHex: '020000badresumed',
+      });
+
+      const fakeChainPort: ChainPort = {
+        broadcast: vi
+          .fn()
+          .mockRejectedValue(
+            new Error('16: mandatory-script-verify-flag-failed'),
+          ),
+        isOnChain: vi.fn().mockResolvedValue(false),
+      };
+
+      const executor = new ActionExecutor(db, fakeChainPort);
+      await expect(
+        executor.executeOrAdopt({
+          orderId: 'ord-resumed-reject',
+          actionType: 'SOLVER_LOCK',
+          buildTx: async () => {
+            throw new Error('should not build new tx');
+          },
+        }),
+      ).rejects.toThrow(/mandatory-script-verify-flag-failed/);
+
+      // Must NOT be marked as BROADCAST
+      const action = db.getAction('ord-resumed-reject', 'SOLVER_LOCK');
+      expect(action).toBeNull();
+
+      // Must be flagged as needs_attention
+      const order = db.getOrder('ord-resumed-reject');
+      expect(order?.needsAttention).toBe(true);
+      expect(order?.rejectionReason).toContain('Node rejected broadcast');
+    });
+
+    it('resumed broadcast with unknown outcome keeps intent in DB when not on chain', async () => {
+      createTestOrder('ord-resumed-unknown');
+
+      db.recordIntent('ord-resumed-unknown', 'SOLVER_LOCK', {
+        txid: 'txid_resumed_timeout',
+        txHex: '020000timeoutexisting',
+      });
+
+      const fakeChainPort: ChainPort = {
+        broadcast: vi
+          .fn()
+          .mockRejectedValue(new Error('ETIMEDOUT connection timed out')),
+        isOnChain: vi.fn().mockResolvedValue(false),
+      };
+
+      const executor = new ActionExecutor(db, fakeChainPort);
+      await expect(
+        executor.executeOrAdopt({
+          orderId: 'ord-resumed-unknown',
+          actionType: 'SOLVER_LOCK',
+          buildTx: async () => {
+            throw new Error('should not build');
+          },
+        }),
+      ).rejects.toThrow(/ETIMEDOUT/);
+
+      // Intent must remain in DB for next retry
+      const action = db.getAction('ord-resumed-unknown', 'SOLVER_LOCK');
+      expect(action).not.toBeNull();
+      expect(action?.status).toBe('PENDING');
+
+      const order = db.getOrder('ord-resumed-unknown');
+      expect(order?.needsAttention).toBeFalsy();
+    });
+  });
+
   describe('Stale-action rebuild policy', () => {
     it('does not rebuild if tx is seen on quorum nodes', async () => {
       createTestOrder('ord-stale-quorum');
@@ -328,7 +473,7 @@ describe('ActionExecutor (executeOrAdopt)', () => {
           buildTx: async () => ({ txid: 'bad', txHex: 'bad' }),
         }),
       ).rejects.toThrow(
-        /Invalid secret.*sha256\(secret\) does not equal hashLock/,
+        /Invalid secret.*sha256\(secret\) does not (match|equal) hashLock/,
       );
     });
 

@@ -7,3 +7,8 @@ export * from './db/types.js';
 export * from './db/database.js';
 export * from './executor/types.js';
 export * from './executor/action-executor.js';
+export * from './state-machine/types.js';
+export * from './state-machine/transitions.js';
+export * from './engine/types.js';
+export * from './engine/limits.js';
+export * from './engine/runner.js';

@@ -14,7 +14,13 @@ export interface ChainPort {
   }>;
 }
 
-export type SecretValidator = (secret: string, hashLock: string) => boolean;
+export type SecretValidator = (
+  secret: string,
+  hashLock: string,
+) => boolean | void;
+
+export type BroadcastErrorClass =
+  'DEFINITIVE_REJECTION' | 'AMBIGUOUS' | 'UNKNOWN_OUTCOME';
 
 export interface BuiltTransaction {
   txid: string;

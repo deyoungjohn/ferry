@@ -1,6 +1,7 @@
-import crypto from 'node:crypto';
+import { assertValidSecret, isValidSecret } from '@ferry/core';
 import type { SolverDatabase } from '../db/database.js';
 import type {
+  BroadcastErrorClass,
   ChainPort,
   ExecuteOrAdoptParams,
   ExecuteOrAdoptResult,
@@ -19,29 +20,52 @@ const AMBIGUOUS_ERROR_PATTERNS = [
   /txn-mempool-conflict/i,
 ];
 
+const UNKNOWN_OUTCOME_PATTERNS = [
+  /timeout/i,
+  /timed out/i,
+  /etimedout/i,
+  /socket closed/i,
+  /socket hang up/i,
+  /econnreset/i,
+  /econnrefused/i,
+  /epipe/i,
+  /websocket is not open/i,
+  /connection closed/i,
+  /closed socket/i,
+  /network error/i,
+  /fetch failed/i,
+];
+
 export function isAmbiguousNodeError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
   return AMBIGUOUS_ERROR_PATTERNS.some((pattern) => pattern.test(msg));
+}
+
+export function isUnknownOutcomeError(error: unknown): boolean {
+  if (error && typeof error === 'object') {
+    const code = (error as { code?: unknown }).code;
+    if (
+      typeof code === 'string' &&
+      /^(ETIMEDOUT|ECONNRESET|ECONNREFUSED|EPIPE)$/i.test(code)
+    ) {
+      return true;
+    }
+  }
+  const msg = error instanceof Error ? error.message : String(error);
+  return UNKNOWN_OUTCOME_PATTERNS.some((pattern) => pattern.test(msg));
+}
+
+export function classifyBroadcastError(error: unknown): BroadcastErrorClass {
+  if (isUnknownOutcomeError(error)) return 'UNKNOWN_OUTCOME';
+  if (isAmbiguousNodeError(error)) return 'AMBIGUOUS';
+  return 'DEFINITIVE_REJECTION';
 }
 
 export const defaultValidateSecret: SecretValidator = (
   secret: string,
   hashLock: string,
 ): boolean => {
-  if (!secret || !hashLock) return false;
-  const cleanSecret = secret.startsWith('0x') ? secret.slice(2) : secret;
-  if (cleanSecret.length === 0 || /^0+$/.test(cleanSecret)) return false;
-  const secretBuf = Buffer.from(cleanSecret, 'hex');
-  if (secretBuf.length !== 32) return false;
-  const cleanHashLock = (
-    hashLock.startsWith('0x') ? hashLock.slice(2) : hashLock
-  ).toLowerCase();
-  const computedHash = crypto
-    .createHash('sha256')
-    .update(secretBuf)
-    .digest('hex')
-    .toLowerCase();
-  return computedHash === cleanHashLock;
+  return isValidSecret(secret, hashLock);
 };
 
 export class ActionExecutor {
@@ -50,6 +74,47 @@ export class ActionExecutor {
     private readonly chainPort: ChainPort,
     private readonly validateSecret: SecretValidator = defaultValidateSecret,
   ) {}
+
+  private async handleBroadcastError(
+    err: unknown,
+    orderId: string,
+    actionType: string,
+    txid: string,
+    txHex: string,
+  ): Promise<ExecuteOrAdoptResult> {
+    const errorClass = classifyBroadcastError(err);
+
+    if (errorClass === 'UNKNOWN_OUTCOME') {
+      const confirmedOnChain = await this.chainPort.isOnChain(txid);
+      if (confirmedOnChain) {
+        this.db.recordBroadcast(orderId, actionType, txid);
+        return { txid, txHex, adopted: true };
+      }
+      // Unknown outcome (timeout, socket closed):
+      // Keep write-ahead intent in DB! Do not delete action, do not flag needs_attention.
+      // Rethrow error so caller can retry later.
+      throw err;
+    }
+
+    if (errorClass === 'AMBIGUOUS') {
+      const confirmedOnChain = await this.chainPort.isOnChain(txid);
+      if (confirmedOnChain) {
+        this.db.recordBroadcast(orderId, actionType, txid);
+        return { txid, txHex, adopted: true };
+      }
+      // Ambiguous error and tx is NOT on chain: outcome is known failure
+      const errMsg = `Ambiguous node error on broadcast (${err instanceof Error ? err.message : String(err)}); exact txid ${txid} not found on chain`;
+      this.db.deleteAction(orderId, actionType);
+      this.db.markNeedsAttention(orderId, errMsg);
+      throw new Error(errMsg, { cause: err });
+    }
+
+    // DEFINITIVE_REJECTION: node explicitly rejected the transaction
+    const errMsg = `Node rejected broadcast: ${err instanceof Error ? err.message : String(err)}`;
+    this.db.deleteAction(orderId, actionType);
+    this.db.markNeedsAttention(orderId, errMsg);
+    throw err;
+  }
 
   async executeOrAdopt(
     params: ExecuteOrAdoptParams,
@@ -66,10 +131,15 @@ export class ActionExecutor {
         );
       }
 
-      if (!this.validateSecret(secretToValidate, expectedHashLock)) {
-        throw new Error(
-          `Invalid secret for order ${params.orderId}: sha256(secret) does not equal hashLock (zero/empty rejected)`,
-        );
+      if (this.validateSecret === defaultValidateSecret) {
+        assertValidSecret(secretToValidate, expectedHashLock);
+      } else {
+        const res = this.validateSecret(secretToValidate, expectedHashLock);
+        if (res === false) {
+          throw new Error(
+            `Invalid secret for order ${params.orderId}: sha256(secret) does not equal hashLock (zero/empty rejected)`,
+          );
+        }
       }
     }
 
@@ -198,14 +268,13 @@ export class ActionExecutor {
         try {
           await this.chainPort.broadcast(txHex);
         } catch (err) {
-          if (isAmbiguousNodeError(err)) {
-            const onChain = await this.chainPort.isOnChain(txid);
-            if (onChain) {
-              this.db.recordBroadcast(params.orderId, params.actionType, txid);
-              return { txid, txHex, adopted: true };
-            }
-          }
-          // continue with recorded action
+          return await this.handleBroadcastError(
+            err,
+            params.orderId,
+            params.actionType,
+            txid,
+            txHex,
+          );
         }
       }
       this.db.recordBroadcast(params.orderId, params.actionType, txid);
@@ -259,24 +328,13 @@ export class ActionExecutor {
     try {
       await this.chainPort.broadcast(txHex);
     } catch (err) {
-      if (isAmbiguousNodeError(err)) {
-        // Ambiguous node error: count as success ONLY if exact txid is found on chain
-        const confirmedOnChain = await this.chainPort.isOnChain(txid);
-        if (confirmedOnChain) {
-          this.db.recordBroadcast(params.orderId, params.actionType, txid);
-          return { txid, txHex, adopted: true };
-        }
-        const errMsg = `Ambiguous node error on broadcast (${err instanceof Error ? err.message : String(err)}); exact txid ${txid} not found on chain`;
-        this.db.deleteAction(params.orderId, params.actionType);
-        this.db.markNeedsAttention(params.orderId, errMsg);
-        throw new Error(errMsg, { cause: err });
-      }
-
-      // Unambiguous failure
-      const errMsg = `Node rejected broadcast: ${err instanceof Error ? err.message : String(err)}`;
-      this.db.deleteAction(params.orderId, params.actionType);
-      this.db.markNeedsAttention(params.orderId, errMsg);
-      throw err;
+      return await this.handleBroadcastError(
+        err,
+        params.orderId,
+        params.actionType,
+        txid,
+        txHex,
+      );
     }
 
     if (params.faultAfterBroadcast) {

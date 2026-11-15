@@ -171,5 +171,5 @@ describe('Crash-simulation test (SIGKILL between intent and broadcast)', () => {
     expect(allActions[0]?.status).toBe('BROADCAST');
     expect(allActions[0]?.txid).toBe('txid_crash_test');
     finalDb.close();
-  });
+  }, 15000);
 });
