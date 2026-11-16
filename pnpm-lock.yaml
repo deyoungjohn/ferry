@@ -386,6 +386,9 @@ importers:
       '@ferry/chain-config':
         specifier: workspace:*
         version: link:../chain-config
+      '@ferry/chain-evm':
+        specifier: workspace:*
+        version: link:../chain-evm
       '@ferry/core':
         specifier: workspace:*
         version: link:../core

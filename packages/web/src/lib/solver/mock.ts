@@ -12,6 +12,7 @@ import {
 } from '@ferry/core';
 import { SPREAD_BPS, FIXED_FEE_USD } from '../config';
 import { formatPricingEvidence } from './pricing-display';
+import { defaultMockServer } from './mock-fetch';
 import type {
   SolverClient,
   QuoteRequest,
@@ -389,13 +390,30 @@ export class MockSolverClient implements SolverClient {
   private readonly emptyStats: boolean;
   private readonly orders: Map<string, SwapOrder> = new Map();
   private mockRefusal?: QuoteRefusal | undefined;
+  private readonly fetchFn: (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => Promise<Response>;
 
   constructor(options?: {
     emptyStats?: boolean;
     mockRefusal?: QuoteRefusal | undefined;
+    fetch?: (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => Promise<Response>;
   }) {
     this.emptyStats = options?.emptyStats ?? true; // Honest empty stats by default
     this.mockRefusal = options?.mockRefusal;
+    this.fetchFn = options?.fetch ?? defaultMockServer.fetch;
+  }
+
+  private getPrimarySolverUrl(): string {
+    const envUrls = import.meta.env?.VITE_SOLVER_URLS as string | undefined;
+    if (envUrls && envUrls.trim()) {
+      return envUrls.split(',')[0]!.trim();
+    }
+    return 'https://mock-solver-alpha.local';
   }
 
   setMockRefusal(refusal: QuoteRefusal | undefined): void {
@@ -707,6 +725,23 @@ export class MockSolverClient implements SolverClient {
       };
     }
 
+    try {
+      const solverUrl = this.getPrimarySolverUrl();
+      const res = await this.fetchFn(`${solverUrl}/v1/stats`);
+      if (res.ok) {
+        const stats = await res.json();
+        const completedSwaps = Number(stats.completedSwaps ?? 0);
+        return {
+          completedSwaps,
+          totalVolumeUsd: parseFloat(stats.totalVolumeUsd ?? '0') || 0,
+          medianSecondsFast: Number(stats.medianFastSeconds ?? 0),
+          isHonestEmpty: completedSwaps === 0,
+        };
+      }
+    } catch {
+      // Fallback to sample stats
+    }
+
     return {
       completedSwaps: SAMPLE_MOCK_SWAPS.length,
       totalVolumeUsd: 486.0,
@@ -719,6 +754,74 @@ export class MockSolverClient implements SolverClient {
     page: number = 1,
     pageSize: number = 10,
   ): Promise<PaginatedRecentSwaps> {
+    try {
+      const solverUrl = this.getPrimarySolverUrl();
+      if (!solverUrl.includes('.local')) {
+        const res = await this.fetchFn(`${solverUrl}/v1/orders/recent`);
+        if (res.ok) {
+          const data = await res.json();
+          const orders = Array.isArray(data.orders) ? data.orders : [];
+          if (orders.length === 0) {
+            return {
+              items: [],
+              page: 1,
+              pageSize,
+              totalCount: 0,
+              totalPages: 1,
+            };
+          }
+          const totalCount = orders.length;
+          const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+          const clampedPage = Math.min(Math.max(1, page), totalPages);
+          const startIndex = (clampedPage - 1) * pageSize;
+          const pagedOrders = (
+            orders as Array<{
+              orderId: string;
+              settledAt: number;
+              direction: string;
+              bchToken: string;
+              evmAmount: string | number;
+              bchTokenAmount: string | number;
+              durationSeconds: number;
+            }>
+          ).slice(startIndex, startIndex + pageSize);
+          const items: RecentSwap[] = pagedOrders.map((o) => ({
+            id: o.orderId,
+            timestampSeconds: o.settledAt,
+            fromToken: o.direction === 'EVM_TO_BCH' ? 'USDC' : o.bchToken,
+            fromAmount:
+              Number(o.evmAmount) /
+              (o.direction === 'EVM_TO_BCH' ? 1_000_000 : 100),
+            fromChain:
+              o.direction === 'EVM_TO_BCH'
+                ? 'Base Sepolia'
+                : 'Bitcoin Cash Chipnet',
+            toToken: o.direction === 'EVM_TO_BCH' ? o.bchToken : 'USDC',
+            toAmount:
+              Number(o.bchTokenAmount) /
+              (o.direction === 'EVM_TO_BCH' ? 100 : 1_000_000),
+            toChain:
+              o.direction === 'EVM_TO_BCH'
+                ? 'Bitcoin Cash Chipnet'
+                : 'Base Sepolia',
+            durationSeconds: o.durationSeconds,
+            sourceTxHash: '0x' + o.orderId.slice(2, 18),
+            targetTxHash: 'mockbch' + o.orderId.slice(2, 14),
+            isMock: false,
+          }));
+          return {
+            items,
+            page: clampedPage,
+            pageSize,
+            totalCount,
+            totalPages,
+          };
+        }
+      }
+    } catch {
+      // Fallback
+    }
+
     const validPage = Math.max(1, page);
     const totalCount = SAMPLE_MOCK_SWAPS.length;
     const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -736,6 +839,31 @@ export class MockSolverClient implements SolverClient {
   }
 
   async getPegPrices(): Promise<readonly PegPrice[]> {
+    try {
+      const solverUrl = this.getPrimarySolverUrl();
+      const res = await this.fetchFn(`${solverUrl}/v1/pegs`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.tokens) && data.tokens.length > 0) {
+          type SolverPegToken = {
+            asset: string;
+            currentUsdPrice?: string;
+            points?: Array<{ usdPrice?: string }>;
+          };
+          return (data.tokens as SolverPegToken[]).map((t) => ({
+            symbol: t.asset,
+            priceUsd: parseFloat(t.currentUsdPrice ?? '1.0'),
+            change24hPercent: 0,
+            sparkline: Array.isArray(t.points)
+              ? t.points.map((p) => parseFloat(p.usdPrice ?? '1.0'))
+              : [1.0, 1.0],
+          }));
+        }
+      }
+    } catch {
+      // Fallback
+    }
+
     return [
       {
         symbol: 'tPUSD',

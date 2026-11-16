@@ -7,12 +7,21 @@ import {
   orderId as computeOrderId,
   type RecoveryFile,
   type RecoveryPlan,
+  type Hex32,
 } from '@ferry/core';
+import {
+  getEvmWalletRecoveryActions,
+  inspectEvmWalletRecovery,
+  type EvmWalletRecoveryPlan,
+} from '@ferry/chain-evm';
+import { createPublicClient, http, type Address } from 'viem';
+import { baseSepolia } from 'viem/chains';
 
 export function RecoverPage() {
   const [fileContent, setFileContent] = useState('');
   const [recoveryFile, setRecoveryFile] = useState<RecoveryFile | null>(null);
   const [plan, setPlan] = useState<RecoveryPlan | null>(null);
+  const [evmPlan, setEvmPlan] = useState<EvmWalletRecoveryPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showSecret, setShowSecret] = useState(false);
@@ -32,6 +41,7 @@ export function RecoverPage() {
     } catch {
       setRecoveryFile(null);
       setPlan(null);
+      setEvmPlan(null);
       setError('Invalid JSON format');
       return;
     }
@@ -56,6 +66,7 @@ export function RecoverPage() {
     } catch (err) {
       setRecoveryFile(null);
       setPlan(null);
+      setEvmPlan(null);
       setError(
         err instanceof Error ? err.message : 'Invalid recovery file structure',
       );
@@ -72,6 +83,7 @@ export function RecoverPage() {
     } catch (err) {
       setRecoveryFile(null);
       setPlan(null);
+      setEvmPlan(null);
       setError(
         err instanceof Error
           ? err.message
@@ -91,6 +103,17 @@ export function RecoverPage() {
       bchLock: { state: 'locked' },
     });
     setPlan(recoveryPlan);
+
+    // Run EVM wallet recovery plan calculation (Requirement 2)
+    const evmRecovery = getEvmWalletRecoveryActions({
+      status: 'locked',
+      deadline: Number(parsed.terms.evmDeadline),
+      nowSeconds: now,
+      hashLock: parsed.terms.hashLock,
+      ...(parsed.secret ? { secret: parsed.secret } : {}),
+      blockTimeSeconds: 2,
+    });
+    setEvmPlan(evmRecovery);
 
     if (isMock) {
       setNotice(
@@ -167,6 +190,38 @@ export function RecoverPage() {
           ? err.message
           : 'Could not generate EVM recovery calldata',
       );
+    }
+  }
+
+  async function handleInspectEvmOnChain() {
+    if (!recoveryFile) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const client = createPublicClient({
+        chain: baseSepolia,
+        transport: http(),
+      });
+      const onChainPlan = await inspectEvmWalletRecovery({
+        client: client as unknown as Parameters<
+          typeof inspectEvmWalletRecovery
+        >[0]['client'],
+        htlc: recoveryFile.contracts.evm.htlcAddress as Address,
+        lockId: recoveryFile.orderId,
+        ...(recoveryFile.secret
+          ? { secret: recoveryFile.secret as Hex32 }
+          : {}),
+      });
+      setEvmPlan(onChainPlan);
+      setNotice('On-chain EVM status verified.');
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Could not query on-chain EVM status',
+      );
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -283,6 +338,42 @@ export function RecoverPage() {
             </span>
             <p className="font-medium text-sm text-text">{plan.summary}</p>
           </div>
+
+          {/* EVM Wallet Recovery Status (§Requirement 2) */}
+          {evmPlan && (
+            <div
+              data-testid="evm-recovery-plan"
+              className="mb-4 rounded-well border border-hairline bg-surface-2 p-3.5 text-xs"
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="font-semibold text-[11px] uppercase tracking-wider text-text-dim">
+                  EVM Contract Status
+                </span>
+                <span
+                  className={`inline-flex items-center rounded-pill px-2 py-0.5 text-[11px] font-semibold ${
+                    evmPlan.actions.length > 0
+                      ? 'bg-ok/10 text-ok border border-ok/30'
+                      : 'bg-surface-3 text-text-muted border border-hairline'
+                  }`}
+                >
+                  {evmPlan.status.toUpperCase()}
+                </span>
+              </div>
+              <p className="text-text font-medium">{evmPlan.summary}</p>
+              {evmPlan.secondsRemaining !== undefined &&
+                evmPlan.secondsRemaining > 0 && (
+                  <p className="mt-1 text-[11px] text-warn">
+                    Time to refund deadline:{' '}
+                    <span className="font-mono">
+                      {Math.ceil(evmPlan.secondsRemaining / 60)} minutes (
+                      {evmPlan.blocksRemaining ??
+                        Math.ceil(evmPlan.secondsRemaining / 2)}{' '}
+                      blocks)
+                    </span>
+                  </p>
+                )}
+            </div>
+          )}
 
           {/* Actions & Waits directly from recoveryActions */}
           <div className="mb-4 space-y-2">
@@ -410,6 +501,15 @@ export function RecoverPage() {
               className="rounded-pill border border-hairline bg-surface-2 px-3 py-2.5 text-xs font-semibold text-text hover:border-lime/40 transition-colors cursor-pointer"
             >
               Generate Calldata
+            </button>
+            <button
+              type="button"
+              data-testid="inspect-evm-button"
+              disabled={busy}
+              onClick={handleInspectEvmOnChain}
+              className="rounded-pill border border-hairline bg-surface-2 px-3 py-2.5 text-xs font-semibold text-text hover:border-lime/40 transition-colors cursor-pointer"
+            >
+              Verify On-Chain Status
             </button>
           </div>
 
