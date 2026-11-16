@@ -15,4 +15,5 @@ export * from './send-link.js';
 export * from './link-url.js';
 export * from './balance.js';
 export * from './liquidity.js';
+export * from './recovery.js';
 export * from './api/index.js';

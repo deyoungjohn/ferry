@@ -8,3 +8,5 @@ export * from './electrum.js';
 export * from './wallet-request.js';
 export * from './signed-check.js';
 export * from './activity.js';
+export * from './recovery.js';
+export * from './send-link.js';
