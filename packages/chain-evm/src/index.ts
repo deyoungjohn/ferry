@@ -19,3 +19,29 @@ export type {
   FetchChainLocksResult,
 } from './activity.js';
 export { SendQueue, getSignerSendQueue } from './send-queue.js';
+export { relayCostUsd } from './gas.js';
+export {
+  RelayValidationError,
+  validateRelayClaim,
+  validateRelayLock,
+} from './relay-validation.js';
+export type {
+  RelayValidationCode,
+  SignedRelayIntent,
+  SignedTermsInput,
+  ValidateRelayClaimInput,
+  ValidateRelayLockOptions,
+} from './relay-validation.js';
+export {
+  SendLinkRecipientError,
+  checkRecipientCanReceiveToken,
+  claimSendLink,
+  lockSendLink,
+} from './send-link.js';
+export type {
+  ClaimSendLinkParams,
+  LockSendLinkParams,
+  LockSendLinkResult,
+  RecipientTokenCheckResult,
+  SendLinkRecipientFailureReason,
+} from './send-link.js';
