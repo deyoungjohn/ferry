@@ -5,6 +5,7 @@ import type { SwapOrder } from '../lib/solver/types';
 import { getModeCopy, STATUS_PLAIN_WORDS, FAILURE_COPY } from '../lib/copy';
 import { AlertTriangleIcon, CheckIcon, CopyIcon } from '../components/icons';
 import { CopyDiagnosticsButton } from '../components/CopyDiagnosticsButton';
+import { useToast } from '../lib/toast/ToastContext';
 
 function truncateHash(hash?: string, head = 10, tail = 8): string {
   if (!hash) return '';
@@ -15,6 +16,7 @@ function truncateHash(hash?: string, head = 10, tail = 8): string {
 export function SwapStatusPage() {
   const { orderId } = useParams<{ orderId: string }>();
   const solver = useSolver();
+  const { showToast } = useToast();
   const [order, setOrder] = useState<SwapOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
@@ -51,6 +53,7 @@ export function SwapStatusPage() {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedHash(text);
+      showToast('Copied to clipboard', 'success');
       setTimeout(() => setCopiedHash(null), 2000);
     } catch {
       // Ignore clipboard write failures in non-secure contexts
@@ -333,7 +336,7 @@ export function SwapStatusPage() {
                   </span>
                 </div>
                 <p className="text-[11px] text-text-muted mt-0.5">
-                  Deposit funds into trustless Hash-Time-Locked Contract (HTLC).
+                  Deposit funds into Hash-Time-Locked Contract (HTLC).
                 </p>
               </div>
 

@@ -28,6 +28,7 @@ import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
 import { ArrowUpDownIcon, ChevronDownIcon } from './icons';
 import { CopyDiagnosticsButton } from './CopyDiagnosticsButton';
+import { useToast } from '../lib/toast/ToastContext';
 
 function formatSolverName(url: string): string {
   try {
@@ -103,6 +104,8 @@ export function SwapCard({
   const [liquidity, setLiquidity] = useState<LiquidityResponse | null>(null);
   const [recoveryDownloaded, setRecoveryDownloaded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const { showToast } = useToast();
 
   // Failure & Degraded States
   const [failureState, setFailureState] = useState<
@@ -162,6 +165,7 @@ export function SwapCard({
     ) as 'PUSD' | 'MUSD';
 
     setRecoveryDownloaded(false);
+    setQuoteLoading(true);
 
     // 1. Call solver.getQuote for legacy / mock adapter compatibility
     solver
@@ -180,6 +184,7 @@ export function SwapCard({
         setQuote(res);
 
         if (res.refusal) {
+          setQuoteLoading(false);
           setRefusal(res.refusal);
           setBestSolverQuote(null);
           setMultiQuoteResult(null);
@@ -221,6 +226,7 @@ export function SwapCard({
         })
           .then(async (result) => {
             if (!active) return;
+            setQuoteLoading(false);
             setMultiQuoteResult(result);
 
             if (result.best) {
@@ -264,6 +270,7 @@ export function SwapCard({
           })
           .catch(() => {
             if (active) {
+              setQuoteLoading(false);
               setMultiQuoteResult(null);
               setBestSolverQuote(null);
               setFailureState('solver_unreachable');
@@ -272,6 +279,7 @@ export function SwapCard({
       })
       .catch(() => {
         if (active) {
+          setQuoteLoading(false);
           setQuote(null);
           setFailureState('solver_unreachable');
         }
@@ -279,6 +287,7 @@ export function SwapCard({
 
     return () => {
       active = false;
+      setQuoteLoading(false);
     };
   }, [
     sendAmount,
@@ -381,6 +390,7 @@ export function SwapCard({
     });
     triggerRecoveryDownload(payload);
     setRecoveryDownloaded(true);
+    showToast('Recovery file downloaded', 'success');
   }
 
   async function handleSwap() {
@@ -611,15 +621,19 @@ export function SwapCard({
           )}
         </div>
 
-        {/* Direction Toggle button in center */}
+        {/* Direction Toggle button in center with micro-interaction (FR / B3-10) */}
         <div className="relative my-[-8px] z-10 flex justify-center">
           <button
             type="button"
             onClick={handleFlipDirection}
             aria-label="Toggle swap direction"
-            className="flex size-8 items-center justify-center rounded-full border border-hairline bg-surface-3 text-text shadow-md transition-transform hover:scale-110 hover:text-lime cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+            className="group flex size-8 items-center justify-center rounded-full border border-hairline bg-surface-3 text-text shadow-md transition-all hover:border-lime/40 hover:text-lime cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-lime active:scale-95 motion-reduce:transform-none"
           >
-            <ArrowUpDownIcon className="size-3.5" />
+            <ArrowUpDownIcon
+              className={`size-3.5 transition-transform duration-300 ease-out motion-reduce:transition-none motion-reduce:transform-none ${
+                isReverse ? 'rotate-180' : 'rotate-0'
+              }`}
+            />
           </button>
         </div>
 
@@ -995,43 +1009,65 @@ export function SwapCard({
           </div>
         )}
 
-        {/* Quote Details Row with Evidence (FR-17) */}
-        <div className="mt-2.5 space-y-1 rounded-xl bg-surface-2/60 p-2 text-xs text-text-muted">
-          <div className="flex items-center justify-between">
-            <span className="text-text-dim">Rate</span>
-            <span className="font-mono text-text">
-              1 {sendTokenSymbol} ≈{' '}
-              {quote?.exchangeRate ? quote.exchangeRate.toFixed(4) : '1.0000'}{' '}
-              {receiveTokenSymbol}
-            </span>
+        {/* Quote Details Row with Evidence (FR-17) & Skeleton Loader (B3-10) */}
+        {quoteLoading ? (
+          <div
+            data-testid="quote-skeleton"
+            role="status"
+            aria-label="Loading quote details"
+            className="mt-2.5 space-y-2 rounded-xl bg-surface-2/60 p-2.5 animate-pulse"
+          >
+            <div className="flex items-center justify-between">
+              <div className="h-3 w-12 rounded bg-surface-3" />
+              <div className="h-3 w-28 rounded bg-surface-3" />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="h-3 w-16 rounded bg-surface-3" />
+              <div className="h-3 w-36 rounded bg-surface-3" />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="h-3 w-20 rounded bg-surface-3" />
+              <div className="h-3 w-24 rounded bg-surface-3" />
+            </div>
           </div>
+        ) : (
+          <div className="mt-2.5 space-y-1 rounded-xl bg-surface-2/60 p-2 text-xs text-text-muted">
+            <div className="flex items-center justify-between">
+              <span className="text-text-dim">Rate</span>
+              <span className="font-mono text-text">
+                1 {sendTokenSymbol} ≈{' '}
+                {quote?.exchangeRate ? quote.exchangeRate.toFixed(4) : '1.0000'}{' '}
+                {receiveTokenSymbol}
+              </span>
+            </div>
 
-          {/* Pricing Evidence Line */}
-          <div className="flex items-center justify-between gap-1 text-[11px]">
-            <span className="text-text-dim shrink-0">Pricing</span>
-            <span
-              data-testid="quote-evidence-line"
-              className="font-mono text-text text-right truncate"
-            >
-              {quote?.formattedPricingEvidence ??
-                formatPricingEvidence(bestSolverQuote?.quote.terms.pricing)}
-            </span>
-          </div>
+            {/* Pricing Evidence Line */}
+            <div className="flex items-center justify-between gap-1 text-[11px]">
+              <span className="text-text-dim shrink-0">Pricing</span>
+              <span
+                data-testid="quote-evidence-line"
+                className="font-mono text-text text-right truncate"
+              >
+                {quote?.formattedPricingEvidence ??
+                  formatPricingEvidence(bestSolverQuote?.quote.terms.pricing)}
+              </span>
+            </div>
 
-          <div className="flex items-center justify-between">
-            <span className="text-text-dim">Est. settlement</span>
-            <span className="text-ok">
-              {lane === 'fast'
-                ? '< 1 minute (Fast lane)'
-                : '≈ 10 minutes (Safe lane)'}
-            </span>
-          </div>
+            <div className="flex items-center justify-between">
+              <span className="text-text-dim">Est. settlement</span>
+              <span className="text-ok">
+                {lane === 'fast'
+                  ? '< 1 minute (Fast lane)'
+                  : '≈ 10 minutes (Safe lane)'}
+              </span>
+            </div>
 
-          {/* Transparent pricing claim wording */}
-          <div className="pt-1 border-t border-hairline/50 text-center text-[10px] text-text-dim">
-            <span>{CHECKABLE_QUOTE_WORDING}</span>
+            {/* Transparent pricing claim wording */}
+            <div className="pt-1 border-t border-hairline/50 text-center text-[10px] text-text-dim">
+              <span>{CHECKABLE_QUOTE_WORDING}</span>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Real Recovery Download Action (Requirement 3) */}
         {bestSolverQuote && (

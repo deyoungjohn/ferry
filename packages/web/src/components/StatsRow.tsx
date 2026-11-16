@@ -16,7 +16,30 @@ export function StatsRow() {
     };
   }, [solver]);
 
-  if (!stats) return null;
+  if (!stats) {
+    return (
+      <section
+        aria-label="Network Statistics"
+        className="mx-auto mt-12 max-w-4xl px-4 sm:px-6"
+      >
+        <div
+          data-testid="stats-skeleton"
+          role="status"
+          aria-label="Loading network statistics"
+          className="rounded-card border border-hairline bg-surface-1/60 p-6 animate-pulse"
+        >
+          <div className="grid grid-cols-1 gap-6 text-center sm:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex flex-col items-center gap-2">
+                <div className="h-8 w-20 rounded bg-surface-2" />
+                <div className="h-3 w-28 rounded bg-surface-3" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section

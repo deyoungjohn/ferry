@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CopyIcon, CheckIcon } from './icons';
 import { type DiagnosticsData, sanitizeDiagnostics } from '../lib/diagnostics';
+import { useToast } from '../lib/toast/ToastContext';
 
 export type { DiagnosticsData };
 
@@ -14,6 +15,7 @@ export function CopyDiagnosticsButton({
   label?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const { showToast } = useToast();
 
   async function handleCopy() {
     try {
@@ -22,6 +24,7 @@ export function CopyDiagnosticsButton({
         await navigator.clipboard.writeText(text);
       }
       setCopied(true);
+      showToast('Diagnostics copied to clipboard', 'success');
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // Fallback

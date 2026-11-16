@@ -8,6 +8,7 @@ import { WalletContext } from '../lib/wallet/context';
 import { chunkCashaddr } from '../lib/paylink/link';
 import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse } from '../lib/solver/types';
+import { useToast } from '../lib/toast/ToastContext';
 
 export function PayLinkPage() {
   const { id } = useParams<{ id: string }>();
@@ -15,6 +16,7 @@ export function PayLinkPage() {
   const solver = useSolver();
   const walletContext = useContext(WalletContext);
   const evm = walletContext?.evm ?? { status: 'disconnected', address: null };
+  const { showToast } = useToast();
   const copy = getModeCopy('pay-link');
 
   // Sample data for demo/mock pay link
@@ -100,6 +102,7 @@ export function PayLinkPage() {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       await navigator.clipboard.writeText(currentUrl);
       setCopiedShare(true);
+      showToast('Pay link copied to clipboard', 'success');
       setTimeout(() => setCopiedShare(false), 2000);
     }
   }

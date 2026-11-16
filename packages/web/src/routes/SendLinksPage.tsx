@@ -4,8 +4,10 @@ import { QRCodeSVG } from 'qrcode.react';
 import { isAddress } from 'viem';
 import { sendLinkUrl, type SendLinkData } from '../lib/paylink/link';
 import { NETWORK_PROFILE } from '../lib/config';
+import { useToast } from '../lib/toast/ToastContext';
 
 export function SendLinksPage() {
+  const { showToast } = useToast();
   const farChains = NETWORK_PROFILE.farChains;
   const [destChain, setDestChain] = useState(farChains[0]?.name ?? 'Base');
   const [destToken, setDestToken] = useState('USDC');
@@ -63,6 +65,7 @@ export function SendLinksPage() {
   function handleCopy(url: string) {
     void navigator.clipboard.writeText(url);
     setCopied(true);
+    showToast('Send link copied to clipboard', 'success');
     setTimeout(() => setCopied(false), 2000);
   }
 

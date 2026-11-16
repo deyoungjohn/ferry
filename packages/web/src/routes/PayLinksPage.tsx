@@ -8,9 +8,11 @@ import {
   payLinkUrl,
   type PayLinkData,
 } from '../lib/paylink/link';
+import { useToast } from '../lib/toast/ToastContext';
 
 export function PayLinksPage() {
   const walletContext = useContext(WalletContext);
+  const { showToast } = useToast();
   const bch = walletContext?.bch ?? { status: 'disconnected', address: null };
   const [token, setToken] = useState<'PUSD' | 'MUSD'>('PUSD');
   const [fixedAmount, setFixedAmount] = useState('20.00');
@@ -82,6 +84,7 @@ export function PayLinksPage() {
   function handleCopyUrl(url: string) {
     void navigator.clipboard.writeText(url);
     setCopied(true);
+    showToast('Pay link copied to clipboard', 'success');
     setTimeout(() => setCopied(false), 2000);
   }
 

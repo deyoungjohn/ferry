@@ -18,9 +18,12 @@ import { createPublicClient, http, type Address, type Hex } from 'viem';
 import { base } from 'viem/chains';
 import { WalletContext } from '../lib/wallet/context';
 import { CopyDiagnosticsButton } from '../components/CopyDiagnosticsButton';
+import { InfoIcon, ExternalLinkIcon } from '../components/icons';
+import { useToast } from '../lib/toast/ToastContext';
 
 export function RecoverPage() {
   const walletContext = useContext(WalletContext);
+  const { showToast } = useToast();
   const [fileContent, setFileContent] = useState('');
   const [recoveryFile, setRecoveryFile] = useState<RecoveryFile | null>(null);
   const [plan, setPlan] = useState<RecoveryPlan | null>(null);
@@ -125,6 +128,7 @@ export function RecoverPage() {
       setNotice(
         'Recovery file loaded successfully. Contract parameters verified.',
       );
+      showToast('Recovery file loaded successfully', 'success');
     }
   }
 
@@ -269,6 +273,40 @@ export function RecoverPage() {
         >
           ← Back to Swap
         </Link>
+      </div>
+
+      {/* What is a recovery file explainer panel (Requirement 4) */}
+      <div
+        data-testid="what-is-recovery-panel"
+        className="mb-6 rounded-card border border-hairline bg-surface-1/60 p-5 text-xs shadow-elev-card"
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <InfoIcon className="size-4 text-lime shrink-0" />
+          <h2 className="text-sm font-semibold text-text">
+            What is a recovery file?
+          </h2>
+        </div>
+        <p className="text-text-muted leading-relaxed">
+          A recovery file is a local, portable JSON backup created whenever you
+          initiate a swap. It contains the on-chain contract addresses, lock
+          scripts, refund deadlines, and secret hashes. Because Ferry is
+          non-custodial, this file allows you to claim your funds or execute an
+          automatic refund directly on-chain—even if this website and every
+          solver are completely unreachable.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-dim border-t border-hairline/60 pt-2.5">
+          <span>• 100% self-sovereign recovery</span>
+          <span>• Usable in this browser or offline in terminal</span>
+          <a
+            href="https://github.com/deyoungjohn/ferry/tree/main/packages/recover-cli"
+            target="_blank"
+            rel="noreferrer"
+            className="text-lime hover:underline inline-flex items-center gap-1"
+          >
+            <span>CLI tool: @ferry/recover-cli</span>
+            <ExternalLinkIcon className="size-3" />
+          </a>
+        </div>
       </div>
 
       {/* Upload Well */}
