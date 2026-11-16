@@ -48,6 +48,11 @@ const RouteStatusPage = lazy(async () => {
   return { default: m.RouteStatusPage };
 });
 
+const HelpPage = lazy(async () => {
+  const m = await import('./routes/HelpPage');
+  return { default: m.HelpPage };
+});
+
 export function App() {
   return (
     <Routes>
@@ -123,6 +128,14 @@ export function App() {
           element={
             <Suspense fallback={null}>
               <RouteStatusPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/help"
+          element={
+            <Suspense fallback={null}>
+              <HelpPage />
             </Suspense>
           }
         />

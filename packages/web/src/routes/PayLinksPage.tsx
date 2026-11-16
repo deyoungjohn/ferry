@@ -127,6 +127,11 @@ export function PayLinksPage() {
                 value={pastedAddress}
                 onChange={(e) => setPastedAddress(e.target.value)}
                 placeholder={activeRecipient}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="off"
+                inputMode="text"
                 className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 font-mono text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
               />
               <span className="mt-1 block text-[11px] text-text-dim">
@@ -203,7 +208,10 @@ export function PayLinksPage() {
                     type="number"
                     step="any"
                     min="1"
+                    aria-label="Fixed Amount"
                     value={fixedAmount}
+                    inputMode="decimal"
+                    autoComplete="off"
                     onChange={(e) => setFixedAmount(e.target.value)}
                     placeholder="0.00"
                     className="flex-1 rounded-well border border-hairline bg-surface-2 p-2.5 font-semibold text-text focus:border-lime focus:outline-none"

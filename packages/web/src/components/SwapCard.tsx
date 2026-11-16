@@ -576,6 +576,8 @@ export function SwapCard({
               step="any"
               min="1"
               value={sendAmount}
+              inputMode="decimal"
+              autoComplete="off"
               onChange={(e) => setSendAmount(e.target.value)}
               placeholder="0.0"
               className="w-full bg-transparent text-xl sm:text-2xl font-semibold text-text outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
@@ -704,6 +706,11 @@ export function SwapCard({
             data-testid="recipient-address-input"
             type="text"
             value={recipientAddress}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            autoComplete="off"
+            inputMode="text"
             onChange={(e) => {
               setRecipientAddress(e.target.value);
               setFailureState(null);

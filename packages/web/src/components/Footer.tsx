@@ -25,6 +25,9 @@ export function Footer() {
           <Link to="/status" className="hover:text-text transition-colors">
             {FOOTER_COPY.status}
           </Link>
+          <Link to="/help" className="hover:text-text transition-colors">
+            User Guide
+          </Link>
           {BANNER_CONFIG.repoUrl && (
             <a
               href={BANNER_CONFIG.repoUrl}

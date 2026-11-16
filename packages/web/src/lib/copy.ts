@@ -171,6 +171,107 @@ export const STATUS_PLAIN_WORDS: Record<string, string> = {
   REFUNDED: 'Deposit Refunded',
 };
 
+export interface HelpGuideSection {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly steps?: readonly string[];
+  readonly details: readonly string[];
+}
+
+export const HELP_COPY = {
+  title: 'User Guide & FAQ',
+  subtitle:
+    'Clear, honest explanations of how Ferry works, how to recover funds, fees, and privacy.',
+  sections: [
+    {
+      id: 'send-dollars',
+      title: 'Send dollars to Bitcoin Cash',
+      summary:
+        'Exchange EVM stablecoins (USDC/USDT) directly for native Bitcoin Cash stablecoins (PUSD/MUSD) without a custodial bridge.',
+      steps: [
+        'Select your source token (USDC on Base, Ethereum, or Arbitrum) and your destination (PUSD or MUSD on Bitcoin Cash).',
+        'Enter the amount and paste your destination Bitcoin Cash CashAddress.',
+        'Review the guaranteed quote and lock your tokens into the source Hash-Time-Locked Contract (HTLC).',
+        'The solver detects your deposit and locks the matching target stablecoins into a Bitcoin Cash CashTokens covenant with the same secret hash.',
+        'You or your wallet claims the PUSD on Bitcoin Cash by revealing the 32-byte secret. The solver then uses that secret to claim the source tokens. Both sides settle atomically.',
+      ],
+      details: [
+        'Atomic execution guarantees that neither party can take funds without fulfilling the other side.',
+        'No wrapped assets: you receive genuine native CashTokens stablecoins directly into your self-custody wallet.',
+      ],
+    },
+    {
+      id: 'pay-link',
+      title: 'Get paid with a pay link',
+      summary:
+        'Create a reusable payment link or QR code to collect payments in stablecoins settled directly to your wallet.',
+      steps: [
+        'Navigate to Pay Links (/pay-links) and enter the exact dollar amount you wish to request.',
+        'Copy the generated pay link or present the interactive QR code to the payer.',
+        'The payer visits the link, connects any supported EVM or BCH wallet, and submits the payment.',
+        'Settlement completes directly to your configured CashAddress without intermediate custody.',
+      ],
+      details: [
+        'The payer does not need a Bitcoin Cash wallet or BCH to pay you.',
+        'Pay links strictly avoid misleading terminology: they are direct payment requests.',
+      ],
+    },
+    {
+      id: 'send-link',
+      title: 'Send a link to someone on another chain',
+      summary:
+        'Send dollars to anyone via a shareable URL fragment, redeemable by the recipient without prior coordination.',
+      steps: [
+        'Navigate to Send Links (/send-links) and lock the amount you want to transfer.',
+        'The app generates a unique link containing the cryptographic claim secret inside the URL fragment (#secret=...).',
+        'Share the link securely with your recipient via chat, email, or message.',
+        'The recipient opens the link and claims the funds into their wallet on their preferred supported chain.',
+      ],
+      details: [
+        'If the recipient does not claim the link before the expiration deadline, you can reclaim your full deposit.',
+        'Never publish a Send Link publicly; anyone with the secret fragment can claim the funds.',
+      ],
+    },
+    {
+      id: 'stalls-and-recovery',
+      title: 'What if something stalls?',
+      summary:
+        'Ferry is designed with deterministic refund timeouts and independent offline recovery tools so your funds are never trapped.',
+      details: [
+        'Refund Deadlines: Every contract deposit has an explicit on-chain deadline (e.g., 2 hours for safe swaps, 4 hours for links). If the counterparty or solver fails to act before the deadline, your deposit unlocks automatically for a 100% refund.',
+        'Standalone Recovery File: When initiating a swap, download the recovery JSON file. It contains the complete contract terms, lock IDs, and the secret preimage.',
+        'In-Page Recovery (/recover): If this website loses connection or a browser tab closes, open the /recover page and drop in your recovery file. You can monitor the state machine and trigger a refund or claim directly through public RPCs without any solver interaction.',
+        'Terminal CLI (@ferry/recover-cli): Even if this website is completely offline or unreachable, run "pnpm -w recover" in the terminal with your recovery file to sign and broadcast refund transactions directly to the blockchain nodes.',
+      ],
+    },
+    {
+      id: 'fees-and-costs',
+      title: 'What does it cost?',
+      summary:
+        'Transparent market pricing with zero hidden protocol fees or custody deductions.',
+      details: [
+        'Market Spread: Quotes include a transparent market spread (typically 40 basis points, or 0.40%) relative to real-time oracle reference prices from DEX pools (Cauldron and Paryon).',
+        'Fixed Platform Fee: Zero ($0.00). Ferry charges no protocol take rate.',
+        'Network Gas: You pay standard native transaction gas on the chain where you make your initial deposit (e.g., EVM gas for USDC lock, or Bitcoin Cash mining fee for CashTokens lock). The solver covers gas on their counter-lock and claim.',
+        'Worked Example: If you swap 100.00 USDC at 1:1 parity with a 40 bps spread ($0.40), the quote guarantees 99.60 PUSD delivered to your Bitcoin Cash address. All numbers and reference sources are displayed before you confirm.',
+      ],
+    },
+    {
+      id: 'privacy-and-visibility',
+      title: 'Who can see what?',
+      summary:
+        'Cryptographic secrets remain client-side until execution, and URL fragments protect private keys.',
+      details: [
+        'Secret in URL Fragment: For pay links and send links, the claim secret is stored after the hash (#) in the URL. Web browsers never transmit URL fragments to web servers, CDNs, or HTTP reverse proxies. The secret stays strictly inside the client browser memory.',
+        'What the Solver Sees: Solvers only see the SHA-256 hash of the secret, the token contract addresses, the amount, the expiration timestamp, and the public blockchain transaction. Solvers cannot see or deduce the secret until you choose to reveal it.',
+        'Public Blockchain Record: When a claim is executed, the 32-byte secret preimage is published to the blockchain as input to the smart contract, enabling both parties to settle.',
+        'No Third-Party Analytics: Ferry bundles zero tracking scripts, telemetry pixels, or third-party cookies.',
+      ],
+    },
+  ] as const,
+} as const;
+
 export const FAILURE_COPY = {
   solverUnreachable: {
     title: 'Solver Unreachable',

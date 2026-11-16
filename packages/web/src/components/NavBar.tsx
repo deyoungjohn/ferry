@@ -56,6 +56,12 @@ export function NavBar() {
             >
               Recover a swap
             </Link>
+            <Link
+              to="/help"
+              className="text-sm text-text-muted transition-colors hover:text-text"
+            >
+              User Guide
+            </Link>
             <a
               href="/#how-it-works"
               className="text-sm text-text-muted transition-colors hover:text-text"
