@@ -3,9 +3,13 @@ import { Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
 import { isAddress } from 'viem';
 import { sendLinkUrl, type SendLinkData } from '../lib/paylink/link';
+import { NETWORK_PROFILE } from '../lib/config';
 
 export function SendLinksPage() {
-  const [destChain, setDestChain] = useState('Base Sepolia');
+  const farChains = NETWORK_PROFILE.farChains;
+  const [destChain, setDestChain] = useState(
+    farChains[0]?.name ?? 'Base Sepolia',
+  );
   const [destToken, setDestToken] = useState('USDC');
   const [recipientEvm, setRecipientEvm] = useState('');
   const [amount, setAmount] = useState('20.00');
@@ -115,25 +119,46 @@ export function SendLinksPage() {
                   Destination Chain
                 </label>
                 <select
+                  aria-label="Destination Chain"
                   value={destChain}
-                  onChange={(e) => setDestChain(e.target.value)}
+                  onChange={(e) => {
+                    const newChainName = e.target.value;
+                    setDestChain(newChainName);
+                    const chain = farChains.find(
+                      (c) => c.name === newChainName,
+                    );
+                    if (chain && chain.tokenSymbols[0]) {
+                      setDestToken(chain.tokenSymbols[0]);
+                    }
+                  }}
                   className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 text-xs text-text focus:border-lime focus:outline-none cursor-pointer"
                 >
-                  <option value="Base Sepolia">Base Sepolia</option>
-                  <option value="Ethereum Sepolia">Ethereum Sepolia</option>
-                  <option value="Arbitrum Sepolia">Arbitrum Sepolia</option>
-                  <option value="BNB Smart Chain Testnet">BSC Testnet</option>
+                  {farChains.map((c) => (
+                    <option key={c.id} value={c.name} disabled={!c.enabled}>
+                      {c.name}{' '}
+                      {!c.enabled && c.disabledReason
+                        ? `(${c.disabledReason})`
+                        : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
                 <label className="block text-text-muted mb-1">Token</label>
                 <select
+                  aria-label="Token"
                   value={destToken}
                   onChange={(e) => setDestToken(e.target.value)}
                   className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 text-xs text-text focus:border-lime focus:outline-none cursor-pointer"
                 >
-                  <option value="USDC">USDC</option>
-                  <option value="USDT">USDT</option>
+                  {(
+                    farChains.find((c) => c.name === destChain)
+                      ?.tokenSymbols ?? ['USDC']
+                  ).map((sym) => (
+                    <option key={sym} value={sym}>
+                      {sym}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>

@@ -184,6 +184,10 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
     // Verify plan summary from recoveryActions is shown
     expect(screen.getByTestId('recovery-plan-summary')).toBeInTheDocument();
 
+    // Verify EVM wallet recovery plan from getEvmWalletRecoveryActions (§Requirement 2)
+    expect(screen.getByTestId('evm-recovery-plan')).toBeInTheDocument();
+    expect(screen.getByTestId('inspect-evm-button')).toBeInTheDocument();
+
     // Verify secret is masked initially
     expect(
       screen.getByText(/••••••••••••••••••••••••••••••••/i),

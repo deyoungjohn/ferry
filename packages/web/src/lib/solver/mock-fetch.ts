@@ -43,6 +43,12 @@ export function createMockSolverFetch(): MockSolverServer {
           : input.url;
 
     const parsedUrl = new URL(urlString, 'https://mock-solver-alpha.local');
+    if (
+      !parsedUrl.hostname.endsWith('.local') &&
+      typeof globalThis.fetch === 'function'
+    ) {
+      return globalThis.fetch(input, init);
+    }
     const pathname = parsedUrl.pathname;
     const isBeta =
       parsedUrl.hostname.includes('beta') || urlString.includes('beta');
