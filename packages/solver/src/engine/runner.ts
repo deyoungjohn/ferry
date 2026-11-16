@@ -1,5 +1,6 @@
 import {
   DEFAULT_REVEAL_CONFIG,
+  evmLockId,
   parseOrderTerms,
   type OrderTerms,
 } from '@ferry/core';
@@ -240,7 +241,11 @@ export class SolverEngine {
 
     // Step 1: Check EVM lock status if in QUOTED or USER_LOCK_SEEN
     if (order.status === 'QUOTED' || order.status === 'USER_LOCK_SEEN') {
-      const lockState = await this.evmPort.getLock(order.terms.hashLock);
+      const lockId = evmLockId(
+        order.terms.userEvmAddress,
+        order.terms.hashLock,
+      );
+      const lockState = await this.evmPort.getLock(lockId);
       if (lockState.status === 'locked' && lockState.txid) {
         if (order.status === 'QUOTED') {
           this.applyEvent(order, {
@@ -527,7 +532,11 @@ export class SolverEngine {
       order.status === 'SOLVER_LOCK_SEEN' ||
       order.status === 'SECRET_KNOWN'
     ) {
-      const lockState = await this.evmPort.getLock(order.terms.hashLock);
+      const lockId = evmLockId(
+        order.terms.solverEvmAddress,
+        order.terms.hashLock,
+      );
+      const lockState = await this.evmPort.getLock(lockId);
       if (lockState.status === 'claimed') {
         let secret = lockState.secret ?? order.secret;
         if (!secret && lockState.txid && this.evmPort.extractSecretFromClaim) {

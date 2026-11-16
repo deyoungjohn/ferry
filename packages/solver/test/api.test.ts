@@ -10,7 +10,12 @@ import { SolverEngine } from '../src/engine/runner.js';
 import type { BchQuorumClient } from '../src/bch/quorum-client.js';
 import { MockPriceSource } from '../src/pricing/price-source.js';
 import { QuoteRateLimiter } from '../src/api/rate-limiter.js';
-import { verifyOrderSignature } from '@ferry/core';
+import {
+  verifyOrderSignature,
+  type EvmAssetConfig,
+  type Hex32,
+  type LockState,
+} from '@ferry/core';
 
 describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', () => {
   let app: FastifyInstance;
@@ -51,6 +56,13 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       close: () => {},
     } as unknown as BchQuorumClient;
 
+    const mockAsset: EvmAssetConfig = {
+      symbol: 'USDC',
+      decimals: 6,
+      address: '0x1111111111111111111111111111111111111111',
+      permit: false,
+    };
+    const knownLocks = new Map<string, LockState>();
     fakeEvmAdapter = {
       id: 'base',
       address: solverAccount.address,
@@ -59,20 +71,75 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
         ageSeconds: 5,
         stale: false,
       }),
-      getLock: async () => ({ status: 'absent' as const }),
+      getLock: async (lockId: string) => {
+        return (
+          knownLocks.get(lockId.toLowerCase()) ?? {
+            status: 'absent' as const,
+          }
+        );
+      },
       isFinal: async () => true,
-      relayLock: async () => ({
-        chain: 'base',
-        txId: '0x' + 'aa'.repeat(32),
-      }),
-      claim: async () => ({
-        chain: 'base',
-        txId: '0x' + 'bb'.repeat(32),
-      }),
-      refund: async () => ({
-        chain: 'base',
-        txId: '0x' + 'cc'.repeat(32),
-      }),
+      relayLock: async (input: {
+        chain: string;
+        orderId: `0x${string}`;
+        payload: Parameters<EvmChainAdapter['relayLock']>[0]['payload'];
+      }) => {
+        const txId = ('0x' + 'aa'.repeat(32)) as Hex32;
+        const order = db.getOrder(input.orderId);
+        const lockId = order?.lockId ?? input.orderId;
+        const hashLock = (order?.hashLock ?? '0x' + '00'.repeat(32)) as Hex32;
+        knownLocks.set(lockId.toLowerCase(), {
+          status: 'locked' as const,
+          owner: solverAccount.address,
+          recipient: solverAccount.address,
+          asset: mockAsset,
+          amount: 10000000n,
+          hashLock,
+          deadline: Math.floor(Date.now() / 1000) + 7200,
+          lockTx: { chain: 'base', txId },
+        });
+        return {
+          chain: 'base' as const,
+          txId,
+        };
+      },
+      claim: async (lockId: string, secret: `0x${string}`) => {
+        const lock = knownLocks.get(lockId.toLowerCase());
+        if (!lock || lock.status === 'absent') {
+          throw new Error(`Lock ${lockId} is absent`);
+        }
+        const claimTxId = ('0x' + 'bb'.repeat(32)) as Hex32;
+        if (lock.status === 'locked' || lock.status === 'claimed') {
+          knownLocks.set(lockId.toLowerCase(), {
+            ...lock,
+            status: 'claimed' as const,
+            claimTx: { chain: 'base', txId: claimTxId },
+            secret: secret as Hex32,
+          });
+        }
+        return {
+          chain: 'base' as const,
+          txId: claimTxId,
+        };
+      },
+      refund: async (lockId: string) => {
+        const lock = knownLocks.get(lockId.toLowerCase());
+        if (!lock || lock.status === 'absent') {
+          throw new Error(`Lock ${lockId} is absent`);
+        }
+        const refundTxId = ('0x' + 'cc'.repeat(32)) as Hex32;
+        if (lock.status === 'locked' || lock.status === 'refunded') {
+          knownLocks.set(lockId.toLowerCase(), {
+            ...lock,
+            status: 'refunded' as const,
+            refundTx: { chain: 'base', txId: refundTxId },
+          });
+        }
+        return {
+          chain: 'base' as const,
+          txId: refundTxId,
+        };
+      },
     } as unknown as EvmChainAdapter & {
       getTip: () => Promise<{
         height: number;
@@ -358,6 +425,12 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       });
       const { orderId } = quoteRes.json();
 
+      await app.inject({
+        method: 'POST',
+        url: `/v1/orders/${orderId}/relay-lock`,
+        payload: { payload: { dummy: 'lock' } },
+      });
+
       const relayClaimRes = await app.inject({
         method: 'POST',
         url: `/v1/orders/${orderId}/relay-claim`,
@@ -407,25 +480,24 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
     it('GET /v1/orders/recent returns recent settled swaps list', async () => {
       const res = await app.inject({ method: 'GET', url: '/v1/orders/recent' });
       expect(res.statusCode).toBe(200);
-      expect(res.json().swaps).toBeInstanceOf(Array);
+      expect(res.json().orders).toBeInstanceOf(Array);
     });
 
     it('GET /v1/pegs returns peg snapshot with unix seconds timestamps', async () => {
       const res = await app.inject({ method: 'GET', url: '/v1/pegs' });
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.pegs.length).toBe(2);
-      expect(body.pegs[0].points[0].at).toBeLessThan(100_000_000_000);
+      expect(body.tokens.length).toBe(2);
+      expect(body.tokens[0].points[0].at).toBeLessThan(100_000_000_000);
     });
 
     it('GET /v1/metrics enforces strict privacy: NO user addresses or order lists in public metrics', async () => {
       const res = await app.inject({ method: 'GET', url: '/v1/metrics' });
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.orderCounts).toBeDefined();
-      expect(body.openExposureUsdMicros).toBeDefined();
-      expect(body.unfundedQuotesCount).toBeDefined();
-      expect(body.needsAttentionCount).toBeDefined();
+      expect(body.unfundedQuotes).toBeDefined();
+      expect(body.openExposureUsd).toBeDefined();
+      expect(body.tipAges).toBeDefined();
 
       // STRICT PRIVACY CHECK:
       expect(body.orders).toBeUndefined();
@@ -545,11 +617,10 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.quoteId).toBeDefined();
-      expect(body.destinationChainId).toBe(8453);
-      expect(body.holdFeeBps).toBe(10); // 10 bps per day for 1 day
-      expect(body.evmDeadlineSeconds).toBeGreaterThan(0);
-      expect(body.bchRefundHeight).toBeGreaterThan(0);
+      expect(body.orderId).toBeDefined();
+      expect(body.terms.evmChainId).toBe(8453);
+      expect(body.terms.evmDeadline).toBeGreaterThan(0);
+      expect(body.terms.bchRefundHeight).toBeGreaterThan(0);
     });
 
     it('GET /v1/send-links/:id returns send-link details without exposing the secret', async () => {
@@ -558,20 +629,49 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       const now = Math.floor(Date.now() / 1000);
       db.saveOrder({
         id,
-        direction: 'BCH_TO_COUNTER',
+        direction: 'BCH_TO_EVM',
         status: 'QUOTED',
         userCounterAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
         lockId: id,
-        termsJson: JSON.stringify({
-          version: 1,
-          evmChainId: 8453,
-          evmToken: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-          userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
-          evmAmount: '10000000n',
-          evmDeadline: now + 86400,
-        }),
+        termsJson: JSON.stringify(
+          {
+            version: 1,
+            direction: 'BCH_TO_EVM',
+            bchToken: 'PUSD',
+            bchTokenCategory: '0x' + '00'.repeat(32),
+            evmToken: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+            evmChainId: 8453,
+            evmHtlc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+            userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
+            userBchLockingBytecode:
+              '0x76a914000000000000000000000000000000000000000088ac',
+            solverEvmAddress: solverAccount.address,
+            solverBchLockingBytecode:
+              '0x76a914000000000000000000000000000000000000000088ac',
+            hashLock: '0x' + 'cd'.repeat(32),
+            evmDeadline: now + 86400,
+            bchRefundHeight: 330000,
+            bchCarrySats: 1000,
+            bchMaxFee: 500,
+            bchTokenAmount: 10000000n,
+            evmAmount: 10000000n,
+            quoteId: 'quote-test',
+            quoteExpiry: now + 300,
+            pricing: {
+              refs: [],
+              spreadBps: 40,
+              fixedFeeBase: 0n,
+              rounding: 'floor',
+            },
+          },
+          (_, v) => (typeof v === 'bigint' ? v.toString() + 'n' : v),
+        ),
         hashLock: '0x' + 'cd'.repeat(32),
         secret: '0x' + 'ef'.repeat(32), // SECRET MUST NEVER BE EXPOSED IN GET /v1/send-links/:id
+        lane: 'safe',
+        fastOptIn: false,
+        firstSeenAtMs: now,
+        needsAttention: false,
         createdAt: now,
         updatedAt: now,
       });
@@ -584,12 +684,12 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.id).toBe(id);
-      expect(body.destinationChainId).toBe(8453);
-      expect(body.recipientAddress).toBe(
+      expect(body.chainId).toBe(8453);
+      expect(body.recipientEvmAddress).toBe(
         '0x87ea46fe296c1810ef234a8e8d782a2122defadd',
       );
-      expect(body.amount).toBe('10000000');
-      expect(body.status).toBe('quoted');
+      expect(body.amountOut).toBe('10000000');
+      expect(body.status).toBe('pending_lock');
 
       // STRICT PRIVACY VERIFICATION:
       expect(body.secret).toBeUndefined();

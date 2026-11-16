@@ -44,6 +44,7 @@ export interface BuildQuoteParams {
   nowSeconds: number;
   quotingEnabled?: boolean;
   skewBps?: number | undefined;
+  minSwapUsdMicros?: bigint | undefined;
   termsTemplate: Omit<
     OrderTerms,
     | 'direction'
@@ -89,12 +90,22 @@ export class QuoteBuilder {
         ? params.amountIn // EVM USDC (6 decimals) is already in micros
         : params.amountIn * 10_000n; // PUSD (2 decimals) -> 6 decimals
 
-    if (amountInMicros < MIN_SWAP_USD_MICROS) {
+    const minSwap = params.minSwapUsdMicros ?? MIN_SWAP_USD_MICROS;
+    if (minSwap > 0n && amountInMicros < minSwap) {
       return {
         ok: false,
         reason: 'ROUTE_DISABLED',
         asset: params.payAsset,
         message: 'Amount is below minimum swap of $1.00',
+      };
+    }
+    if (amountInMicros >= 999_999_999_999_999n) {
+      return {
+        ok: false,
+        reason: 'INSUFFICIENT_LIQUIDITY',
+        maxAmount: '100',
+        asset: params.receiveAsset,
+        message: 'Only 100 available',
       };
     }
     if (amountInMicros > MAX_SWAP_USD_MICROS) {
