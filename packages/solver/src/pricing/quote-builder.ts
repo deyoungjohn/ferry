@@ -1,5 +1,4 @@
 import {
-  pegGuard,
   quoteOut,
   type Direction,
   type OrderTerms,
@@ -9,9 +8,15 @@ import {
   type PricingPolicy,
 } from '@ferry/core';
 import {
+  absDiff,
   assertFreshPrice,
+  DEFAULT_PARYON_MAX_AGE_SECONDS,
   DEFAULT_PEG_TOLERANCE_USD_MICROS,
+  DEFAULT_SOURCE_DISAGREEMENT_REFUSE_USD_MICROS,
+  DEFAULT_SOURCE_DISAGREEMENT_WARN_USD_MICROS,
+  formatUsdMicrosToDecimal,
   type AssetPriceReading,
+  type DetailedAssetPriceReading,
   type PriceSource,
 } from './price-source.js';
 import {
@@ -85,10 +90,10 @@ export function usdMicrosToTokenAmount(
   return micros / scale;
 }
 
-export function formatUsdMicrosToDecimal(micros: bigint): string {
-  const whole = micros / 1_000_000n;
-  const frac = (micros % 1_000_000n).toString().padStart(6, '0');
-  return `${whole}.${frac}`;
+export interface SourceDisagreementPolicy {
+  warnUsdMicros: bigint;
+  refuseUsdMicros: bigint;
+  paryonMaxAgeSeconds: number;
 }
 
 export class QuoteBuilder {
@@ -100,6 +105,11 @@ export class QuoteBuilder {
       fixedFeeUsdMicros: 0n,
     },
     private readonly pegToleranceUsdMicros: bigint = DEFAULT_PEG_TOLERANCE_USD_MICROS,
+    private readonly sourceDisagreementPolicy: SourceDisagreementPolicy = {
+      warnUsdMicros: DEFAULT_SOURCE_DISAGREEMENT_WARN_USD_MICROS,
+      refuseUsdMicros: DEFAULT_SOURCE_DISAGREEMENT_REFUSE_USD_MICROS,
+      paryonMaxAgeSeconds: DEFAULT_PARYON_MAX_AGE_SECONDS,
+    },
   ) {}
 
   async buildQuote(params: BuildQuoteParams): Promise<QuoteResult> {
@@ -153,31 +163,111 @@ export class QuoteBuilder {
     let payReading: AssetPriceReading;
     let receiveReading: AssetPriceReading;
     try {
-      payReading = await this.priceSource.getPrice(params.payAsset);
-      receiveReading = await this.priceSource.getPrice(params.receiveAsset);
+      payReading = this.priceSource.getDetailedPrice
+        ? await this.priceSource.getDetailedPrice(params.payAsset)
+        : await this.priceSource.getPrice(params.payAsset);
+      receiveReading = this.priceSource.getDetailedPrice
+        ? await this.priceSource.getDetailedPrice(params.receiveAsset)
+        : await this.priceSource.getPrice(params.receiveAsset);
       assertFreshPrice(payReading, params.nowSeconds);
       assertFreshPrice(receiveReading, params.nowSeconds);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        msg.includes('Peg guard refused') ||
+        msg.includes('Source disagreement') ||
+        msg.includes('peg tolerance')
+      ) {
+        return {
+          ok: false,
+          reason: 'PEG_GUARD',
+          asset: params.receiveAsset,
+          message: msg,
+        };
+      }
       return {
         ok: false,
         reason: 'PRICE_UNAVAILABLE',
         asset: params.payAsset,
-        message: `Reference price unavailable: ${err instanceof Error ? err.message : String(err)}`,
+        message: `Reference price unavailable: ${msg}`,
       };
     }
 
-    // 4. Peg guard check
-    const pricesToCheck = [payReading.usdPrice, receiveReading.usdPrice];
-    if (!pegGuard(pricesToCheck, this.pegToleranceUsdMicros)) {
-      return {
-        ok: false,
-        reason: 'PEG_GUARD',
-        asset: params.receiveAsset,
-        message: 'Stablecoin reference price deviated beyond peg tolerance',
-      };
+    // 4. Rule (a) Peg guard check on primary prices
+    const isPayStable = ['PUSD', 'MUSD', 'USDC', 'USDT'].includes(
+      params.payAsset.toUpperCase(),
+    );
+    const isReceiveStable = ['PUSD', 'MUSD', 'USDC', 'USDT'].includes(
+      params.receiveAsset.toUpperCase(),
+    );
+
+    for (const [reading, asset, isStable] of [
+      [payReading, params.payAsset, isPayStable] as const,
+      [receiveReading, params.receiveAsset, isReceiveStable] as const,
+    ]) {
+      if (isStable) {
+        const pegDiff = absDiff(reading.usdPrice, 1_000_000n);
+        if (pegDiff > this.pegToleranceUsdMicros) {
+          const devPct = (Number(pegDiff) / 10_000).toFixed(2);
+          const tolPct = (Number(this.pegToleranceUsdMicros) / 10_000).toFixed(
+            2,
+          );
+          return {
+            ok: false,
+            reason: 'PEG_GUARD',
+            asset,
+            message: `Primary price $${formatUsdMicrosToDecimal(reading.usdPrice)} (${reading.source}) deviated ${pegDiff} micros (${devPct}%) from $1, exceeding peg tolerance of ${this.pegToleranceUsdMicros} micros (${tolPct}%)`,
+          };
+        }
+      }
     }
 
-    // 5. Build PricingEvidence
+    // 5. Rule (b) Source disagreement check on secondary reference
+    const detailedReadings = [
+      payReading,
+      receiveReading,
+    ] as DetailedAssetPriceReading[];
+    for (const reading of detailedReadings) {
+      if (reading.secondary) {
+        const sec = reading.secondary;
+        const secAge = params.nowSeconds - sec.asOf;
+        if (
+          secAge < 0 ||
+          secAge > this.sourceDisagreementPolicy.paryonMaxAgeSeconds ||
+          !sec.available ||
+          sec.usdPrice <= 0n
+        ) {
+          // A stale secondary never refuses a quote; mark unavailable
+          sec.available = false;
+          sec.status = 'unavailable';
+        } else {
+          const disagreement = absDiff(reading.usdPrice, sec.usdPrice);
+          const diffPct = (Number(disagreement) / 10_000).toFixed(2);
+          const refusePct = (
+            Number(this.sourceDisagreementPolicy.refuseUsdMicros) / 10_000
+          ).toFixed(2);
+
+          if (disagreement > this.sourceDisagreementPolicy.refuseUsdMicros) {
+            return {
+              ok: false,
+              reason: 'PEG_GUARD',
+              asset:
+                reading === payReading ? params.payAsset : params.receiveAsset,
+              message: `Source disagreement of ${disagreement} micros (${diffPct}%) between ${reading.source} ($${formatUsdMicrosToDecimal(reading.usdPrice)}) and ${sec.source} ($${formatUsdMicrosToDecimal(sec.usdPrice)}) exceeds ${this.sourceDisagreementPolicy.refuseUsdMicros} micros (${refusePct}%) limit`,
+            };
+          }
+
+          sec.disagreementMicros = disagreement;
+          sec.disagreementPct = diffPct;
+          sec.status =
+            disagreement > this.sourceDisagreementPolicy.warnUsdMicros
+              ? 'warn'
+              : 'ok';
+        }
+      }
+    }
+
+    // 6. Build PricingEvidence
     const refs: PricingRef[] = [
       {
         asset: params.payAsset,
@@ -192,6 +282,41 @@ export class QuoteBuilder {
         asOf: receiveReading.asOf,
       },
     ];
+
+    // Append secondary reference evidence if present
+    for (const [reading, asset] of [
+      [payReading as DetailedAssetPriceReading, params.payAsset] as const,
+      [
+        receiveReading as DetailedAssetPriceReading,
+        params.receiveAsset,
+      ] as const,
+    ]) {
+      if (reading.secondary) {
+        const sec = reading.secondary;
+        if (sec.available && sec.status === 'warn') {
+          refs.push({
+            asset,
+            usdPrice: formatUsdMicrosToDecimal(sec.usdPrice),
+            source: `${sec.source} (warn: ${sec.disagreementPct}% disagreement / ${sec.disagreementMicros} micros)`,
+            asOf: sec.asOf,
+          });
+        } else if (sec.available) {
+          refs.push({
+            asset,
+            usdPrice: formatUsdMicrosToDecimal(sec.usdPrice),
+            source: `${sec.source} (disagreement: ${sec.disagreementPct}% / ${sec.disagreementMicros} micros)`,
+            asOf: sec.asOf,
+          });
+        } else {
+          refs.push({
+            asset,
+            usdPrice: formatUsdMicrosToDecimal(reading.usdPrice),
+            source: `${sec.source} (unavailable)`,
+            asOf: sec.asOf || reading.asOf,
+          });
+        }
+      }
+    }
 
     const skew = params.skewBps ?? 0;
     const effectiveSpreadBps =

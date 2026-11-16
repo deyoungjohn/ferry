@@ -245,10 +245,20 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     config.maxExposureUsdMicros,
   );
 
-  const quoteBuilder = new QuoteBuilder(priceSource, liquidityManager, {
-    spreadBps: config.spreadBps,
-    fixedFeeUsdMicros: config.fixedFeeUsdMicros,
-  });
+  const quoteBuilder = new QuoteBuilder(
+    priceSource,
+    liquidityManager,
+    {
+      spreadBps: config.spreadBps,
+      fixedFeeUsdMicros: config.fixedFeeUsdMicros,
+    },
+    config.pegToleranceUsdMicros,
+    {
+      warnUsdMicros: config.sourceDisagreementWarnUsdMicros,
+      refuseUsdMicros: config.sourceDisagreementRefuseUsdMicros,
+      paryonMaxAgeSeconds: config.paryonMaxAgeSeconds,
+    },
+  );
 
   const solverAccount = privateKeyToAccount(
     config.solverEvmPrivateKey as `0x${string}`,

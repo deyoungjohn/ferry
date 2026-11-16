@@ -245,6 +245,11 @@ export async function startSolver(
       chainConfig: routesContext.chainConfig,
       evmClients,
       bchSource: createBchPriceSource(),
+      pegToleranceUsdMicros: config.pegToleranceUsdMicros,
+      sourceDisagreementWarnUsdMicros: config.sourceDisagreementWarnUsdMicros,
+      sourceDisagreementRefuseUsdMicros:
+        config.sourceDisagreementRefuseUsdMicros,
+      paryonMaxAgeSeconds: config.paryonMaxAgeSeconds,
     });
 
   // 9. Build Fastify Server

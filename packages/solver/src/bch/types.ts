@@ -37,6 +37,8 @@ export interface BchQuorumStatus {
   healthyServersCount: number;
   quotingAllowed: boolean;
   quotingState: QuotingState;
+  failedHosts?: Record<string, string> | undefined;
+  quorumFailureMessage?: string | undefined;
 }
 
 export interface DSProofEvidence {
