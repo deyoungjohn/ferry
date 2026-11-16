@@ -1,59 +1,19 @@
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { loadChainConfig } from './config.js';
+import { ethGetCode } from './evm-read.js';
 import {
+  parseRpcOverrides,
   probeRpcLogMaxRange,
-  redactRpcSecrets,
-  redactRpcUrl,
   type RpcCaller,
 } from './rpc-overrides.js';
+import { makeJsonRpc } from './rpc-client.js';
 
 const CIRCLE_USDC_DOCS =
   'https://developers.circle.com/stablecoins/usdc-contract-addresses';
 const TETHER_PROTOCOLS_DOCS = 'https://tether.to/en/supported-protocols/';
-
-function makeRpc(): RpcCaller {
-  return async <T>(
-    url: string,
-    method: string,
-    params: unknown[],
-  ): Promise<T> => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20_000);
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-        signal: controller.signal,
-      });
-      const payload = (await response.json()) as {
-        result?: T;
-        error?: { message?: string };
-      };
-      if (payload.error) {
-        throw new Error(
-          redactRpcSecrets(payload.error.message ?? 'RPC returned an error', [
-            url,
-          ]),
-        );
-      }
-      if (payload.result === undefined)
-        throw new Error('RPC returned no result');
-      return payload.result;
-    } catch (error) {
-      throw new Error(
-        redactRpcSecrets(
-          error instanceof Error ? error.message : String(error),
-          [url],
-        ),
-        { cause: error },
-      );
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-}
+const ROBINHOOD_CHAINLINK_FEEDS =
+  'https://reference-data-directory.vercel.app/feeds-robinhood-mainnet.json';
 
 async function fetchText(url: string): Promise<string | null> {
   const controller = new AbortController();
@@ -72,42 +32,117 @@ async function fetchText(url: string): Promise<string | null> {
   }
 }
 
+async function fetchJson(url: string): Promise<unknown | null> {
+  const text = await fetchText(url);
+  if (text === null) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 function listed(text: string | null, name: RegExp): string {
   if (text === null) return 'unknown';
   return name.test(text) ? 'yes' : 'no';
 }
 
-async function publicLogCap(
-  chain: 'arc' | 'robinhood',
-  rpc: RpcCaller,
-): Promise<string> {
-  const config = loadChainConfig({ env: {}, network: 'mainnet' });
-  const facts = config.facts.find((item) => item.id === chain);
-  const endpoint = facts?.rpcEndpoints.find((item) => item.source === 'public');
-  if (!endpoint) return 'no public endpoint';
-  const cap = await probeRpcLogMaxRange(endpoint.url, rpc);
-  return cap === null
-    ? `yes (${endpoint.host}; cap unknown)`
-    : `yes (${redactRpcUrl(endpoint.url)}; cap ${cap} blocks)`;
+function chainlinkRobinhoodFeed(directory: unknown | null): string {
+  if (!Array.isArray(directory)) return 'unknown';
+  return directory.some(
+    (entry) =>
+      entry !== null &&
+      typeof entry === 'object' &&
+      (entry as { name?: unknown }).name === 'USDC / USD',
+  )
+    ? 'yes'
+    : 'no';
 }
 
-export async function runWatchChains(): Promise<void> {
-  const rpc = makeRpc();
-  const [circle, tether] = await Promise.all([
-    fetchText(CIRCLE_USDC_DOCS),
-    fetchText(TETHER_PROTOCOLS_DOCS),
-  ]);
-  const arcPattern = /\barc\b/i;
+async function watchChain(
+  chainId: 'arc' | 'robinhood',
+  rpc: RpcCaller,
+  circle: string | null,
+  tether: string | null,
+  robinhoodFeeds: unknown | null,
+  env: Record<string, string | undefined>,
+): Promise<void> {
+  const config = loadChainConfig({ env, network: 'mainnet' });
+  const chain = config.facts.find((item) => item.id === chainId);
+  if (!chain) {
+    console.log(`${chainId}: chain config missing`);
+    return;
+  }
+  const endpoint = chain.rpcEndpoints[0];
+  if (!endpoint) {
+    console.log(`${chainId}: no RPC endpoint`);
+    return;
+  }
+
+  let chainIdOk: boolean;
+  try {
+    const actual = Number(
+      BigInt(await rpc<string>(endpoint.url, 'eth_chainId', [])),
+    );
+    chainIdOk = actual === chain.chainId;
+  } catch {
+    chainIdOk = false;
+  }
+
+  let factory: string;
+  try {
+    const code = await ethGetCode(
+      rpc,
+      endpoint.url,
+      chain.create2Factory.address,
+    );
+    factory = code !== '0x' ? 'ok' : 'FAIL';
+  } catch {
+    factory = 'FAIL';
+  }
+
+  const token = chain.assets.find((item) => item.symbol === 'USDC');
+  let tokenStatus = token ? 'no address' : 'none';
+  if (token?.address) {
+    try {
+      const code = await ethGetCode(rpc, endpoint.url, token.address);
+      tokenStatus = code !== '0x' ? 'ok' : 'FAIL';
+    } catch {
+      tokenStatus = 'FAIL';
+    }
+  }
+
+  const cap = await probeRpcLogMaxRange(endpoint.url, rpc);
+  const name = chainId === 'arc' ? 'Arc' : 'Robinhood Chain';
+  const chainlink =
+    chainId === 'robinhood'
+      ? chainlinkRobinhoodFeed(robinhoodFeeds)
+      : chain.priceFeeds.some((feed) => feed.pair === 'USDC/USD')
+        ? 'yes'
+        : 'no';
+  const circlePattern = /\barc\b/i;
   const robinhoodPattern = /\brobinhood\b/i;
-  const arcLogs = await publicLogCap('arc', rpc);
-  const robinhoodLogs = await publicLogCap('robinhood', rpc);
+  const pattern = chainId === 'arc' ? circlePattern : robinhoodPattern;
 
   console.log(
-    `Arc: Circle USDC listed: ${listed(circle, arcPattern)}; Tether USDT listed: ${listed(tether, arcPattern)}; public log RPC: ${arcLogs}`,
+    `${name}: host=${endpoint.host}; chainId=${chain.chainId} (${chainIdOk ? 'ok' : 'FAIL'}); factory=${factory}; USDC token=${tokenStatus}; log cap=${cap === null ? 'unknown' : `${cap} blocks`}; Circle USDC=${listed(circle, pattern)}; Tether USDT=${listed(tether, pattern)}; Chainlink USDC/USD=${chainlink}`,
   );
-  console.log(
-    `Robinhood Chain: Circle USDC listed: ${listed(circle, robinhoodPattern)}; Tether USDT listed: ${listed(tether, robinhoodPattern)}; public log RPC: ${robinhoodLogs}`,
-  );
+}
+
+export async function runWatchChains(
+  env: Record<string, string | undefined> = process.env,
+): Promise<void> {
+  const overrides = parseRpcOverrides(env);
+  const urls = Object.values(overrides).flatMap((list) => list ?? []);
+  const rpc = makeJsonRpc(urls);
+  const [circle, tether, robinhoodFeeds] = await Promise.all([
+    fetchText(CIRCLE_USDC_DOCS),
+    fetchText(TETHER_PROTOCOLS_DOCS),
+    fetchJson(ROBINHOOD_CHAINLINK_FEEDS),
+  ]);
+
+  await watchChain('arc', rpc, circle, tether, robinhoodFeeds, env);
+  await watchChain('robinhood', rpc, circle, tether, robinhoodFeeds, env);
   console.log('No route was enabled by this check.');
 }
 

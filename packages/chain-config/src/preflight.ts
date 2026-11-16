@@ -8,6 +8,8 @@ import {
   loadChainConfig,
   parseFerryNetwork,
   type ChainConfig,
+  type ChainFactView,
+  type EvmAssetFact,
   type RouteConfig,
 } from './config.js';
 import {
@@ -26,6 +28,8 @@ import {
   redactRpcUrl,
   type RpcCaller,
 } from './rpc-overrides.js';
+import { makeJsonRpc } from './rpc-client.js';
+import { usdt0DomainSeparator } from './htlc.js';
 
 const MAINNET_GENESIS =
   '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f';
@@ -55,6 +59,9 @@ const MINIMUM_TIER = {
 export interface PreflightAddresses {
   evm: string[];
   bch: string[];
+  deployerEvm: string | null;
+  solverEvm: string | null;
+  solverBch: string | null;
 }
 
 export interface BchBalance {
@@ -101,76 +108,67 @@ interface RoutePreflightResult {
   decision: string;
 }
 
-function makeRpc(secrets: readonly string[]): RpcCaller {
-  return async <T>(
-    url: string,
-    method: string,
-    params: unknown[],
-  ): Promise<T> => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-        signal: controller.signal,
-      });
-      const payload = (await response.json()) as {
-        result?: T;
-        error?: { message?: string };
-      };
-      if (payload.error) {
-        throw new Error(
-          redactRpcSecrets(
-            payload.error.message ?? 'RPC returned an error',
-            secrets,
-          ),
-        );
-      }
-      if (payload.result === undefined) {
-        throw new Error('RPC returned no result');
-      }
-      return payload.result;
-    } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(redactRpcSecrets(error.message, secrets), {
-          cause: error,
-        });
-      }
-      throw new Error(redactRpcSecrets(String(error), secrets), {
-        cause: error,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-}
-
 export function parsePreflightAddresses(
   raw: string | undefined,
 ): PreflightAddresses {
-  const result: PreflightAddresses = { evm: [], bch: [] };
+  const result: PreflightAddresses = {
+    evm: [],
+    bch: [],
+    deployerEvm: null,
+    solverEvm: null,
+    solverBch: null,
+  };
   if (raw === undefined || raw.trim() === '') return result;
   const parts = raw.split(',').map((value) => value.trim());
   if (parts.some((value) => value === '')) {
     throw new Error('PREFLIGHT_ADDRESSES contains an empty entry.');
   }
-  for (const [index, value] of parts.entries()) {
+  let labelledDeployer: string | null = null;
+  let labelledSolver: string | null = null;
+  let labelledBch: string | null = null;
+
+  for (const [index, rawValue] of parts.entries()) {
+    const equals = rawValue.indexOf('=');
+    const prefix = equals > 0 ? rawValue.slice(0, equals) : null;
+    const labelled =
+      prefix === 'deployer' || prefix === 'solver' || prefix === 'bch';
+    const value = labelled ? rawValue.slice(equals + 1) : rawValue;
+    if (value === '') {
+      throw new Error(
+        `Invalid PREFLIGHT_ADDRESSES entry at position ${index + 1}.`,
+      );
+    }
+
     if (isAddress(value)) {
+      if (prefix === 'bch') {
+        throw new Error(
+          `Invalid PREFLIGHT_ADDRESSES entry at position ${index + 1}.`,
+        );
+      }
       const address = getAddress(value);
       if (!result.evm.includes(address)) result.evm.push(address);
+      if (prefix === 'deployer') labelledDeployer = address;
+      if (prefix === 'solver') labelledSolver = address;
       continue;
     }
+
     try {
       decodeCashAddress(value);
+      if (prefix === 'deployer' || prefix === 'solver') {
+        throw new Error('wrong address type');
+      }
       if (!result.bch.includes(value)) result.bch.push(value);
+      if (prefix === 'bch') labelledBch = value;
     } catch {
       throw new Error(
         `Invalid PREFLIGHT_ADDRESSES entry at position ${index + 1}.`,
       );
     }
   }
+
+  result.deployerEvm = labelledDeployer ?? result.evm[0] ?? null;
+  result.solverEvm = labelledSolver ?? result.evm[1] ?? result.evm[0] ?? null;
+  result.solverBch = labelledBch ?? result.bch[0] ?? null;
   return result;
 }
 
@@ -515,23 +513,32 @@ async function checkRoute(
             : decodeAbiString(
                 await ethCall(rpc, endpoint.url, token.address, SELECTORS.name),
               );
-        const version =
-          token.version === null
-            ? null
-            : decodeAbiString(
-                await ethCall(
-                  rpc,
-                  endpoint.url,
-                  token.address,
-                  SELECTORS.version,
-                ),
-              );
         const domain = await ethCall(
           rpc,
           endpoint.url,
           token.address,
           SELECTORS.domainSeparator,
         );
+        let versionOk = true;
+        if (token.version !== null) {
+          if (token.name === 'USD₮0') {
+            versionOk =
+              usdt0DomainSeparator(
+                chain.chainId,
+                getAddress(token.address),
+              ).toLowerCase() === domain.toLowerCase();
+          } else {
+            const version = decodeAbiString(
+              await ethCall(
+                rpc,
+                endpoint.url,
+                token.address,
+                SELECTORS.version,
+              ),
+            );
+            versionOk = version === token.version;
+          }
+        }
         const nonces = await ethCall(
           rpc,
           endpoint.url,
@@ -540,7 +547,7 @@ async function checkRoute(
         );
         tokenOk =
           (token.name === null || name === token.name) &&
-          (token.version === null || version === token.version) &&
+          versionOk &&
           (token.domainSeparator === null ||
             domain.toLowerCase() === token.domainSeparator.toLowerCase()) &&
           nonces.length > 2;
@@ -765,6 +772,134 @@ function printFunding(
   }
 }
 
+function routeMinimumTarget(
+  chainId: string,
+  symbol: string,
+  decimals: number,
+): bigint {
+  const usd =
+    chainId === 'base' && symbol === 'USDC'
+      ? MINIMUM_TIER.baseUsdcUsd
+      : MINIMUM_TIER.otherStablecoinUsd;
+  return BigInt(usd) * 10n ** BigInt(decimals);
+}
+
+function fundingShortReason(
+  route: RouteConfig,
+  chain: ChainFactView,
+  token: EvmAssetFact,
+  solver: string,
+  evm: EvmBalanceResult,
+): string | null {
+  const chainBalance = evm.byAddress
+    .get(solver)
+    ?.find((item) => item.chainId === route.chain);
+  if (!chainBalance) return 'balance unavailable';
+  if (chainBalance.error) return `balance read failed (${chainBalance.error})`;
+  const balance = chainBalance.assets.get(route.asset);
+  if (balance === undefined) return 'stablecoin balance unavailable';
+  if (
+    balance < routeMinimumTarget(chain.id, token.symbol, token.decimals ?? 0)
+  ) {
+    return 'stablecoin below the Minimum tier';
+  }
+  if (chainBalance.native === 0n) return 'native gas is zero';
+  return null;
+}
+
+function printNextActions(
+  config: ChainConfig,
+  results: readonly RoutePreflightResult[],
+  addresses: PreflightAddresses,
+  evm: EvmBalanceResult,
+  bch: BchBalanceResult,
+): void {
+  const deployer = addresses.deployerEvm ?? '<deployer EVM address>';
+  const solver = addresses.solverEvm ?? '<solver EVM address>';
+  const bchAddress = addresses.solverBch ?? '<BCH address>';
+
+  console.log('');
+  console.log('Next actions');
+  for (const route of config.routes) {
+    const chain = config.facts.find((item) => item.id === route.chain);
+    const result = results.find((item) => item.route.key === route.key);
+    if (!chain) {
+      console.log(`- ${route.key}: SKIP (chain config missing)`);
+      continue;
+    }
+    if (route.reasons.length > 0) {
+      console.log(`- ${route.key}: SKIP (${route.reasons.join('; ')})`);
+      continue;
+    }
+    if (!route.enabled) {
+      if (result?.htlc === 'not deployed') {
+        console.log(
+          `- ${route.key}: DEPLOY (deploy FerryHTLC on ${chain.id} with ${deployer}; then add ${route.key} to ENABLED_ROUTES)`,
+        );
+      } else {
+        console.log(
+          `- ${route.key}: ENABLE (add ${route.key} to ENABLED_ROUTES)`,
+        );
+      }
+      continue;
+    }
+    if (!result || result.htlc === 'not deployed') {
+      console.log(
+        `- ${route.key}: DEPLOY (deploy FerryHTLC on ${chain.id} with ${deployer}; then rerun preflight)`,
+      );
+      continue;
+    }
+    const token = chain.assets.find((item) => item.symbol === route.asset);
+    if (!token || token.decimals === null) {
+      console.log(`- ${route.key}: FUND (token config missing)`);
+      continue;
+    }
+    if (addresses.solverEvm === null) {
+      console.log(
+        `- ${route.key}: FUND (set PREFLIGHT_ADDRESSES=solver=0x...; fund ${route.asset} and ${chain.nativeGas} on ${chain.id})`,
+      );
+      continue;
+    }
+    const reason = fundingShortReason(
+      route,
+      chain,
+      token,
+      addresses.solverEvm,
+      evm,
+    );
+    if (reason !== null) {
+      console.log(
+        `- ${route.key}: FUND (${reason}; fund ${route.asset} and ${chain.nativeGas} to ${solver} on ${chain.id})`,
+      );
+      continue;
+    }
+    const htlc = config.coreChains.find(
+      (item) => item.id === route.chain,
+    )?.htlcAddress;
+    console.log(
+      `- ${route.key}: VERIFY (verify ${htlc ?? 'the deployed HTLC'} on ${chain.explorerUrl} with ${deployer}; then rerun preflight)`,
+    );
+  }
+
+  if (addresses.solverBch === null) {
+    console.log(
+      '- BCH: FUND (set PREFLIGHT_ADDRESSES=bch=bitcoincash:...; fund PUSD, MUSD and BCH)',
+    );
+  } else {
+    const balance = bch.byAddress.get(addresses.solverBch);
+    const short =
+      !balance ||
+      balance.pusd < BigInt(MINIMUM_TIER.pusd) * 100n ||
+      balance.musd < BigInt(MINIMUM_TIER.musd) * 100n ||
+      balance.sats < MINIMUM_TIER.bchSats;
+    console.log(
+      short
+        ? `- BCH: FUND (fund PUSD, MUSD and BCH to ${bchAddress})`
+        : `- BCH: READY (${bchAddress} meets the Minimum tier)`,
+    );
+  }
+}
+
 export async function runPreflight(
   env: Record<string, string | undefined> = process.env,
 ): Promise<void> {
@@ -772,7 +907,7 @@ export async function runPreflight(
   const overrides = parseRpcOverrides(env);
   const overrideUrls = Object.values(overrides).flatMap((urls) => urls ?? []);
   const secrets = overrideUrls;
-  const rpc = makeRpc(secrets);
+  const rpc = makeJsonRpc(secrets);
   const rpcCaps: Record<string, number> = {};
 
   console.log(`Preflight (${network}, read-only)`);
@@ -814,6 +949,7 @@ export async function runPreflight(
         };
   printBalances(evm, bch, addresses, config);
   printFunding(config, evm, bch, addresses);
+  printNextActions(config, results, addresses, evm, bch);
 }
 
 const isMain =

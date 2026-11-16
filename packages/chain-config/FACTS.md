@@ -41,6 +41,7 @@ permit facts, at least two RPC URLs and finality policy are all verified.
 | L3  | Chainlink reference data, Arbitrum: https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-arbitrum-1.json |
 | L4  | Chainlink reference data, Arc: https://reference-data-directory.vercel.app/feeds-arc-mainnet.json                      |
 | L5  | Chainlink reference data, BNB Chain: https://reference-data-directory.vercel.app/feeds-bsc-mainnet.json                |
+| L6  | Chainlink reference data, Robinhood Chain: https://reference-data-directory.vercel.app/feeds-robinhood-mainnet.json    |
 
 On-chain commands use these forms:
 
@@ -344,6 +345,25 @@ the route's finality and permit checks. USDG is a Paxos-issued dollar token, not
 USDC or USDT, so it is not a substitute for this route without a product
 decision.
 
+Re-checked with the paid Robinhood endpoint on 2026-11-16: host
+`robinhood-mainnet.g.alchemy.com`, chain ID 4663 ok, canonical CREATE2 factory
+present, no USDC token contract in the configuration, and a 10-block
+`eth_getLogs` cap. Circle and Tether still list no Robinhood contract.
+
+A Chainlink **USDC/USD feed does exist** on Robinhood Chain:
+`0x9e6f4605992a899eE2999999F3Ec80C41F452546`, 8 decimals, 86,400 s heartbeat,
+0.5% deviation. The on-chain read returned `99976000` and `updatedAt`
+1794758045 on 2026-11-16. A price source is therefore not the blocker; the
+issuer-documented token is. Keep the route skipped.
+
+### Arc: paid endpoint check
+
+The paid Arc endpoint `arc-mainnet.g.alchemy.com` returned chain ID 5042, the
+canonical factory, the USDC token, and a 10-block `eth_getLogs` cap on
+2026-11-16. Circle lists Arc USDC; Tether does not. A Chainlink USDC/USD feed is
+present. The route stays enabled, but wide log scans should use the public Arc
+primary endpoint because the paid endpoint's 10-block cap is tip-only.
+
 ### BNB Chain: ship USDT, skip USDC
 
 USDC: Circle's USDC contract list has no BNB Chain entry (C1). The token
@@ -397,6 +417,17 @@ before the public URLs for the selected `FERRY_NETWORK`. The value is never
 written to a file and never printed: errors name the variable, and logs print
 only the host name with the path and query removed.
 
+The scripts do not auto-load `.env.local`, because that file also holds keys.
+Export only the `RPC_URL_*` lines before running them:
+
+```bash
+while IFS= read -r line; do
+  case "$line" in RPC_URL_*=*) export "$line" ;; esac
+done < ../.env.local
+```
+
+Never `cat`, copy or print the file.
+
 `loadChainConfig()` exposes `rpcEndpoints` with `host`, `source` and the measured
 `maxLogRange` for an override. `verify` probes the override cap and reports the
 host only. The preflight script uses the same data to print a go/no-go table,
@@ -414,6 +445,40 @@ pnpm --filter @ferry/chain-config preflight
 A root `pnpm preflight` alias needs a one-line change in the root
 `package.json`, which this package does not own.
 
+## Paid endpoints (measured)
+
+Measured on 2026-11-16 from the paid RPC overrides with
+`pnpm --filter @ferry/chain-config measure-rpc`. Only host names are recorded;
+no URL, path, query or key is written.
+
+| Chain           | Host                              | Chain ID | `eth_getLogs` cap | Median latency (20 calls) | Burst (20 parallel) | `safe` | `finalized` |
+| --------------- | --------------------------------- | -------: | ----------------: | ------------------------: | ------------------- | ------ | ----------- |
+| Base            | `rpc.ankr.com` (Base key)         |     8453 |           100,000 |                  156.8 ms | 20/20 in 1,050 ms   | yes    | yes         |
+| Ethereum        | `eth-mainnet.nodereal.io`         |        1 |            50,000 |                  337.2 ms | 20/20 in 2,038 ms   | yes    | yes         |
+| Arbitrum One    | `rpc.ankr.com` (Arbitrum key)     |    42161 |           500,000 |                  221.2 ms | 16/20 in 2,028 ms   | yes    | yes         |
+| Arc             | `arc-mainnet.g.alchemy.com`       |     5042 |                10 |                  156.5 ms | 20/20 in 2,718 ms   | yes    | yes         |
+| BNB Chain       | `bsc-mainnet.nodereal.io`         |       56 |            50,000 |                  279.4 ms | 20/20 in 1,641 ms   | yes    | yes         |
+| Robinhood Chain | `robinhood-mainnet.g.alchemy.com` |     4663 |                10 |                  153.8 ms | 20/20 in 1,952 ms   | yes    | yes         |
+
+Notes:
+
+- The Base Ankr cap varied between 100,000 and 1,000 blocks in later runs. Treat
+  1,000 as the conservative floor until repeated measurements settle.
+- Arbitrum Ankr answered 16 of 20 burst calls; four were rate-limited. The
+  normal path still works, but the solver should retry and keep the public
+  fallback.
+- Arc and Robinhood Alchemy expose a **10-block** `eth_getLogs` cap on this plan.
+  That is suitable for watching the tip, not for wide historical scans; keep the
+  public primary endpoints for those.
+- All six hosts returned the expected chain ID and both `safe` and `finalized`
+  block tags.
+- The first-position public caps in `src/data/chains.json` remain the measured
+  public values (Base 50,000; Ethereum 10,000; Arbitrum 100,000; Arc 10,000;
+  BNB 50,000; Robinhood 100,000). Paid caps stay at runtime in `rpcEndpoints`.
+- The paid-override `verify` run also returned 230 checked, 17 skipped,
+  0 differences. One Base Ankr cap probe was unknown because of a transient
+  rate limit, so the table above uses the dedicated `measure-rpc` run.
+
 ## S-17 price feeds
 
 For each enabled mainnet chain, the table records a documented Chainlink
@@ -422,28 +487,31 @@ USDC/USD or USDT/USD feed. The address, decimals, `description()` and
 deviation threshold come from Chainlink's reference data directory. Testnets
 and Robinhood Chain have no recorded feed and use the fallback source.
 
-| Chain            | Pair                 | Address                                      | Decimals | Heartbeat | Deviation | Latest answer            | `updatedAt` | Read at                   | Source                             | Date       | Status |
-| ---------------- | -------------------- | -------------------------------------------- | -------- | --------- | --------- | ------------------------ | ----------- | ------------------------- | ---------------------------------- | ---------- | ------ |
-| Base             | USDC/USD             | `0x7e860098F58bBFC8648a4311b374B1D669a2bc6B` | 8        | 86,400 s  | 0.3%      | `99976257` ($0.99976257) | 1794747564  | 2026-11-16T00:39:20+01:00 | L1; on-chain                       | 2026-11-16 | ✔      |
-| Ethereum         | USDC/USD             | `0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6` | 8        | 82,800 s  | 0.25%     | `99978160` ($0.99978160) | 1794704099  | 2026-11-16T00:39:20+01:00 | L2; on-chain                       | 2026-11-16 | ✔      |
-| Ethereum         | USDT/USD             | `0x3E7d1eAB13ad0104d2750B8863b489D65364e32D` | 8        | 86,400 s  | 0.25%     | `99932677` ($0.99932677) | 1794754343  | 2026-11-16T00:39:20+01:00 | L2; on-chain                       | 2026-11-16 | ✔      |
-| Arbitrum One     | USDC/USD             | `0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3` | 8        | 255 s     | 0.1%      | `99972538` ($0.99972538) | 1794785693  | 2026-11-16T00:39:20+01:00 | L3; on-chain                       | 2026-11-16 | ✔      |
-| Arbitrum One     | USDT/USD             | `0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7` | 8        | 255 s     | 0.1%      | `99943948` ($0.99943948) | 1794785849  | 2026-11-16T00:39:20+01:00 | L3; on-chain                       | 2026-11-16 | ✔      |
-| Arc              | USDC/USD             | `0x84EA90AC252Dc437031461836DB5164219147905` | 8        | 86,400 s  | 0.5%      | `99979737` ($0.99979737) | 1794756506  | 2026-11-16T00:39:20+01:00 | L4; on-chain                       | 2026-11-16 | ✔      |
-| BNB Chain        | USDC/USD             | `0x51597f405303C4377E36123cBc172b13269EA163` | 8        | 900 s     | 0.1%      | `99972468` ($0.99972468) | 1794785459  | 2026-11-16T00:39:20+01:00 | L5; on-chain                       | 2026-11-16 | ✔      |
-| BNB Chain        | USDT/USD             | `0xB97Ad0E74fa7d920791E90258A6E2085088b4320` | 8        | 900 s     | 0.1%      | `99946275` ($0.99946275) | 1794785127  | 2026-11-16T00:39:20+01:00 | L5; on-chain                       | 2026-11-16 | ✔      |
-| Base Sepolia     | USDC/USD             | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
-| Ethereum Sepolia | USDC/USD             | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
-| Arbitrum Sepolia | USDC/USD             | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
-| Arc Testnet      | USDC/USD             | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
-| BNB Testnet      | USDT/USD             | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
-| Robinhood Chain  | USDC/USD or USDT/USD | none                                         | —        | —         | —         | —                        | —           | 2026-11-16                | No route; fallback                 | 2026-11-16 | ✗      |
+| Chain            | Pair     | Address                                      | Decimals | Heartbeat | Deviation | Latest answer            | `updatedAt` | Read at                   | Source                             | Date       | Status |
+| ---------------- | -------- | -------------------------------------------- | -------- | --------- | --------- | ------------------------ | ----------- | ------------------------- | ---------------------------------- | ---------- | ------ |
+| Base             | USDC/USD | `0x7e860098F58bBFC8648a4311b374B1D669a2bc6B` | 8        | 86,400 s  | 0.3%      | `99976257` ($0.99976257) | 1794747564  | 2026-11-16T00:39:20+01:00 | L1; on-chain                       | 2026-11-16 | ✔      |
+| Ethereum         | USDC/USD | `0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6` | 8        | 82,800 s  | 0.25%     | `99978160` ($0.99978160) | 1794704099  | 2026-11-16T00:39:20+01:00 | L2; on-chain                       | 2026-11-16 | ✔      |
+| Ethereum         | USDT/USD | `0x3E7d1eAB13ad0104d2750B8863b489D65364e32D` | 8        | 86,400 s  | 0.25%     | `99932677` ($0.99932677) | 1794754343  | 2026-11-16T00:39:20+01:00 | L2; on-chain                       | 2026-11-16 | ✔      |
+| Arbitrum One     | USDC/USD | `0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3` | 8        | 255 s     | 0.1%      | `99972538` ($0.99972538) | 1794785693  | 2026-11-16T00:39:20+01:00 | L3; on-chain                       | 2026-11-16 | ✔      |
+| Arbitrum One     | USDT/USD | `0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7` | 8        | 255 s     | 0.1%      | `99943948` ($0.99943948) | 1794785849  | 2026-11-16T00:39:20+01:00 | L3; on-chain                       | 2026-11-16 | ✔      |
+| Arc              | USDC/USD | `0x84EA90AC252Dc437031461836DB5164219147905` | 8        | 86,400 s  | 0.5%      | `99979737` ($0.99979737) | 1794756506  | 2026-11-16T00:39:20+01:00 | L4; on-chain                       | 2026-11-16 | ✔      |
+| BNB Chain        | USDC/USD | `0x51597f405303C4377E36123cBc172b13269EA163` | 8        | 900 s     | 0.1%      | `99972468` ($0.99972468) | 1794785459  | 2026-11-16T00:39:20+01:00 | L5; on-chain                       | 2026-11-16 | ✔      |
+| BNB Chain        | USDT/USD | `0xB97Ad0E74fa7d920791E90258A6E2085088b4320` | 8        | 900 s     | 0.1%      | `99946275` ($0.99946275) | 1794785127  | 2026-11-16T00:39:20+01:00 | L5; on-chain                       | 2026-11-16 | ✔      |
+| Base Sepolia     | USDC/USD | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
+| Ethereum Sepolia | USDC/USD | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
+| Arbitrum Sepolia | USDC/USD | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
+| Arc Testnet      | USDC/USD | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
+| BNB Testnet      | USDT/USD | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
+| Robinhood Chain  | USDC/USD | `0x9e6f4605992a899eE2999999F3Ec80C41F452546` | 8        | 86,400 s  | 0.5%      | `99976000` ($0.99976000) | 1794758045  | 2026-11-16T12:39:48Z      | L6; paid endpoint                  | 2026-11-16 | ✔      |
 
 The latest answer is a snapshot and changes. `verify` re-reads
 `latestRoundData()` and checks the answer is positive, `updatedAt` is present
 and the feed is younger than twice its heartbeat. The display view exposes only
 the source name ("Chainlink USDC/USD", "Chainlink USDT/USD" or the fallback),
 never the feed address.
+
+Robinhood Chain has a Chainlink feed but no issuer-documented USDC/USDT token,
+so the route remains skipped; the feed is recorded here for the watch only.
 
 ## Verification run
 
