@@ -127,6 +127,7 @@ async function rpc<T>(
 
 function isTransient(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
+  if (message.trim() === '') return true;
   return /rate limit|rate-limited|request limit|too many|limit exceeded|timeout|aborted|fetch failed|temporarily|try again|beyond current head|head block/i.test(
     message,
   );

@@ -8,7 +8,8 @@ export interface RetryOptions {
 
 export function isRetryableRpcError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /rate limit|rate-limited|too many|limit exceeded|timeout|aborted|fetch failed|temporarily|try again|429|-\s?32005|-\s?32011|-\s?32029/i.test(
+  if (message.trim() === '') return true;
+  return /rate limit|rate-limited|too many|limit exceeded|timeout|aborted|fetch failed|unexpected end of json|invalid json|socket hang up|econnreset|temporarily|try again|429|-\s?32005|-\s?32011|-\s?32029/i.test(
     message,
   );
 }
