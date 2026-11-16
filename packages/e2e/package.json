@@ -1,0 +1,27 @@
+{
+  "name": "@ferry/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Opt-in end-to-end integration test suite for Ferry EVM flows.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint test",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@ferry/chain-config": "workspace:*",
+    "@ferry/chain-evm": "workspace:*",
+    "@ferry/core": "workspace:*",
+    "@ferry/htlc-evm": "workspace:*",
+    "@ferry/recover-cli": "workspace:*",
+    "@ferry/solver": "workspace:*",
+    "@ferry/solver-client": "workspace:*",
+    "viem": "2.57.10"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}
