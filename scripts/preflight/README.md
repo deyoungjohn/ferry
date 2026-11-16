@@ -19,18 +19,40 @@ want the short form:
 
 ## Environment
 
-Set values in `.env.local` (gitignored). The names are listed in `.env.example`.
+Values live in `.env.local` (gitignored). The scripts do **not** auto-load that
+file because it also holds keys. Export only the `RPC_URL_*` lines:
+
+```bash
+while IFS= read -r line; do
+  case "$line" in RPC_URL_*=*) export "$line" ;; esac
+done < ../.env.local
+```
+
+Never `cat`, copy or print the file. The names are listed in `.env.example`.
 
 - `RPC_URL_<CHAIN>`: optional comma-separated paid RPC URLs for `BASE`,
   `ETHEREUM`, `ARBITRUM`, `ARC`, `BNB` and `ROBINHOOD`. They are placed before the
   public URLs for the selected `FERRY_NETWORK`. The value is never printed; only
   the host name appears in output.
-- `PREFLIGHT_ADDRESSES`: comma-separated solver EVM address and BCH CashAddr.
+- `PREFLIGHT_ADDRESSES`: comma-separated addresses. Labels are
+  `deployer=0x...`, `solver=0x...` and `bch=bitcoincash:...`; unlabelled EVM and
+  BCH addresses are also accepted.
 - `BCH_ELECTRUM_URLS` / `BCH_CHIPNET_ELECTRUM_URLS`: two Fulcrum hosts.
 - `BCH_GENESIS_HASH`: expected genesis hash.
 - `PUSD_CATEGORY` / `MUSD_CATEGORY`: CashToken categories.
 
 `ENABLED_ROUTES` and `FERRY_NETWORK` use the same values as `@ferry/chain-config`.
+
+## Measure and funding
+
+```bash
+pnpm --dir scripts/preflight measure-rpc
+pnpm --dir scripts/preflight deploy-funding
+```
+
+`measure-rpc` prints host-only cap, latency, burst and block-tag results.
+`deploy-funding` prints the native gas for the deployment and Minimum-tier
+relays at the current paid-endpoint gas price.
 
 ## Watch
 
