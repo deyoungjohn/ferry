@@ -3,8 +3,9 @@ export const DEFAULT_PEG_TOLERANCE_USD_MICROS = 20_000n; // 2% tolerance ($0.02)
 
 export interface AssetPriceReading {
   usdPrice: bigint; // Price in USD micros (1,000,000 = $1.000000)
-  source: string; // Source identifier (e.g. 'cauldron', 'paryon', 'chainlink')
+  source: string; // Source identifier (e.g. 'cauldron', 'paryon', 'chainlink-base-0.3%')
   asOf: number; // Unix timestamp in seconds
+  heartbeatSeconds?: number | undefined; // Optional SLA heartbeat for feeds (e.g. Chainlink)
 }
 
 export interface PriceSource {
@@ -19,23 +20,28 @@ export class PriceUnavailableError extends Error {
 }
 
 /**
- * Validates price freshness against PRICE_MAX_AGE_S.
+ * Validates price freshness against PRICE_MAX_AGE_S or feed heartbeat plus margin.
  * Stale or future-dated readings throw PriceUnavailableError.
  */
 export function assertFreshPrice(
   reading: AssetPriceReading,
   nowSeconds: number,
-  maxAgeSeconds = PRICE_MAX_AGE_S,
+  defaultMaxAgeSeconds = PRICE_MAX_AGE_S,
 ): void {
   if (!reading || reading.usdPrice <= 0n) {
     throw new PriceUnavailableError(
       `Invalid price reading for source ${reading?.source ?? 'unknown'}`,
     );
   }
+  // For Chainlink feeds, accept answer within heartbeat plus 5 minute margin
+  const maxAllowedAge = reading.heartbeatSeconds
+    ? reading.heartbeatSeconds + 300
+    : defaultMaxAgeSeconds;
+
   const age = nowSeconds - reading.asOf;
-  if (age < 0 || age > maxAgeSeconds) {
+  if (age < 0 || age > maxAllowedAge) {
     throw new PriceUnavailableError(
-      `Price from ${reading.source} is stale (${age}s old, max allowed ${maxAgeSeconds}s)`,
+      `Price from ${reading.source} is stale (${age}s old, max allowed ${maxAllowedAge}s)`,
     );
   }
 }

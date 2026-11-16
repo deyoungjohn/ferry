@@ -104,11 +104,10 @@ describe('Checkable quotes, price sources, and liquidity reservations (blueprint
 
       expect(quote.ok).toBe(true);
       if (quote.ok) {
-        expect(quote.pricingEvidence.sources).toHaveLength(2);
-        expect(quote.pricingEvidence.sources[0]?.source).toBe('chainlink');
-        expect(quote.pricingEvidence.sources[1]?.source).toBe('cauldron');
+        expect(quote.pricingEvidence.refs).toHaveLength(2);
+        expect(quote.pricingEvidence.refs[0]?.source).toBe('chainlink');
+        expect(quote.pricingEvidence.refs[1]?.source).toBe('cauldron');
         expect(quote.pricingEvidence.spreadBps).toBe(40);
-        expect(quote.pricingEvidence.calculatedAt).toBe(now);
         expect(quote.terms.bchTokenAmount).toBe(2490n); // 24.90 PUSD (floor rounded)
       }
     });
@@ -247,7 +246,7 @@ describe('Checkable quotes, price sources, and liquidity reservations (blueprint
       if (!quote2.ok) {
         expect(quote2.reason).toBe('INSUFFICIENT_LIQUIDITY');
         // Available was 2500 - 2490 = 10 units
-        expect(quote2.maxAmount).toBe(10n);
+        expect(quote2.maxAmount).toBe('10');
         expect(quote2.asset).toBe('PUSD');
         expect(quote2.message).toContain('Only 10 PUSD available');
       }
@@ -363,13 +362,13 @@ describe('Checkable quotes, price sources, and liquidity reservations (blueprint
         'PUSD',
         10000n,
         2000n,
+        2,
         now,
       );
-      expect(data.inventory).toBe(10000n);
-      expect(data.openExposure).toBe(2000n);
-      expect(data.activeReservations).toBe(1500n);
-      expect(data.availableLiquidity).toBe(6500n); // 10000 - 2000 - 1500
-      expect(data.maxSwapAmount).toBe(6500n);
+      expect(data.inventory).toBe('10000');
+      expect(data.exposure).toBe('2000');
+      expect(data.reserved).toBe('1500');
+      expect(data.available).toBe('6500'); // 10000 - 2000 - 1500
     });
   });
 });

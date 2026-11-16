@@ -39,9 +39,39 @@ export const SolverConfigSchema = z
     solverBchWif: z.string().optional(),
     operatorToken: z.string().min(32).optional(),
     dsproofWindowMs: z.coerce.number().default(5000),
+    doubleSpendWaitMs: z.coerce.number().optional(),
     tipMaxAgeBchSeconds: z.coerce.number().default(7200),
     tipMaxAgeBaseSeconds: z.coerce.number().default(60),
     quotingEnabled: z.coerce.boolean().default(true),
+    trustedProxy: z.coerce.boolean().default(false),
+    rateLimitWindowMs: z.coerce.number().default(60000),
+    rateLimitMaxPerAddress: z.coerce.number().default(10),
+    rateLimitMaxPerIp: z.coerce.number().default(30),
+    spreadBps: z.coerce.number().default(40),
+    fixedFeeUsdMicros: z.coerce.bigint().default(0n),
+    minSwapUsdMicros: z.coerce.bigint().default(1000000n),
+    maxSwapUsdMicros: z.coerce.bigint().default(50000000n),
+    maxExposureUsdMicros: z.coerce.bigint().default(250000000n),
+    zeroConfMaxUsdMicros: z.coerce.bigint().default(25000000n),
+    quoteTtlSeconds: z.coerce.number().default(60),
+    evmConfs: z.coerce.number().default(1),
+    fwdBchRefundBlocks: z.coerce.number().default(36),
+    fwdEvmDeadlineSeconds: z.coerce.number().default(86400),
+    revBchRefundBlocks: z.coerce.number().default(144),
+    revEvmDeadlineSeconds: z.coerce.number().default(21600),
+    bchCarrySats: z.coerce.bigint().default(3000n),
+    bchMaxFeeSats: z.coerce.bigint().default(1500n),
+    tpusdCategory: z
+      .string()
+      .default(
+        'ec335fd3ffa45f80cef7217cf98e8adf562df5a3e33f354f69df2951703586ac',
+      ),
+    tmusdCategory: z
+      .string()
+      .default(
+        'c99627aec3e041f281068704c2609699d234586d5097301eff995f3bd00ac04d',
+      ),
+    allowMockPaylinkSignatures: z.coerce.boolean().default(false),
   })
   .superRefine((data, ctx) => {
     if (data.network === 'mainnet') {
@@ -155,13 +185,40 @@ export function loadConfigFromEnv(
     solverEvmPrivateKey,
     solverBchWif: env.SOLVER_BCH_WIF || undefined,
     operatorToken: env.OPERATOR_TOKEN ? env.OPERATOR_TOKEN.trim() : undefined,
-    dsproofWindowMs: env.DSPROOF_WINDOW_MS,
+    dsproofWindowMs: env.DSPROOF_WINDOW_MS || env.DOUBLE_SPEND_WAIT_MS,
+    doubleSpendWaitMs: env.DOUBLE_SPEND_WAIT_MS || env.DSPROOF_WINDOW_MS,
     tipMaxAgeBchSeconds: env.TIP_MAX_AGE_BCH_SECONDS,
     tipMaxAgeBaseSeconds: env.TIP_MAX_AGE_BASE_SECONDS,
     quotingEnabled:
       env.QUOTING_ENABLED !== undefined
         ? env.QUOTING_ENABLED === 'true'
         : undefined,
+    trustedProxy:
+      env.TRUSTED_PROXY !== undefined
+        ? env.TRUSTED_PROXY === '1' || env.TRUSTED_PROXY === 'true'
+        : undefined,
+    rateLimitWindowMs: env.RATE_LIMIT_WINDOW_MS,
+    rateLimitMaxPerAddress: env.RATE_LIMIT_MAX_PER_ADDRESS,
+    rateLimitMaxPerIp: env.RATE_LIMIT_MAX_PER_IP,
+    spreadBps: env.SPREAD_BPS,
+    fixedFeeUsdMicros: env.FIXED_FEE_USD_MICROS,
+    minSwapUsdMicros: env.MIN_SWAP_USD_MICROS,
+    maxSwapUsdMicros: env.MAX_SWAP_USD_MICROS,
+    maxExposureUsdMicros: env.MAX_EXPOSURE_USD_MICROS,
+    zeroConfMaxUsdMicros: env.ZERO_CONF_MAX_USD_MICROS,
+    quoteTtlSeconds: env.QUOTE_TTL_SECONDS,
+    evmConfs: env.EVM_CONFS,
+    fwdBchRefundBlocks: env.FWD_BCH_REFUND_BLOCKS,
+    fwdEvmDeadlineSeconds: env.FWD_EVM_DEADLINE_SECONDS,
+    revBchRefundBlocks: env.REV_BCH_REFUND_BLOCKS,
+    revEvmDeadlineSeconds: env.REV_EVM_DEADLINE_SECONDS,
+    bchCarrySats: env.BCH_CARRY_SATS,
+    bchMaxFeeSats: env.BCH_MAX_FEE_SATS,
+    tpusdCategory: env.TPUSD_CATEGORY,
+    tmusdCategory: env.TMUSD_CATEGORY,
+    allowMockPaylinkSignatures:
+      env.ALLOW_MOCK_PAYLINK_SIGNATURES === '1' ||
+      env.ALLOW_MOCK_PAYLINK_SIGNATURES === 'true',
   });
 }
 

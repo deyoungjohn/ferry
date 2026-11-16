@@ -1,3 +1,5 @@
+import { availableLiquidity } from '@ferry/core';
+
 export const QUOTE_TTL_S = 60; // 60s quote validity
 export const MIN_SWAP_USD_MICROS = 1_000_000n; // $1.00
 export const MAX_SWAP_USD_MICROS = 50_000_000n; // $50.00
@@ -13,13 +15,14 @@ export interface QuoteReservation {
   reservedUntil: number; // Unix timestamp in seconds
 }
 
-export interface LiquidityDataResponse {
+export interface RouteLiquidityData {
+  route: string;
   asset: string;
-  inventory: bigint;
-  openExposure: bigint;
-  activeReservations: bigint;
-  availableLiquidity: bigint;
-  maxSwapAmount: bigint;
+  decimals: number;
+  available: string;
+  inventory: string;
+  exposure: string;
+  reserved: string;
 }
 
 export class LiquidityManager {
@@ -84,41 +87,42 @@ export class LiquidityManager {
     currentInventory: bigint,
     openExposure: bigint,
     nowSeconds: number,
+    inventoryFloor: bigint = 0n,
   ): bigint {
     this.pruneExpired(nowSeconds);
-    const reserved = this.getActiveReservationsForAsset(asset, nowSeconds);
-    const committed = openExposure + reserved;
-    if (currentInventory <= committed) {
-      return 0n;
-    }
-    return currentInventory - committed;
+    const active = this.getActiveReservationsForAsset(asset, nowSeconds);
+    return availableLiquidity(
+      currentInventory,
+      openExposure,
+      active,
+      inventoryFloor,
+    );
   }
 
   getLiquidityData(
     asset: string,
     inventory: bigint,
     openExposure: bigint,
+    decimals: number,
     nowSeconds: number,
-  ): LiquidityDataResponse {
-    this.pruneExpired(nowSeconds);
-    const activeReservations = this.getActiveReservationsForAsset(
-      asset,
-      nowSeconds,
-    );
+    route: string = `${asset.toLowerCase()}-route`,
+  ): RouteLiquidityData {
     const available = this.getAvailableLiquidity(
       asset,
       inventory,
       openExposure,
       nowSeconds,
     );
+    const reserved = this.getActiveReservationsForAsset(asset, nowSeconds);
+
     return {
+      route,
       asset,
-      inventory,
-      openExposure,
-      activeReservations,
-      availableLiquidity: available,
-      maxSwapAmount:
-        available < MAX_SWAP_USD_MICROS ? available : MAX_SWAP_USD_MICROS,
+      decimals,
+      available: available.toString(),
+      inventory: inventory.toString(),
+      exposure: openExposure.toString(),
+      reserved: reserved.toString(),
     };
   }
 
@@ -134,83 +138,84 @@ export class LiquidityManager {
     ttlSeconds?: number;
   }):
     { success: true } | { success: false; reason: string; maxAmount: bigint } {
-    this.pruneExpired(params.nowSeconds);
+    const {
+      quoteId,
+      userAddress,
+      userIp,
+      asset,
+      amount,
+      currentInventory,
+      openExposure,
+      nowSeconds,
+      ttlSeconds = QUOTE_TTL_S,
+    } = params;
+
+    this.pruneExpired(nowSeconds);
 
     const available = this.getAvailableLiquidity(
-      params.asset,
-      params.currentInventory,
-      params.openExposure,
-      params.nowSeconds,
+      asset,
+      currentInventory,
+      openExposure,
+      nowSeconds,
     );
 
-    // 1. Check available liquidity
-    if (params.amount > available) {
+    if (amount > available) {
       return {
         success: false,
-        reason: `Only ${available} ${params.asset} available; try ${available} or less`,
+        reason: `Insufficient liquidity: requested ${amount}, available ${available}`,
         maxAmount: available,
       };
     }
 
-    // 2. Check per-address reservation cap
-    const addressReserved = this.getActiveReservationsForAddress(
-      params.userAddress,
-      params.nowSeconds,
+    const addrReserved = this.getActiveReservationsForAddress(
+      userAddress,
+      nowSeconds,
     );
-    if (addressReserved + params.amount > this.maxReservedPerAddress) {
-      const remainingAllowance =
-        this.maxReservedPerAddress > addressReserved
-          ? this.maxReservedPerAddress - addressReserved
-          : 0n;
+    if (addrReserved + amount > this.maxReservedPerAddress) {
       return {
         success: false,
-        reason: `Quote reservation limit exceeded for address (max ${this.maxReservedPerAddress})`,
+        reason: 'Address active reservation cap exceeded',
         maxAmount:
-          remainingAllowance < available ? remainingAllowance : available,
+          this.maxReservedPerAddress > addrReserved
+            ? this.maxReservedPerAddress - addrReserved
+            : 0n,
       };
     }
 
-    // 3. Check per-IP reservation cap
-    const ipReserved = this.getActiveReservationsForIp(
-      params.userIp,
-      params.nowSeconds,
-    );
-    if (ipReserved + params.amount > this.maxReservedPerIp) {
-      const remainingAllowance =
-        this.maxReservedPerIp > ipReserved
-          ? this.maxReservedPerIp - ipReserved
-          : 0n;
+    const ipReserved = this.getActiveReservationsForIp(userIp, nowSeconds);
+    if (ipReserved + amount > this.maxReservedPerIp) {
       return {
         success: false,
-        reason: `Quote reservation limit exceeded for IP (max ${this.maxReservedPerIp})`,
+        reason: 'IP active reservation cap exceeded',
         maxAmount:
-          remainingAllowance < available ? remainingAllowance : available,
+          this.maxReservedPerIp > ipReserved
+            ? this.maxReservedPerIp - ipReserved
+            : 0n,
       };
     }
 
-    // Record reservation
-    const ttl = params.ttlSeconds ?? QUOTE_TTL_S;
-    this.reservations.set(params.quoteId, {
-      quoteId: params.quoteId,
-      userAddress: params.userAddress,
-      userIp: params.userIp,
-      asset: params.asset,
-      amount: params.amount,
-      reservedUntil: params.nowSeconds + ttl,
+    this.reservations.set(quoteId, {
+      quoteId,
+      userAddress,
+      userIp,
+      asset,
+      amount,
+      reservedUntil: nowSeconds + ttlSeconds,
     });
 
     return { success: true };
   }
 
-  releaseReservation(quoteId: string): void {
-    this.reservations.delete(quoteId);
+  releaseReservation(quoteId: string): boolean {
+    return this.reservations.delete(quoteId);
   }
 
-  /**
-   * When user lock arrives on chain, reservation is released as it is now
-   * tracked as in-flight exposure.
-   */
   onUserLockSeen(quoteId: string): void {
     this.releaseReservation(quoteId);
+  }
+
+  getActiveReservationCount(nowSeconds: number): number {
+    this.pruneExpired(nowSeconds);
+    return this.reservations.size;
   }
 }
