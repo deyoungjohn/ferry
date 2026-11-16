@@ -44,6 +44,7 @@ import {
   deployArtifact,
   deployFerryHtlcDeterministic,
   signRelayLockPayload,
+  signRelayLockRequest,
   startAnvil,
   startInProcessSolver,
   type AnvilInstance,
@@ -58,49 +59,6 @@ const tokenAbi = parseAbi([
   'function balanceOf(address account) external view returns (uint256)',
   'function setBlacklisted(address account, bool blocked) external',
 ]);
-
-function reviveBigInts<T>(json: unknown): T {
-  const rec = (v: unknown): unknown => {
-    if (Array.isArray(v)) return v.map(rec);
-    if (v && typeof v === 'object') {
-      const out: Record<string, unknown> = {};
-      for (const [k, val] of Object.entries(v)) {
-        if (
-          (k === 'bchTokenAmount' ||
-            k === 'evmAmount' ||
-            k === 'bchCarrySats' ||
-            k === 'bchMaxFee' ||
-            k === 'fixedFeeBase') &&
-          typeof val === 'string' &&
-          /^\d+$/.test(val)
-        ) {
-          out[k] = BigInt(val);
-        } else {
-          out[k] = rec(val);
-        }
-      }
-      return out;
-    }
-    return v;
-  };
-  return rec(json) as T;
-}
-
-async function postSolverJson<T>(
-  baseUrl: string,
-  path: string,
-  body: unknown,
-): Promise<{ status: number; data: T }> {
-  const res = await fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body, (_k, v: unknown) =>
-      typeof v === 'bigint' ? v.toString() : v,
-    ),
-  });
-  const json = (await res.json()) as unknown;
-  return { status: res.status, data: reviveBigInts<T>(json) };
-}
 
 describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
   const deployer = privateKeyToAccount(DEPLOYER_KEY);
@@ -237,6 +195,13 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
         userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
       },
     });
+    if (report.failed > 0) {
+      console.error(
+        'Contract suite failures:',
+        report.results.filter((r) => !r.ok),
+      );
+    }
+    expect(report.failed).toBe(0);
     const passedRoutes = new Set(
       report.results.filter((r) => r.ok).map((r) => r.route),
     );
@@ -273,24 +238,16 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
       args: [solverAccount.address],
     });
 
-    const relayPayload = await signRelayLockPayload({
+    const relayRequest = await signRelayLockRequest({
       evmAdapter: solver.evmAdapter,
+      orderId: quote.orderId,
       terms: quote.terms as OrderTerms,
       userAccount,
     });
-
-    // server.ts passes raw.payload ?? raw directly to EvmChainAdapter.relayLock,
-    // which expects RelayLockPayload rather than RelayLockRequest.
-    const relayRes = await postSolverJson<{
-      ok: boolean;
-      orderId: Hex32;
-      txHash: Hex32;
-    }>(solver.baseUrl, `/v1/orders/${quote.orderId}/relay-lock`, {
-      payload: relayPayload,
-    });
-    expect(relayRes.status).toBe(200);
-    expect(relayRes.data.ok).toBe(true);
-    expect(relayRes.data.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    const relayRes = await solver.client.relayLock(quote.orderId, relayRequest);
+    expect(relayRes.ok).toBe(true);
+    expect(relayRes.orderId).toBe(quote.orderId);
+    expect(relayRes.txHash).toMatch(/^0x[0-9a-f]{64}$/);
 
     const lockId = evmLockId(userAccount.address, hashLock);
     const lockState = await solver.evmAdapter.getLock(lockId);
@@ -300,14 +257,12 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
     expect(revealRes.ok).toBe(true);
     expect(revealRes.orderId).toBe(quote.orderId);
 
-    // Remaining solver gap: POST /v1/orders/:id/relay-claim passes order.id instead of evmLockId(owner, hashLock).
-    await expect(
-      solver.client.relayClaim(quote.orderId, { secret }),
-    ).rejects.toBeInstanceOf(SolverHttpError);
-
-    // Direct adapter claim completes the EVM leg on-chain
-    const claimTx = await solver.evmAdapter.claim(lockId, secret);
-    expect(claimTx.txId).toMatch(/^0x[0-9a-f]{64}$/);
+    const claimRes = await solver.client.relayClaim(quote.orderId, {
+      secret,
+      lockId,
+    });
+    expect(claimRes.ok).toBe(true);
+    expect(claimRes.txHash).toMatch(/^0x[0-9a-f]{64}$/);
 
     const userBalAfter = await publicClient.readContract({
       address: tokenAddress,
@@ -376,18 +331,17 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
         hashLock,
       });
 
-      const relayPayload = await signRelayLockPayload({
+      const relayRequest = await signRelayLockRequest({
         evmAdapter: solver.evmAdapter,
+        orderId: quote.orderId,
         terms: quote.terms as OrderTerms,
         userAccount,
       });
-      const relayRes = await postSolverJson<{ ok: boolean; txHash: Hex32 }>(
-        solver.baseUrl,
-        `/v1/orders/${quote.orderId}/relay-lock`,
-        { payload: relayPayload },
+      const relayRes = await solver.client.relayLock(
+        quote.orderId,
+        relayRequest,
       );
-      expect(relayRes.status).toBe(200);
-      expect(relayRes.data.ok).toBe(true);
+      expect(relayRes.ok).toBe(true);
 
       const lockId = evmLockId(userAccount.address, hashLock);
       await expect(solver.evmAdapter.refund(lockId)).rejects.toThrow();
@@ -542,17 +496,17 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
         hashLock,
       });
 
-      const relayPayload = await signRelayLockPayload({
+      const relayRequest = await signRelayLockRequest({
         evmAdapter: solver.evmAdapter,
+        orderId: quote.orderId,
         terms: quote.terms,
         userAccount,
       });
-      const relayRes = await postSolverJson<{ relayed: boolean }>(
-        solver.baseUrl,
-        `/v1/orders/${quote.orderId}/relay-lock`,
-        { payload: relayPayload },
+      const relayRes = await solver.client.relayLock(
+        quote.orderId,
+        relayRequest,
       );
-      expect(relayRes.status).toBe(200);
+      expect(relayRes.ok).toBe(true);
 
       const latest = await publicClient.getBlock({ blockTag: 'latest' });
       const jump = quote.terms.evmDeadline - Number(latest.timestamp) + 15;
@@ -612,13 +566,22 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
       ),
     ).toThrow(RelayValidationError);
 
-    const res = await postSolverJson<{ error: { code: string } }>(
-      solver.baseUrl,
-      `/v1/orders/${quote.orderId}/relay-lock`,
-      { payload: tamperedPayload },
-    );
-    expect(res.status).toBe(502);
-    expect(res.data.error.code).toBe('RELAY_LOCK_REVERTED');
+    const validRequest = await signRelayLockRequest({
+      evmAdapter: solver.evmAdapter,
+      orderId: quote.orderId,
+      terms: quote.terms,
+      userAccount,
+    });
+    const tamperedRequest = {
+      ...validRequest,
+      intent: {
+        ...validRequest.intent,
+        deadline: validRequest.intent.deadline + 1,
+      },
+    };
+    await expect(
+      solver.client.relayLock(quote.orderId, tamperedRequest),
+    ).rejects.toBeInstanceOf(SolverHttpError);
   });
 
   it('9. Send-link 24 h and 7 d windows with relayed claim', async () => {
@@ -765,17 +728,17 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
       amountIn: 4_000_000n,
       hashLock: refundCase.hashLock,
     });
-    const refundPayload = await signRelayLockPayload({
+    const refundRequest = await signRelayLockRequest({
       evmAdapter: solver.evmAdapter,
+      orderId: refundQuote.orderId,
       terms: refundQuote.terms,
       userAccount,
     });
-    const refundRelayRes = await postSolverJson<{ relayed: boolean }>(
-      solver.baseUrl,
-      `/v1/orders/${refundQuote.orderId}/relay-lock`,
-      { payload: refundPayload },
+    const refundRelayRes = await solver.client.relayLock(
+      refundQuote.orderId,
+      refundRequest,
     );
-    expect(refundRelayRes.status).toBe(200);
+    expect(refundRelayRes.ok).toBe(true);
 
     const claimQuote = await requestQuote({
       direction: 'BCH_TO_EVM',

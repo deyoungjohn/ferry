@@ -21,6 +21,7 @@ import type {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { OrderTerms } from '@ferry/core';
+import type { RelayLockRequest } from '@ferry/core/api';
 import { EvmChainAdapter } from '@ferry/chain-evm';
 import type { RelayLockPayload } from '@ferry/chain-evm';
 import {
@@ -447,5 +448,28 @@ export async function signRelayLockPayload(params: {
     v: normalizedV,
     r,
     s,
+  };
+}
+
+export async function signRelayLockRequest(params: {
+  evmAdapter: EvmChainAdapter;
+  orderId: HexString;
+  terms: OrderTerms;
+  userAccount: ReturnType<typeof privateKeyToAccount>;
+}): Promise<RelayLockRequest> {
+  const payload = await signRelayLockPayload(params);
+  return {
+    permit: {
+      value: payload.amount,
+      deadline: Number(payload.permitDeadline),
+      v: payload.v,
+      r: payload.r,
+      s: payload.s,
+    },
+    intent: {
+      orderId: params.orderId,
+      deadline: Number(payload.intentDeadline),
+    },
+    signature: payload.intentSig,
   };
 }
