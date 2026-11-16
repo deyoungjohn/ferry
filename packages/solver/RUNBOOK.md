@@ -37,19 +37,18 @@ Every configurable environment variable is listed below. Corresponding template 
 - `OPERATOR_TOKEN`: Bearer token for accessing `/v1/operator/*` routes. **Must be >= 32 characters on mainnet.**
 - `QUOTING_ENABLED`: Master switch: `true` (default) or `false`.
 
-### Chain Endpoints & Keys
+### Chain Endpoints, Keys & Multi-Chain Configuration
+
+Every enabled chain's RPC endpoints, deployed HTLC addresses, token addresses, and decimal parameters are automatically derived from `@ferry/chain-config` facts, removing the need for a separate environment variable block per chain.
 
 - `BCH_ELECTRUM_URLS`: Comma-separated Electrum WebSocket URLs. **Mainnet requires at least two independent hosts.**
 - `BCH_CHIPNET_ELECTRUM_URLS`: Electrum URLs used when running in testnet profile.
 - `SOLVER_BCH_WIF`: Bitcoin Cash WIF private key for counter-locking CashTokens. Must be a mainnet key on mainnet.
-- `SOLVER_EVM_PRIVATE_KEY`: 0x-prefixed 32-byte hex private key for EVM transactions.
+- `SOLVER_EVM_PRIVATE_KEY`: 0x-prefixed 32-byte hex private key for EVM transactions across all enabled EVM chains.
 - `ALLOW_DEV_KEYS`: Set to `1` on testnet to allow dev/placeholder keys. **Strictly forbidden on mainnet.**
-- `BASE_RPC_URL`: JSON-RPC endpoint for Base (default `https://sepolia.base.org` on testnet).
-- `BASE_CHAIN_ID`: EVM chain ID (default `84532` for Base Sepolia, `8453` for Base mainnet).
-- `BASE_FERRY_HTLC_ADDRESS`: Deployed FerryHTLC contract address on Base (also accepts `FERRY_HTLC_ADDRESS`).
-- `BASE_USDC_ADDRESS`: USDC token contract address on Base.
-- `ENABLED_ROUTES`: Comma-separated list of route keys to enable (e.g. `USDC:base`).
-- `RPC_URL_*`: Chain-specific RPC URL overrides for `loadChainConfig` (`RPC_URL_BASE`, `RPC_URL_ETHEREUM`, `RPC_URL_ARBITRUM`, etc.).
+- `ENABLED_ROUTES`: Comma-separated list of route keys to enable (e.g. `USDC:base,USDC:arbitrum,USDC:ethereum`).
+- `RPC_URL_*`: Chain-specific RPC URL overrides for `loadChainConfig` (`RPC_URL_BASE`, `RPC_URL_ETHEREUM`, `RPC_URL_ARBITRUM`, `RPC_URL_BNB`, `RPC_URL_ARC`, `RPC_URL_ROBINHOOD`).
+- `BASE_RPC_URL`, `BASE_CHAIN_ID`, `BASE_FERRY_HTLC_ADDRESS`, `BASE_USDC_ADDRESS`: Optional environment overrides for Base.
 
 ### Policy, Risk & Timing
 
@@ -60,11 +59,15 @@ Every configurable environment variable is listed below. Corresponding template 
 - `RATE_LIMIT_MAX_PER_ADDRESS`: Max quote requests per address per window (default `10`).
 - `RATE_LIMIT_MAX_PER_IP`: Max quote requests per IP per window (default `30`).
 - `SPREAD_BPS`: Base swap spread in basis points (default `40` = 0.40%).
-- `FIXED_FEE_USD_MICROS`: Fixed fee added to quotes in USD micros (default `0`).
-- `MIN_SWAP_USD_MICROS`: Minimum swap amount in USD micros (default `1000000` = $1.00).
+- `FIXED_FEE_USD_MICROS`: Global fixed fee override in USD micros. By default, route-specific fixed fees are applied to cover relay gas at minimum swap sizes:
+  - Base: 10,000 micros ($0.01) (min swap $1.00)
+  - Arbitrum: 20,000 micros ($0.02) (min swap $1.00)
+  - BNB Chain: 10,000 micros ($0.01) (min swap $1.00)
+  - Ethereum: 340,000 micros ($0.34) (min swap ~$20.00 to keep fee <= 2%)
+- `MIN_SWAP_USD_MICROS`: Global minimum swap amount in USD micros (default `1000000` = $1.00; route-level minimums enforce fixed fee <= 2%).
 - `MAX_SWAP_USD_MICROS`: Maximum swap amount in USD micros (default `50000000` = $50.00).
 - `MAX_EXPOSURE_USD_MICROS`: Maximum concurrent unconfirmed swap exposure in USD micros (default `250000000` = $250.00).
-- `ZERO_CONF_MAX_USD_MICROS`: Maximum amount accepted for zero-conf fast lane (default `25000000` = $25.00).
+- `ZERO_CONF_MAX_USD_MICROS`: Maximum amount accepted for zero-conf fast lane (default `25000000` = $25.00). Amounts are normalized to USD micros through the route token's decimals (e.g. 18 decimals on BNB) before comparing with this cap.
 - `QUOTE_TTL_SECONDS`: Quote validity duration in seconds (default `60`).
 - `SKEW_MAX_BPS`: Maximum inventory skew spread adjustment in basis points (default `50`).
 - `EVM_CONFS`: Required block confirmations for safe EVM locks (default `1`).

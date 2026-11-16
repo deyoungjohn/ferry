@@ -1,6 +1,7 @@
 import {
   createPublicClient,
   createWalletClient,
+  fallback,
   http,
   type PublicClient,
 } from 'viem';
@@ -8,6 +9,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia } from 'viem/chains';
 import { EvmChainAdapter, type EvmChainAdapterOptions } from '@ferry/chain-evm';
 import { createBchPriceSource } from '@ferry/bch-prices';
+import type { ChainId } from '@ferry/chain-config';
 import { buildServer } from './api/server.js';
 import { BchQuorumClient } from './bch/quorum-client.js';
 import { loadConfigFromEnv, type SolverConfig } from './config.js';
@@ -20,7 +22,7 @@ import type {
 } from './engine/types.js';
 import { createSolverLogger } from './logging.js';
 import { runPreflightCheck } from './ops/self-check.js';
-import { buildActiveRoutes } from './ops/routes-config.js';
+import { buildActiveRoutes, getViemChain } from './ops/routes-config.js';
 import { RoutePriceSource } from './pricing/composite-source.js';
 import type { PriceSource } from './pricing/price-source.js';
 
@@ -75,69 +77,113 @@ export async function startSolver(
 
   const bchClient = overrides.bchClient ?? new BchQuorumClient(electrumUrls);
 
-  // 5. Initialize EVM Client & Adapter
-  const targetNetwork = config.network === 'mainnet' ? 'mainnet' : 'testnet';
-  const chainFact = routesContext.chainConfig.facts.find(
-    (c) => c.id === 'base',
-  );
-  if (!chainFact) {
-    throw new Error(`Chain configuration for base ${targetNetwork} not found`);
-  }
+  // 5. Initialize EVM Clients & Adapters for every enabled chain
+  const evmAdapters = new Map<string, EvmChainAdapter>();
+  const evmClients = new Map<ChainId, PublicClient>();
 
-  const viemChain = config.network === 'mainnet' ? base : baseSepolia;
   const evmAccount = config.solverEvmPrivateKey
     ? privateKeyToAccount(config.solverEvmPrivateKey as `0x${string}`)
     : undefined;
 
-  const publicClient = createPublicClient({
-    chain: viemChain,
-    transport: http(config.baseRpcUrl),
-  });
+  for (const coreChain of routesContext.chainConfig.coreChains) {
+    const chainFact = routesContext.chainConfig.facts.find(
+      (c) => c.id === coreChain.id,
+    );
+    const viemChain = getViemChain(coreChain.id, config.network);
+    const rpcUrls =
+      coreChain.rpcUrls.length > 0
+        ? coreChain.rpcUrls
+        : (chainFact?.rpcUrls ?? []);
+    if (rpcUrls.length === 0) continue;
 
-  const walletClient = evmAccount
-    ? createWalletClient({
-        account: evmAccount,
-        chain: viemChain,
-        transport: http(config.baseRpcUrl),
-      })
-    : undefined;
+    const publicClient = createPublicClient({
+      chain: viemChain,
+      transport:
+        rpcUrls.length === 1
+          ? http(rpcUrls[0])
+          : fallback(rpcUrls.map((u) => http(u))),
+    });
 
-  const baseCoreConfig = routesContext.chainConfig.coreChains.find(
-    (c) => c.id === 'base',
-  ) ?? {
-    id: 'base' as const,
-    chainId: config.baseChainId,
-    rpcUrls: [config.baseRpcUrl],
-    htlcAddress: (config.baseHtlcAddress ||
-      chainFact.htlcAddress ||
-      chainFact.deployment.predictedHtlcAddress) as `0x${string}`,
-    relayCostUsd: 0.05,
-    finality: {
-      fast: 1,
-      safe: 'finalized' as const,
-    },
-    assets: [
-      {
-        symbol: 'USDC' as const,
-        decimals: 6,
-        address: (config.baseUsdcAddress ||
-          '0x036CbD53842c5426634e7929541eC2318f3dCF7e') as `0x${string}`,
-        permit: true,
-      },
-    ],
-  };
+    const walletClient = evmAccount
+      ? createWalletClient({
+          account: evmAccount,
+          chain: viemChain,
+          transport: http(rpcUrls[0]),
+        })
+      : undefined;
 
-  const coreChainConfig = {
-    ...baseCoreConfig,
-    ...(config.baseHtlcAddress
-      ? { htlcAddress: config.baseHtlcAddress as `0x${string}` }
-      : {}),
-  };
+    const adapter = new EvmChainAdapter({
+      config: coreChain as EvmChainAdapterOptions['config'],
+      client: publicClient as unknown as EvmChainAdapterOptions['client'],
+      walletClient:
+        walletClient as unknown as EvmChainAdapterOptions['walletClient'],
+      deployBlock: chainFact?.deployment.deployBlock
+        ? BigInt(chainFact.deployment.deployBlock)
+        : undefined,
+      maxLogRange: chainFact?.rpcEndpoints[0]?.maxLogRange
+        ? BigInt(chainFact.rpcEndpoints[0].maxLogRange)
+        : undefined,
+    });
 
-  const evmAdapter = new EvmChainAdapter({
-    config: coreChainConfig as EvmChainAdapterOptions['config'],
-    walletClient,
-  });
+    evmAdapters.set(coreChain.id, adapter);
+    evmAdapters.set(String(coreChain.chainId), adapter);
+    evmClients.set(
+      coreChain.id as ChainId,
+      publicClient as unknown as PublicClient,
+    );
+  }
+
+  // Base adapter fallback (guarantees base is always present)
+  let baseAdapter = evmAdapters.get('base');
+  if (!baseAdapter) {
+    const viemChain = config.network === 'mainnet' ? base : baseSepolia;
+    const publicClient = createPublicClient({
+      chain: viemChain,
+      transport: http(config.baseRpcUrl),
+    });
+    const walletClient = evmAccount
+      ? createWalletClient({
+          account: evmAccount,
+          chain: viemChain,
+          transport: http(config.baseRpcUrl),
+        })
+      : undefined;
+    const baseFact = routesContext.chainConfig.facts.find(
+      (c) => c.id === 'base',
+    );
+    const baseCoreConfig = routesContext.chainConfig.coreChains.find(
+      (c) => c.id === 'base',
+    ) ?? {
+      id: 'base' as const,
+      chainId: config.baseChainId,
+      rpcUrls: [config.baseRpcUrl],
+      htlcAddress: (config.baseHtlcAddress ||
+        baseFact?.htlcAddress ||
+        baseFact?.deployment.predictedHtlcAddress ||
+        '0x0000000000000000000000000000000000000000') as `0x${string}`,
+      relayCostUsd: 0.05,
+      finality: { fast: 1, safe: 'finalized' as const },
+      assets: [
+        {
+          symbol: 'USDC' as const,
+          decimals: 6,
+          address: (config.baseUsdcAddress ||
+            '0x036CbD53842c5426634e7929541eC2318f3dCF7e') as `0x${string}`,
+          permit: true,
+        },
+      ],
+    };
+    baseAdapter = new EvmChainAdapter({
+      config: baseCoreConfig as EvmChainAdapterOptions['config'],
+      client: publicClient as unknown as EvmChainAdapterOptions['client'],
+      walletClient:
+        walletClient as unknown as EvmChainAdapterOptions['walletClient'],
+    });
+    evmAdapters.set('base', baseAdapter);
+    evmAdapters.set(String(config.baseChainId), baseAdapter);
+    evmClients.set('base', publicClient as unknown as PublicClient);
+  }
+  const evmAdapter = baseAdapter;
 
   // 6. Initialize Ports
   const bchPort: BchChainPort = {
@@ -197,7 +243,7 @@ export async function startSolver(
     overrides.priceSource ??
     new RoutePriceSource({
       chainConfig: routesContext.chainConfig,
-      evmClients: new Map([['base', publicClient as unknown as PublicClient]]),
+      evmClients,
       bchSource: createBchPriceSource(),
     });
 
@@ -205,12 +251,15 @@ export async function startSolver(
   const app = buildServer({
     config,
     db,
-    evmAdapter,
+    evmAdapter: baseAdapter,
+    evmAdapters,
+    evmClients,
+    routesContext,
     bchClient,
     engine,
     priceSource,
     logger,
-    publicClient: publicClient as unknown as PublicClient,
+    publicClient: evmClients.get('base'),
   });
 
   // 10. Start background services

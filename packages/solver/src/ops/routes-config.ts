@@ -5,11 +5,71 @@ import {
   type AssetSymbol,
   type Network,
 } from '@ferry/chain-config';
+import {
+  base,
+  baseSepolia,
+  mainnet,
+  sepolia,
+  arbitrum,
+  arbitrumSepolia,
+  bsc,
+  bscTestnet,
+} from 'viem/chains';
 import type { PublicClient } from 'viem';
 import type { SolverConfig } from '../config.js';
 import type { BchQuorumClient } from '../bch/quorum-client.js';
 import type { EvmChainAdapter } from '@ferry/chain-evm';
 import type { PriceSource } from '../pricing/price-source.js';
+
+/**
+ * Route-specific fixed fees in USD micros from Agent 2's rehearsal measurements:
+ * Base: 10,000 ($0.01)
+ * Arbitrum: 20,000 ($0.02)
+ * BNB: 10,000 ($0.01)
+ * Ethereum: 340,000 ($0.34)
+ */
+export const DEFAULT_ROUTE_FIXED_FEES_USD_MICROS: Record<string, bigint> = {
+  base: 10_000n,
+  arbitrum: 20_000n,
+  bnb: 10_000n,
+  ethereum: 340_000n,
+  arc: 10_000n,
+  robinhood: 10_000n,
+};
+
+export function getRouteFixedFeeUsdMicros(
+  chain: string,
+  override?: bigint | undefined,
+): bigint {
+  if (override !== undefined && override > 0n) {
+    return override;
+  }
+  return DEFAULT_ROUTE_FIXED_FEES_USD_MICROS[chain.toLowerCase()] ?? 10_000n;
+}
+
+export function routeMinSwapUsdMicros(fixedFeeUsdMicros: bigint): bigint {
+  const minFromFee = fixedFeeUsdMicros * 50n; // fee is at most 2%
+  if (minFromFee >= 17_000_000n) {
+    return 20_000_000n; // Ethereum (~$20)
+  }
+  return minFromFee > 1_000_000n ? minFromFee : 1_000_000n;
+}
+
+export function getViemChain(chainId: string, network: 'mainnet' | 'testnet') {
+  const isMainnet = network === 'mainnet';
+  switch (chainId.toLowerCase()) {
+    case 'base':
+      return isMainnet ? base : baseSepolia;
+    case 'ethereum':
+      return isMainnet ? mainnet : sepolia;
+    case 'arbitrum':
+      return isMainnet ? arbitrum : arbitrumSepolia;
+    case 'bnb':
+      return isMainnet ? bsc : bscTestnet;
+    default:
+      return isMainnet ? base : baseSepolia;
+  }
+}
 
 export interface RouteReadinessCheck {
   ok: boolean;

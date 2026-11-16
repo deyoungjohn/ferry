@@ -66,6 +66,9 @@ import {
 import {
   buildActiveRoutes,
   checkRouteReadiness,
+  getRouteFixedFeeUsdMicros,
+  routeMinSwapUsdMicros,
+  type SolverRoutesContext,
 } from '../ops/routes-config.js';
 import { deriveBchKeyDetails } from '../bch/lock-builder.js';
 import type { BchQuorumClient } from '../bch/quorum-client.js';
@@ -77,7 +80,10 @@ import type { SolverEngine } from '../engine/runner.js';
 import { createLinkId, verifyPayLinksSignature } from '../paylink/link.js';
 import { LiquidityManager } from '../pricing/liquidity.js';
 import type { PriceSource } from '../pricing/price-source.js';
-import { QuoteBuilder } from '../pricing/quote-builder.js';
+import {
+  QuoteBuilder,
+  tokenAmountToUsdMicros,
+} from '../pricing/quote-builder.js';
 import {
   extractClientIp,
   QuoteRateLimiter,
@@ -115,6 +121,9 @@ export interface BuildServerOptions {
   config: SolverConfig;
   db: SolverDatabase;
   evmAdapter: EvmChainAdapter;
+  evmAdapters?: Map<string, EvmChainAdapter> | undefined;
+  evmClients?: Map<string, PublicClient> | undefined;
+  routesContext?: SolverRoutesContext | undefined;
   bchClient: BchQuorumClient;
   engine: SolverEngine;
   priceSource: PriceSource;
@@ -125,6 +134,15 @@ export interface BuildServerOptions {
 
 export function buildServer(options: BuildServerOptions): FastifyInstance {
   const { config, db, evmAdapter, bchClient, engine, priceSource } = options;
+
+  const getAdapter = (chainOrId?: string | number): EvmChainAdapter => {
+    if (chainOrId !== undefined && options.evmAdapters) {
+      const key = String(chainOrId).toLowerCase();
+      const adapter = options.evmAdapters.get(key);
+      if (adapter) return adapter;
+    }
+    return evmAdapter;
+  };
 
   const app = Fastify({
     logger: false,
@@ -358,11 +376,41 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       );
     }
 
-    // Fast lane bounds check ($25 max)
+    const routesCtx = options.routesContext ?? buildActiveRoutes(config);
+    const requestedChainId = request.evmChainId ?? config.baseChainId;
+    const chainFact =
+      routesCtx.chainConfig.facts.find((c) => c.chainId === requestedChainId) ??
+      routesCtx.chainConfig.facts.find((c) => c.id === 'base');
+
+    const evmChainName = chainFact?.id ?? 'base';
+    const effectiveHtlc =
+      (chainFact?.htlcAddress as `0x${string}`) ||
+      (config.baseHtlcAddress as `0x${string}`);
+
+    const evmAsset =
+      chainFact?.assets.find((a) =>
+        request.evmToken
+          ? a.address?.toLowerCase() === request.evmToken.toLowerCase()
+          : a.symbol === 'USDC',
+      ) ?? chainFact?.assets.find((a) => a.symbol === 'USDC');
+
+    const evmTokenAddress = (request.evmToken ??
+      evmAsset?.address ??
+      config.baseUsdcAddress) as `0x${string}`;
+    const evmTokenDecimals = evmAsset?.decimals ?? 6;
+    const bchTokenDecimals = 2;
+
+    const inDecimals =
+      request.direction === 'EVM_TO_BCH' ? evmTokenDecimals : bchTokenDecimals;
+    const outDecimals =
+      request.direction === 'EVM_TO_BCH' ? bchTokenDecimals : evmTokenDecimals;
+
+    // Fast lane bounds check ($25 max, converted to USD micros via token decimals)
     const amountInBigInt = BigInt(request.amountIn);
+    const amountInMicros = tokenAmountToUsdMicros(amountInBigInt, inDecimals);
     if (
       request.lane === 'fast' &&
-      amountInBigInt > config.zeroConfMaxUsdMicros
+      amountInMicros > config.zeroConfMaxUsdMicros
     ) {
       return sendApiError(
         reply,
@@ -370,6 +418,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         'Fast lane is limited to $25.00',
       );
     }
+
+    const fixedFeeUsdMicros = getRouteFixedFeeUsdMicros(
+      evmChainName,
+      config.fixedFeeUsdMicros > 0n ? config.fixedFeeUsdMicros : undefined,
+    );
+    const minSwapUsdMicros = routeMinSwapUsdMicros(fixedFeeUsdMicros);
 
     const now = Math.floor(Date.now() / 1000);
     const quoteId = `quote-${now}-${Math.random().toString(36).slice(2, 9)}`;
@@ -413,9 +467,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         : config.tpusdCategory.startsWith('0x')
           ? config.tpusdCategory
           : `0x${config.tpusdCategory}`) as `0x${string}`,
-      evmToken: (request.evmToken ?? config.baseUsdcAddress) as `0x${string}`,
-      evmChainId: request.evmChainId ?? config.baseChainId,
-      evmHtlc: config.baseHtlcAddress as `0x${string}`,
+      evmToken: evmTokenAddress,
+      evmChainId: requestedChainId,
+      evmHtlc: effectiveHtlc,
       userEvmAddress: request.userEvmAddress as `0x${string}`,
       userBchLockingBytecode: request.userBchLockingBytecode as `0x${string}`,
       solverEvmAddress: solverAccount.address as `0x${string}`,
@@ -433,10 +487,19 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const quoteResult = await quoteBuilder.buildQuote({
       quoteId,
       direction: request.direction,
-      payAsset: request.direction === 'EVM_TO_BCH' ? 'USDC' : request.bchToken,
+      payAsset:
+        request.direction === 'EVM_TO_BCH'
+          ? (evmAsset?.symbol ?? 'USDC')
+          : request.bchToken,
       receiveAsset:
-        request.direction === 'EVM_TO_BCH' ? request.bchToken : 'USDC',
+        request.direction === 'EVM_TO_BCH'
+          ? request.bchToken
+          : (evmAsset?.symbol ?? 'USDC'),
       amountIn: amountInBigInt,
+      inputDecimals: inDecimals,
+      outputDecimals: outDecimals,
+      fixedFeeUsdMicros,
+      minSwapUsdMicros,
       userAddress: request.userEvmAddress,
       userIp: clientIp,
       currentInventory,
@@ -889,8 +952,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         s,
       };
 
+      const targetAdapter = getAdapter(terms.evmChainId);
       const signedIntent = {
-        chain: evmAdapter.id,
+        chain: targetAdapter.id,
         orderId: order.id as Hex32,
         signature: intentSig,
         payload: adapterPayload,
@@ -900,7 +964,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
       try {
         validateRelayLock(signedIntent, terms, {
-          expectedChain: evmAdapter.id,
+          expectedChain: targetAdapter.id,
           expectedChainId: terms.evmChainId,
           expectedHtlc: terms.evmHtlc,
           nowSeconds: now,
@@ -936,8 +1000,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
       let txRef: { chain: string; txId: Hex32 };
       try {
-        const adapterTx = await evmAdapter.relayLock({
-          chain: evmAdapter.id,
+        const adapterTx = await targetAdapter.relayLock({
+          chain: targetAdapter.id,
           orderId: order.id as Hex32,
           payload: adapterPayload,
         });
@@ -950,7 +1014,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       } catch (err) {
         if (config.allowDevKeys && isMockDefaultSig) {
           txRef = {
-            chain: evmAdapter.id,
+            chain: targetAdapter.id,
             txId: ('0x' + 'aa'.repeat(32)) as Hex32,
           };
         } else {
@@ -1013,7 +1077,17 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       const lockId = (raw.lockId as string | undefined) ?? order.lockId;
       const now = Math.floor(Date.now() / 1000);
 
-      const lock = await evmAdapter.getLock(lockId);
+      let orderTerms: OrderTerms | undefined;
+      try {
+        orderTerms = order.termsJson
+          ? (JSON.parse(order.termsJson) as OrderTerms)
+          : undefined;
+      } catch {
+        // ignore parse errors
+      }
+
+      const targetAdapter = getAdapter(orderTerms?.evmChainId);
+      const lock = await targetAdapter.getLock(lockId);
       const isMockDefaultSecret =
         (secretToUse as string).toLowerCase() ===
         '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -1047,7 +1121,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
       let claimTxRef: { chain: string; txId: Hex32 };
       try {
-        const adapterClaimTx = await evmAdapter.claim(
+        const adapterClaimTx = await targetAdapter.claim(
           lockId,
           secretToUse as Hex32,
         );
@@ -1060,7 +1134,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       } catch (err) {
         if (config.allowDevKeys && isMockDefaultSecret) {
           claimTxRef = {
-            chain: evmAdapter.id,
+            chain: targetAdapter.id,
             txId: ('0x' + 'bb'.repeat(32)) as Hex32,
           };
         } else {
@@ -1455,15 +1529,18 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     { preHandler: verifyOperatorAuth },
     async (_req, reply) => {
       const now = Math.floor(Date.now() / 1000);
-      const routesContext = buildActiveRoutes(config);
+      const routesCtx = options.routesContext ?? buildActiveRoutes(config);
       const routeResults = [];
-      for (const route of routesContext.enabledRoutes) {
+      for (const route of routesCtx.enabledRoutes) {
+        const adapter = getAdapter(route.chain);
+        const routeClient =
+          options.evmClients?.get(route.chain) ?? options.publicClient;
         const readiness = await checkRouteReadiness({
           route,
-          evmAdapter,
+          evmAdapter: adapter,
           bchClient,
           priceSource,
-          publicClient: options.publicClient,
+          publicClient: routeClient,
           inventoryFloorUsdMicros: config.minSwapUsdMicros,
         });
         routeResults.push(readiness);

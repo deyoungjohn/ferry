@@ -359,6 +359,9 @@ importers:
       '@ferry/core':
         specifier: workspace:*
         version: link:../core
+      '@ferry/evm-prices':
+        specifier: workspace:*
+        version: link:../evm-prices
       '@ferry/htlc-bch':
         specifier: workspace:*
         version: link:../htlc-bch

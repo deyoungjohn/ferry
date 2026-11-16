@@ -5,7 +5,7 @@ import {
 } from '@ferry/bch-prices';
 import type { ChainConfig, ChainId } from '@ferry/chain-config';
 import type { PublicClient } from 'viem';
-import { chainlinkSourceFromConfig } from './chainlink.js';
+import { chainlinkSourceFromConfig } from '@ferry/evm-prices';
 import {
   PriceUnavailableError,
   type AssetPriceReading,

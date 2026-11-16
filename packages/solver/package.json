@@ -30,6 +30,7 @@
     "@ferry/chain-config": "workspace:*",
     "@ferry/chain-evm": "workspace:*",
     "@ferry/core": "workspace:*",
+    "@ferry/evm-prices": "workspace:*",
     "@ferry/htlc-bch": "workspace:*",
     "better-sqlite3": "13.0.3",
     "cashscript": "0.14.0",
