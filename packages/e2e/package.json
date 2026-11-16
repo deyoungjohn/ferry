@@ -7,13 +7,15 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint --cache test",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "rehearse": "FERRY_RUN_REHEARSE=1 vitest run --config vitest.config.ts test/rehearse.test.ts"
   },
   "dependencies": {
     "@ferry/chain-config": "workspace:*",
     "@ferry/chain-evm": "workspace:*",
     "@ferry/core": "workspace:*",
     "@ferry/htlc-evm": "workspace:*",
+    "@ferry/probe": "workspace:*",
     "@ferry/recover-cli": "workspace:*",
     "@ferry/solver": "workspace:*",
     "@ferry/solver-client": "workspace:*",

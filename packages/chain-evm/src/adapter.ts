@@ -70,6 +70,7 @@ export interface RelayLockPayload {
 
 const erc20Abi = parseAbi([
   'function name() external view returns (string)',
+  'function version() external view returns (string)',
   'function nonces(address owner) external view returns (uint256)',
   'function balanceOf(address account) external view returns (uint256)',
   'function allowance(address owner, address spender) external view returns (uint256)',
@@ -170,12 +171,19 @@ export class EvmChainAdapter implements ChainAdapter {
       };
     }
 
-    const [tokenName, nonce] = await Promise.all([
+    const [tokenName, tokenVersion, nonce] = await Promise.all([
       this.client.readContract({
         address: token,
         abi: erc20Abi,
         functionName: 'name',
       }),
+      this.client
+        .readContract({
+          address: token,
+          abi: erc20Abi,
+          functionName: 'version',
+        })
+        .catch(() => '1'),
       this.client.readContract({
         address: token,
         abi: erc20Abi,
@@ -187,7 +195,7 @@ export class EvmChainAdapter implements ChainAdapter {
     const permitTypedData = {
       domain: {
         name: tokenName,
-        version: '1',
+        version: tokenVersion,
         chainId: this.chainId,
         verifyingContract: token,
       },
@@ -298,10 +306,18 @@ export class EvmChainAdapter implements ChainAdapter {
         account,
       }));
     } catch (err) {
+      const e = err as {
+        shortMessage?: string;
+        details?: string;
+        message?: string;
+        cause?: { reason?: string; details?: string };
+      };
+      const reason = e.cause?.reason ?? e.details ?? e.cause?.details;
+      const baseMsg = e.shortMessage ?? e.message ?? String(err);
       const message =
-        (err as { shortMessage?: string }).shortMessage ??
-        (err as Error).message ??
-        String(err);
+        reason && !baseMsg.includes(reason)
+          ? `${baseMsg} (${reason})`
+          : baseMsg;
       if (isContractRevertError(err)) {
         throw new RelayLockRejectedError('RELAY_LOCK_REVERTED', message);
       }

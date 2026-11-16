@@ -153,6 +153,9 @@ importers:
       '@ferry/htlc-evm':
         specifier: workspace:*
         version: link:../htlc-evm
+      '@ferry/probe':
+        specifier: workspace:*
+        version: link:../probe
       '@ferry/recover-cli':
         specifier: workspace:*
         version: link:../recover-cli
