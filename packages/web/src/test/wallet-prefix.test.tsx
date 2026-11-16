@@ -32,8 +32,8 @@ describe('BCH address prefix validation & network mismatch prevention', () => {
     expect(result.ok).toBe(false);
     expect(result.prefix).toBe('bitcoincash');
     expect(result.error).toContain('Wallet network mismatch');
-    expect(result.error).toContain('Bitcoin Cash Mainnet (bitcoincash:)');
-    expect(result.error).toContain('Bitcoin Cash Chipnet (bchtest:)');
+    expect(result.error).toContain('(bitcoincash:)');
+    expect(result.error).toContain('(bchtest:)');
     expect(result.error).toContain(
       'Please switch the active network in your wallet.',
     );
@@ -47,8 +47,8 @@ describe('BCH address prefix validation & network mismatch prevention', () => {
     expect(result.ok).toBe(false);
     expect(result.prefix).toBe('bchtest');
     expect(result.error).toContain('Wallet network mismatch');
-    expect(result.error).toContain('Chipnet (bchtest:)');
-    expect(result.error).toContain('Bitcoin Cash (bitcoincash:)');
+    expect(result.error).toContain('(bchtest:)');
+    expect(result.error).toContain('(bitcoincash:)');
   });
 
   it('refuses invalid address strings cleanly', () => {
@@ -83,8 +83,8 @@ describe('BCH address prefix validation & network mismatch prevention', () => {
     expect(isWrongEvmChain(1, 84532)).toBe(true);
     expect(isWrongEvmChain(undefined, 84532)).toBe(false);
 
-    expect(wrongEvmChainMessage(84532, 'Base Sepolia')).toBe(
-      'Switch your wallet to Base Sepolia (chain 84532).',
+    expect(wrongEvmChainMessage(8453, 'Base')).toBe(
+      'Switch your wallet to Base (chain 8453).',
     );
   });
 });

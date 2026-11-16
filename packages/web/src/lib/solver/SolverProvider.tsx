@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from 'react';
 import type { SolverClient } from './types';
 import { SolverContext } from './context';
-import { MockSolverClient } from './mock';
+import { RealSolverClient } from './real';
 
 export interface SolverProviderProps {
   readonly client?: SolverClient;
@@ -9,7 +9,7 @@ export interface SolverProviderProps {
 }
 
 export function SolverProvider({ client, children }: SolverProviderProps) {
-  const solver = useMemo(() => client ?? new MockSolverClient(), [client]);
+  const solver = useMemo(() => client ?? new RealSolverClient(), [client]);
 
   return (
     <SolverContext.Provider value={solver}>{children}</SolverContext.Provider>

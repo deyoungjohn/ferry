@@ -1,22 +1,12 @@
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { createConfig, http } from 'wagmi';
-import {
-  baseSepolia,
-  sepolia,
-  arbitrumSepolia,
-  bscTestnet,
-} from 'wagmi/chains';
+import { base, mainnet, arbitrum, bsc } from 'wagmi/chains';
 import type { ChainAdapter } from '@reown/appkit';
 import type { AppKitNetwork } from '@reown/appkit/networks';
 import { REOWN_PROJECT_ID } from '../config';
 
-export const SUPPORTED_CHAINS = [
-  baseSepolia,
-  sepolia,
-  arbitrumSepolia,
-  bscTestnet,
-] as const;
+export const SUPPORTED_CHAINS = [base, mainnet, arbitrum, bsc] as const;
 
 const networks = SUPPORTED_CHAINS as unknown as [
   AppKitNetwork,
@@ -28,10 +18,10 @@ export const wagmiAdapter = REOWN_PROJECT_ID
       networks,
       projectId: REOWN_PROJECT_ID,
       transports: {
-        [baseSepolia.id]: http(),
-        [sepolia.id]: http(),
-        [arbitrumSepolia.id]: http(),
-        [bscTestnet.id]: http(),
+        [base.id]: http(),
+        [mainnet.id]: http(),
+        [arbitrum.id]: http(),
+        [bsc.id]: http(),
       },
     })
   : null;
@@ -51,7 +41,7 @@ if (wagmiAdapter && REOWN_PROJECT_ID) {
             : 'https://ferry.cash',
         icons: [],
       },
-      defaultNetwork: baseSepolia as unknown as AppKitNetwork,
+      defaultNetwork: base as unknown as AppKitNetwork,
       features: {
         analytics: false,
         email: false,
@@ -73,11 +63,11 @@ if (wagmiAdapter && REOWN_PROJECT_ID) {
 export const wagmiConfig =
   wagmiAdapter?.wagmiConfig ??
   createConfig({
-    chains: [baseSepolia, sepolia, arbitrumSepolia, bscTestnet],
+    chains: [base, mainnet, arbitrum, bsc],
     transports: {
-      [baseSepolia.id]: http(),
-      [sepolia.id]: http(),
-      [arbitrumSepolia.id]: http(),
-      [bscTestnet.id]: http(),
+      [base.id]: http(),
+      [mainnet.id]: http(),
+      [arbitrum.id]: http(),
+      [bsc.id]: http(),
     },
   });

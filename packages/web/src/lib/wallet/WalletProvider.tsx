@@ -6,7 +6,10 @@ import {
   useMemo,
   type ReactNode,
 } from 'react';
-import { MockWalletProvider } from './mock';
+const MockWalletProvider = lazy(async () => {
+  const module = await import('./mock');
+  return { default: module.MockWalletProvider };
+});
 import { WalletContext } from './context';
 import type { WalletSet } from './types';
 import type { Hex } from 'viem';
@@ -38,9 +41,12 @@ function hasStoredSession(): boolean {
 }
 
 function useMockMode(): boolean {
-  if (import.meta.env?.VITE_USE_MOCKS === '1') return true;
-  if (typeof window === 'undefined') return false;
-  return new URLSearchParams(window.location.search).get('mock') === '1';
+  if (
+    import.meta.env?.VITE_MOCK === '1' ||
+    import.meta.env?.VITE_USE_MOCKS === '1'
+  )
+    return true;
+  return false;
 }
 
 function WalletLoading() {
@@ -113,7 +119,11 @@ export function WalletProvider({ children }: { readonly children: ReactNode }) {
   }, []);
 
   if (mock) {
-    return <MockWalletProvider>{children}</MockWalletProvider>;
+    return (
+      <Suspense fallback={<WalletLoading />}>
+        <MockWalletProvider>{children}</MockWalletProvider>
+      </Suspense>
+    );
   }
 
   if (!activated) {

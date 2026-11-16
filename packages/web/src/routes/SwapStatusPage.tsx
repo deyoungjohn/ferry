@@ -4,6 +4,7 @@ import { useSolver } from '../lib/solver/useSolver';
 import type { SwapOrder } from '../lib/solver/types';
 import { getModeCopy, STATUS_PLAIN_WORDS, FAILURE_COPY } from '../lib/copy';
 import { AlertTriangleIcon, CheckIcon, CopyIcon } from '../components/icons';
+import { CopyDiagnosticsButton } from '../components/CopyDiagnosticsButton';
 
 function truncateHash(hash?: string, head = 10, tail = 8): string {
   if (!hash) return '';
@@ -80,12 +81,23 @@ export function SwapStatusPage() {
             </code>{' '}
             could not be found or has not been indexed yet.
           </p>
-          <Link
-            to="/"
-            className="inline-flex items-center justify-center rounded-pill bg-text px-5 py-2.5 text-xs font-semibold text-bg hover:bg-lime hover:text-lime-ink transition-colors cursor-pointer"
-          >
-            Return to Swap
-          </Link>
+          <div className="flex items-center justify-center gap-3">
+            <Link
+              to="/"
+              className="inline-flex items-center justify-center rounded-pill bg-text px-5 py-2.5 text-xs font-semibold text-bg hover:bg-lime hover:text-lime-ink transition-colors cursor-pointer"
+            >
+              Return to Swap
+            </Link>
+            <CopyDiagnosticsButton
+              data={{
+                route: `/swap/${orderId}`,
+                orderId,
+                errorCode: 'ORDER_NOT_FOUND',
+                errorMessage:
+                  'Swap order could not be found or has not been indexed yet.',
+              }}
+            />
+          </div>
         </div>
       </div>
     );
@@ -113,15 +125,15 @@ export function SwapStatusPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-6 sm:py-8">
-      {/* Mock Indicator */}
+      {/* Simulated Indicator */}
       {order.isMock && (
         <div
-          data-testid="mock-order-badge"
+          data-testid="simulated-order-badge"
           className="mb-4 flex items-center justify-between rounded-lg border border-warn/30 bg-warn/10 px-3.5 py-1.5 text-xs text-warn"
         >
           <div className="flex items-center gap-2">
             <span className="size-2 rounded-full bg-warn shadow-[0_0_8px_var(--warn)]" />
-            <span className="font-semibold">Mock Swap Order</span>
+            <span className="font-semibold">Simulated Order</span>
           </div>
           <span>Simulated state machine · No explorer links</span>
         </div>
@@ -187,13 +199,21 @@ export function SwapStatusPage() {
                 <p className="mt-2 text-text-muted">
                   {FAILURE_COPY.counterLockLate.guidance}
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   <Link
                     to="/recover"
                     className="rounded-pill bg-surface-3 px-3 py-1 font-semibold text-text hover:text-lime transition-colors"
                   >
                     Open Recovery Tool
                   </Link>
+                  <CopyDiagnosticsButton
+                    data={{
+                      route: `/swap/${order.id}`,
+                      orderId: order.id,
+                      errorCode: order.status,
+                      errorMessage: FAILURE_COPY.counterLockLate.message,
+                    }}
+                  />
                 </div>
               </div>
             </div>
@@ -460,7 +480,7 @@ export function SwapStatusPage() {
 
                     {tx.isMock ? (
                       <span className="rounded-pill bg-surface-3 px-2 py-1 text-[10px] text-text-dim">
-                        Mock Tx
+                        Simulated Tx
                       </span>
                     ) : tx.explorerUrl ? (
                       <a
