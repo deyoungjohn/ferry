@@ -3,5 +3,11 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["abi.ts", "test/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mjs"]
+  "include": [
+    "abi.ts",
+    "vitest.config.ts",
+    "test/**/*.ts",
+    "scripts/**/*.ts",
+    "scripts/**/*.mjs"
+  ]
 }
