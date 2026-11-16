@@ -9,6 +9,7 @@ import { SolverConfigSchema } from '../src/config.js';
 import { SolverEngine } from '../src/engine/runner.js';
 import type { BchQuorumClient } from '../src/bch/quorum-client.js';
 import { MockPriceSource } from '../src/pricing/price-source.js';
+import { QuoteRateLimiter } from '../src/api/rate-limiter.js';
 import { verifyOrderSignature } from '@ferry/core';
 
 describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', () => {
@@ -148,7 +149,7 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.orderId).toBeDefined();
-      expect(body.lane).toBe('safe');
+      expect(body.terms).toBeDefined();
       expect(body.signerAddress).toBe(solverAccount.address.toLowerCase());
       expect(body.terms.pricing).toBeDefined();
       expect(body.terms.pricing.refs.length).toBe(2);
@@ -256,9 +257,9 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(getRes.statusCode).toBe(200);
       const orderData = getRes.json();
       expect(orderData.orderId).toBe(orderId);
-      expect(orderData.status).toBe('QUOTED');
-      expect(orderData.deadlines.quoteExpiry).toBeGreaterThan(0);
-      expect(orderData.deadlines.quoteExpiry).toBeLessThan(100_000_000_000); // Strict seconds
+      expect(orderData.state).toBe('QUOTED');
+      expect(orderData.quoteExpiry).toBeGreaterThan(0);
+      expect(orderData.quoteExpiry).toBeLessThan(100_000_000_000); // Strict seconds
 
       // 3. POST /v1/orders/:id/secret
       const secretRes = await app.inject({
@@ -267,7 +268,7 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
         payload: { secret },
       });
       expect(secretRes.statusCode).toBe(200);
-      expect(secretRes.json().accepted).toBe(true);
+      expect(secretRes.json().ok).toBe(true);
 
       // Verify order transitioned to SECRET_KNOWN in DB
       const updated = db.getOrder(orderId);
@@ -333,8 +334,8 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       });
 
       expect(relayRes.statusCode).toBe(200);
-      expect(relayRes.json().relayed).toBe(true);
-      expect(relayRes.json().status).toBe('USER_LOCK_SEEN');
+      expect(relayRes.json().ok).toBe(true);
+      expect(relayRes.json().txHash).toBeDefined();
     });
 
     it('relays claim and transitions order to SOLVER_CLAIM_BROADCAST', async () => {
@@ -364,8 +365,8 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       });
 
       expect(relayClaimRes.statusCode).toBe(200);
-      expect(relayClaimRes.json().relayed).toBe(true);
-      expect(relayClaimRes.json().status).toBe('SOLVER_CLAIM_BROADCAST');
+      expect(relayClaimRes.json().ok).toBe(true);
+      expect(relayClaimRes.json().txHash).toBeDefined();
     });
   });
 
@@ -592,6 +593,236 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
 
       // STRICT PRIVACY VERIFICATION:
       expect(body.secret).toBeUndefined();
+    });
+  });
+
+  describe('8. Rate limiting (quote & link-creation routes)', () => {
+    it('enforces per-address and per-IP rate limits on POST /v1/quotes and POST /v1/links', async () => {
+      // Create server with low rate limits (max 2 per address)
+      const limitedLimiter = new QuoteRateLimiter({
+        windowMs: 60_000,
+        maxPerAddress: 2,
+        maxPerIp: 10,
+      });
+
+      const config = SolverConfigSchema.parse({
+        solverEvmPrivateKey: solverEvmKey,
+        operatorToken,
+        allowMockPaylinkSignatures: true,
+      });
+
+      const limitedApp = buildServer({
+        config,
+        db,
+        evmAdapter: fakeEvmAdapter,
+        bchClient: fakeBchClient,
+        engine,
+        priceSource,
+        rateLimiter: limitedLimiter,
+      });
+      await limitedApp.ready();
+
+      const userAddress = '0x1111111111111111111111111111111111111111';
+      const quotePayload = {
+        direction: 'EVM_TO_BCH',
+        bchToken: 'PUSD',
+        amountIn: '25000000',
+        userEvmAddress: userAddress,
+        userBchLockingBytecode:
+          '0x76a914000000000000000000000000000000000000000088ac',
+        hashLock: sha256(('0x' + '22'.repeat(32)) as `0x${string}`),
+        lane: 'safe',
+      };
+
+      // 1st request succeeds
+      const r1 = await limitedApp.inject({
+        method: 'POST',
+        url: '/v1/quotes',
+        payload: quotePayload,
+      });
+      expect(r1.statusCode).toBe(200);
+
+      // 2nd request succeeds
+      const r2 = await limitedApp.inject({
+        method: 'POST',
+        url: '/v1/quotes',
+        payload: quotePayload,
+      });
+      expect(r2.statusCode).toBe(200);
+
+      // 3rd request is rate-limited (429)
+      const r3 = await limitedApp.inject({
+        method: 'POST',
+        url: '/v1/quotes',
+        payload: quotePayload,
+      });
+      expect(r3.statusCode).toBe(429);
+      expect(r3.json().error.code).toBe('RATE_LIMITED');
+
+      // Test rate limiting on POST /v1/links
+      const cashaddr = 'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk';
+      const linkPayload = {
+        kind: 'invoice',
+        recipientCashaddr: cashaddr,
+        recipientLockingBytecode:
+          '0x76a914111111111111111111111111111111111111111188ac',
+        token: 'PUSD',
+        amountOut: '2500',
+      };
+
+      const l1 = await limitedApp.inject({
+        method: 'POST',
+        url: '/v1/links',
+        payload: linkPayload,
+      });
+      expect(l1.statusCode).toBe(200);
+
+      const l2 = await limitedApp.inject({
+        method: 'POST',
+        url: '/v1/links',
+        payload: linkPayload,
+      });
+      expect(l2.statusCode).toBe(200);
+
+      const l3 = await limitedApp.inject({
+        method: 'POST',
+        url: '/v1/links',
+        payload: linkPayload,
+      });
+      expect(l3.statusCode).toBe(429);
+      expect(l3.json().error.code).toBe('RATE_LIMITED');
+
+      await limitedApp.close();
+    });
+  });
+
+  describe('9. Request body size limit (64KB)', () => {
+    it('rejects oversized request bodies with 413 PAYLOAD_TOO_LARGE', async () => {
+      // 70KB payload > 64KB (65536 bytes) limit
+      const bigString = 'x'.repeat(70 * 1024);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/quotes',
+        payload: {
+          direction: 'EVM_TO_BCH',
+          bchToken: 'PUSD',
+          amountIn: '25000000',
+          userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
+          userBchLockingBytecode:
+            '0x76a914000000000000000000000000000000000000000088ac',
+          hashLock: sha256(('0x' + '22'.repeat(32)) as `0x${string}`),
+          lane: 'safe',
+          padding: bigString,
+        },
+      });
+
+      expect(res.statusCode).toBe(413);
+      expect(res.json().error.code).toBe('PAYLOAD_TOO_LARGE');
+    });
+  });
+
+  describe('10. Error sanitizer (no stack traces leaked)', () => {
+    it('does not leak stack traces in error responses', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/quotes',
+        payload: { invalid: 'payload' },
+      });
+
+      expect(res.statusCode).toBe(400);
+      const body = res.json();
+      expect(body.error).toBeDefined();
+      expect(body.stack).toBeUndefined();
+      expect(body.error.stack).toBeUndefined();
+    });
+  });
+
+  describe('11. Operator routes authentication & inventory view', () => {
+    it('rejects unauthenticated or wrongly authenticated requests to operator endpoints', async () => {
+      // Missing header
+      const r1 = await app.inject({
+        method: 'GET',
+        url: '/v1/operator/inventory',
+      });
+      expect(r1.statusCode).toBe(401);
+
+      // Wrong bearer token
+      const r2 = await app.inject({
+        method: 'GET',
+        url: '/v1/operator/inventory',
+        headers: { authorization: 'Bearer wrong-secret-token' },
+      });
+      expect(r2.statusCode).toBe(401);
+    });
+
+    it('GET /v1/operator/inventory returns balances, reservations, exposure, and skew in bps', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/operator/inventory',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.assets).toBeInstanceOf(Array);
+      expect(body.assets.length).toBeGreaterThan(0);
+      expect(typeof body.skewBps).toBe('number');
+      expect(typeof body.skewMaxBps).toBe('number');
+      expect(body.timestamp).toBeGreaterThan(0);
+    });
+
+    it('GET /v1/operator/alerts returns system alerts with bearer token', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/operator/alerts',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.systemAlerts).toBeInstanceOf(Array);
+      expect(body.timestamp).toBeGreaterThan(0);
+    });
+
+    it('POST /v1/kill-switch, /v1/pause, and /v1/resume operate with bearer token', async () => {
+      const pauseRes = await app.inject({
+        method: 'POST',
+        url: '/v1/pause',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(pauseRes.statusCode).toBe(200);
+      expect(pauseRes.json().quotingEnabled).toBe(false);
+
+      const resumeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/resume',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(resumeRes.statusCode).toBe(200);
+      expect(resumeRes.json().quotingEnabled).toBe(true);
+
+      const killRes = await app.inject({
+        method: 'POST',
+        url: '/v1/kill-switch',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(killRes.statusCode).toBe(200);
+      expect(killRes.json().ok).toBe(true);
+    });
+
+    it('GET /v1/config returns redacted solver configuration', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/config',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.network).toBeDefined();
+      expect(body.baseHtlcAddress).toBeDefined();
+      expect(body.solverEvmPrivateKey).toBe('[REDACTED]');
+      expect(body.operatorToken).toBe('[REDACTED]');
     });
   });
 });

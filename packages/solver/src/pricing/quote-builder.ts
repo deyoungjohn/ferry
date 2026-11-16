@@ -43,6 +43,7 @@ export interface BuildQuoteParams {
   openExposure: bigint;
   nowSeconds: number;
   quotingEnabled?: boolean;
+  skewBps?: number | undefined;
   termsTemplate: Omit<
     OrderTerms,
     | 'direction'
@@ -150,9 +151,15 @@ export class QuoteBuilder {
       },
     ];
 
+    const skew = params.skewBps ?? 0;
+    const effectiveSpreadBps =
+      params.direction === 'EVM_TO_BCH'
+        ? Math.max(0, this.policy.spreadBps + skew)
+        : Math.max(0, this.policy.spreadBps - skew);
+
     const pricingEvidence: PricingEvidence = {
       refs,
-      spreadBps: this.policy.spreadBps,
+      spreadBps: effectiveSpreadBps,
       fixedFeeBase: 0n,
       rounding: 'floor',
     };

@@ -25,6 +25,40 @@ export interface RouteLiquidityData {
   reserved: string;
 }
 
+export interface InventoryAssetView {
+  chain: string;
+  symbol: string;
+  balance: string;
+  reserved: string;
+  exposure: string;
+  available: string;
+}
+
+export interface InventoryView {
+  assets: InventoryAssetView[];
+  skewBps: number;
+  skewMaxBps: number;
+  timestamp: number;
+}
+
+/**
+ * Calculates inventory skew in basis points according to blueprint §21.1.
+ * When PUSD is low (bchUsdMicros < evmUsdMicros), skew is positive:
+ * this widens the spread on forward swaps and narrows it on reverse swaps.
+ * Capped at ±skewMaxBps.
+ */
+export function calculateSkewBps(
+  bchUsdMicros: bigint,
+  evmUsdMicros: bigint,
+  skewMaxBps: number = 50,
+): number {
+  const total = bchUsdMicros + evmUsdMicros;
+  if (total === 0n) return 0;
+  const ratio = Number(evmUsdMicros - bchUsdMicros) / Number(total);
+  const rawSkew = Math.round(ratio * skewMaxBps);
+  return Math.max(-skewMaxBps, Math.min(skewMaxBps, rawSkew));
+}
+
 export class LiquidityManager {
   private readonly reservations = new Map<string, QuoteReservation>();
 
@@ -123,6 +157,90 @@ export class LiquidityManager {
       inventory: inventory.toString(),
       exposure: openExposure.toString(),
       reserved: reserved.toString(),
+    };
+  }
+
+  /**
+   * Calculates inventory skew in basis points according to blueprint §21.1.
+   * When PUSD is low (bchUsdMicros < evmUsdMicros), skew is positive:
+   * this widens the spread on forward swaps and narrows it on reverse swaps.
+   * Capped at ±skewMaxBps.
+   */
+  calculateSkewBps(
+    bchUsdMicros: bigint,
+    evmUsdMicros: bigint,
+    skewMaxBps: number = 50,
+  ): number {
+    const total = bchUsdMicros + evmUsdMicros;
+    if (total === 0n) return 0;
+    const ratio = Number(evmUsdMicros - bchUsdMicros) / Number(total);
+    const rawSkew = Math.round(ratio * skewMaxBps);
+    return Math.max(-skewMaxBps, Math.min(skewMaxBps, rawSkew));
+  }
+
+  getInventoryView(params: {
+    bchInventory: bigint;
+    bchExposure: bigint;
+    evmInventory: bigint;
+    evmExposure: bigint;
+    skewMaxBps: number;
+    nowSeconds: number;
+  }): InventoryView {
+    const bchReserved = this.getActiveReservationsForAsset(
+      'PUSD',
+      params.nowSeconds,
+    );
+    const evmReserved = this.getActiveReservationsForAsset(
+      'USDC',
+      params.nowSeconds,
+    );
+
+    const bchAvailable = this.getAvailableLiquidity(
+      'PUSD',
+      params.bchInventory,
+      params.bchExposure,
+      params.nowSeconds,
+    );
+    const evmAvailable = this.getAvailableLiquidity(
+      'USDC',
+      params.evmInventory,
+      params.evmExposure,
+      params.nowSeconds,
+    );
+
+    // Convert PUSD (2 decimals) to USD micros (x10,000)
+    const bchUsdMicros = params.bchInventory * 10_000n;
+    // EVM USDC is already 6 decimals (USD micros)
+    const evmUsdMicros = params.evmInventory;
+
+    const skewBps = this.calculateSkewBps(
+      bchUsdMicros,
+      evmUsdMicros,
+      params.skewMaxBps,
+    );
+
+    return {
+      assets: [
+        {
+          chain: 'bch',
+          symbol: 'PUSD',
+          balance: params.bchInventory.toString(),
+          reserved: bchReserved.toString(),
+          exposure: params.bchExposure.toString(),
+          available: bchAvailable.toString(),
+        },
+        {
+          chain: 'base',
+          symbol: 'USDC',
+          balance: params.evmInventory.toString(),
+          reserved: evmReserved.toString(),
+          exposure: params.evmExposure.toString(),
+          available: evmAvailable.toString(),
+        },
+      ],
+      skewBps,
+      skewMaxBps: params.skewMaxBps,
+      timestamp: params.nowSeconds,
     };
   }
 
