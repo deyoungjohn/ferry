@@ -384,4 +384,89 @@ describe('Checkable quotes, price sources, and liquidity reservations (blueprint
       expect(data.available).toBe('6500'); // 10000 - 2000 - 1500
     });
   });
+
+  describe('Inventory skew calculation and pricing adjustment (blueprint §21.1)', () => {
+    it('calculateSkewBps produces correct positive, negative, and capped skew', async () => {
+      const { calculateSkewBps } = await import('../src/pricing/liquidity.js');
+
+      // Balanced: skew 0
+      expect(calculateSkewBps(1000_000n, 1000_000n, 50)).toBe(0);
+
+      // BCH low (PUSD low): positive skew (e.g. EVM = 300, BCH = 100 -> diff 200 / total 400 = 0.5)
+      // 50% of skewMaxBps (50) = 25 bps
+      expect(calculateSkewBps(100_000n, 300_000n, 50)).toBe(25);
+
+      // BCH high: negative skew
+      expect(calculateSkewBps(300_000n, 100_000n, 50)).toBe(-25);
+
+      // Maximum skew clamp at 100% imbalance
+      expect(calculateSkewBps(0n, 1000_000n, 50)).toBe(50);
+      expect(calculateSkewBps(1000_000n, 0n, 50)).toBe(-50);
+    });
+
+    it('applies skew to widen forward spread and narrow reverse spread', async () => {
+      const now = 1700000000;
+      const priceSource = new MockPriceSource();
+      priceSource.setPrice('USDC', {
+        usdPrice: 1_000_000n,
+        source: 'chainlink',
+        asOf: now,
+      });
+      priceSource.setPrice('PUSD', {
+        usdPrice: 1_000_000n,
+        source: 'cauldron',
+        asOf: now,
+      });
+
+      const liquidityManager = new LiquidityManager();
+      const quoteBuilder = new QuoteBuilder(priceSource, liquidityManager, {
+        spreadBps: 40,
+        fixedFeeUsdMicros: 0n,
+      });
+
+      // Forward swap with positive skew +20 bps (PUSD low)
+      // Effective forward spread should be 40 + 20 = 60 bps
+      const fwdQuote = await quoteBuilder.buildQuote({
+        quoteId: 'quote-fwd-skew',
+        direction: 'EVM_TO_BCH',
+        payAsset: 'USDC',
+        receiveAsset: 'PUSD',
+        amountIn: 25_000_000n,
+        userAddress: '0xAlice',
+        userIp: '1.2.3.4',
+        currentInventory: 100_000_000n,
+        openExposure: 0n,
+        nowSeconds: now,
+        termsTemplate: baseTermsTemplate,
+        skewBps: 20,
+      });
+
+      expect(fwdQuote.ok).toBe(true);
+      if (fwdQuote.ok) {
+        expect(fwdQuote.terms.pricing?.spreadBps).toBe(60);
+      }
+
+      // Reverse swap with positive skew +20 bps (PUSD low)
+      // Effective reverse spread should be 40 - 20 = 20 bps
+      const revQuote = await quoteBuilder.buildQuote({
+        quoteId: 'quote-rev-skew',
+        direction: 'BCH_TO_EVM',
+        payAsset: 'PUSD',
+        receiveAsset: 'USDC',
+        amountIn: 2500n,
+        userAddress: '0xAlice',
+        userIp: '1.2.3.4',
+        currentInventory: 100_000_000n,
+        openExposure: 0n,
+        nowSeconds: now,
+        termsTemplate: baseTermsTemplate,
+        skewBps: 20,
+      });
+
+      expect(revQuote.ok).toBe(true);
+      if (revQuote.ok) {
+        expect(revQuote.terms.pricing?.spreadBps).toBe(20);
+      }
+    });
+  });
 });

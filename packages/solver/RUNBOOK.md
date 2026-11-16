@@ -10,15 +10,16 @@ The solver daemon acts as the automated market maker and cross-chain counterpart
 
 Key components:
 
-- **HTTP Server (Fastify)**: Exposes public quoting, order status, cooperative secret reveal, and pay/send link routes (`/v1/*`), plus operator management endpoints.
+- **HTTP Server (Fastify)**: Exposes public quoting, order status, cooperative secret reveal, and pay/send link routes (`/v1/*`), plus operator management endpoints. Requests enforce a strict 64 KB payload size limit and constant-time Bearer authentication on operator routes.
 - **Engine Loop**: Background reconciliation and state machine runner driving active orders towards terminal completion.
 - **BchQuorumClient**: Multi-node Electrum WebSocket client maintaining block tip consensus, UTXO queries, and double-spend proof monitoring.
 - **EvmChainAdapter**: Viem-based EVM client handling lock detection, claims, refunds, and contract event subscriptions.
-- **ActionExecutor & SQLite**: Crash-resilient write-ahead persistence (`data/solver.db`) guaranteeing no duplicate broadcasts or lost state across crashes.
+- **ActionExecutor & SQLite**: Crash-resilient write-ahead persistence (`data/solver.db`) guaranteeing no duplicate broadcasts or lost state across process restarts.
+- **Liquidity & Skew Manager**: Dynamically manages inventory reserves, exposures, and implements inventory skew pricing (capped by `SKEW_MAX_BPS`).
 
 ---
 
-## 2. Starting the Solver
+## 2. Starting on Mainnet & Testnet
 
 ### Prerequisites
 
@@ -26,7 +27,24 @@ Key components:
 - Persistent SQLite database directory (`packages/solver/data`)
 - RPC endpoints:
   - Base RPC endpoint (HTTPS)
-  - At least 2 distinct Bitcoin Cash Electrum WebSocket endpoints (for mainnet quorum)
+  - At least 2 distinct, independent Bitcoin Cash Electrum WebSocket endpoints (for mainnet quorum)
+
+### Mainnet Startup Refusals & Guards
+
+On `NETWORK=mainnet`, the daemon executes strict fail-fast validation during configuration loading and server startup. It refuses to start under any of the following conditions:
+
+1. **Fewer Than Two Independent Electrum Servers**:
+   - `BCH_ELECTRUM_HOSTS` must contain at least 2 distinct, reachable WebSocket endpoints.
+   - Refusal: Throws `Fewer than 2 independent Electrum servers configured for mainnet`.
+2. **Short or Insecure Operator Token**:
+   - `OPERATOR_TOKEN` must be at least 32 characters in length.
+   - Refusal: Throws `Operator token must be at least 32 characters on mainnet`.
+3. **Placeholder or Dev Private Keys**:
+   - `SOLVER_EVM_PRIVATE_KEY` and `SOLVER_BCH_WIF` cannot use default Anvil/Hardhat development keys.
+   - `ALLOW_DEV_KEYS=1` is strictly forbidden when `NETWORK=mainnet`.
+   - Refusal: Throws `Dev private keys are strictly forbidden on mainnet`.
+4. **Missing Chain Contracts or Peg Feeds**:
+   - Missing Base lock contract addresses or unconfigured token addresses abort startup immediately.
 
 ### Environment Variables
 
@@ -36,20 +54,19 @@ Key configuration parameters:
 - `PORT`: HTTP listen port (default `3000`).
 - `HOST`: HTTP listen host (default `0.0.0.0`).
 - `BASE_RPC_URL`: JSON-RPC URL for Base / EVM chain.
-- `BCH_ELECTRUM_HOSTS`: Comma-separated list of Electrum WebSocket URLs (e.g. `wss://fulcrum1.fountainhead.cash:50004,wss://bch.imaginary.cash:50004`). Mainnet requires at least 2 distinct hosts.
-- `SOLVER_EVM_PRIVATE_KEY`: 0x-prefixed 32-byte hex private key for signing terms and EVM transactions. Placeholder keys are strictly refused on mainnet.
+- `BCH_ELECTRUM_HOSTS`: Comma-separated list of Electrum WebSocket URLs (e.g. `wss://fulcrum1.fountainhead.cash:50004,wss://bch.imaginary.cash:50004`).
+- `SOLVER_EVM_PRIVATE_KEY`: 0x-prefixed 32-byte hex private key for signing terms and EVM transactions.
 - `SOLVER_BCH_WIF`: Bitcoin Cash WIF private key for locking and claiming CashTokens.
-- `OPERATOR_TOKEN`: Secret Bearer token for accessing administrative endpoints. Must be >= 32 characters on mainnet.
+- `OPERATOR_TOKEN`: Secret Bearer token for accessing administrative endpoints (must be >= 32 characters on mainnet).
+- `SKEW_MAX_BPS`: Maximum inventory skew spread adjustment in basis points (default `50`).
 - `QUOTING_ENABLED`: `1` (enabled) or `0` (paused).
 - `LOG_LEVEL`: `debug`, `info`, `warn`, or `error` (default `info`).
 
 ### Startup Command
 
-From the solver directory:
-
 ```bash
-pnpm build
-pnpm start
+pnpm --filter @ferry/solver build
+pnpm --filter @ferry/solver start
 ```
 
 ### Startup Verification
@@ -70,130 +87,144 @@ Expected output:
 }
 ```
 
-Check logs to ensure preflight self-checks passed without warnings:
+---
 
-- Electrum quorum established (`healthyNodeCount >= 2`)
-- EVM chain client connected and synchronized
-- Pending write-ahead intents recovered from SQLite
+## 3. System Alerts & Operator Monitoring
+
+Operators can monitor system health via the operator alerts endpoint:
+
+```bash
+curl -H "Authorization: Bearer <OPERATOR_TOKEN>" http://localhost:3000/v1/operator/alerts
+```
+
+### Alert Reference
+
+| Alert Code              | Severity | Meaning                                                                                                      | Operator Action                                                                                                                 |
+| :---------------------- | :------- | :----------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------ |
+| `BCH_TIP_UNHEALTHY`     | Critical | Electrum server quorum lost consensus, nodes disconnected, or tip age > 120s. Quoting paused automatically.  | Check network connectivity to Fulcrum servers. Replace failing endpoints in `BCH_ELECTRUM_HOSTS`. Quoting resumes when healthy. |
+| `EVM_TIP_UNHEALTHY`     | Critical | Base JSON-RPC endpoint unreachable, failing calls, or block tip age exceeded threshold.                      | Verify RPC provider status or switch to backup RPC URL. Quoting resumes once tip synchronizes.                                  |
+| `ORDERS_NEED_ATTENTION` | Critical | One or more active swaps encountered an ambiguous broadcast, transaction revert, or failed state transition. | Query `GET /v1/operator/needs-attention` immediately and follow the resolution steps below.                                     |
+| `PEG_GUARD`             | Warning  | Reference stablecoin price drifted outside allowable peg band (default 2%).                                  | Inspect Cauldron DEX or Chainlink feeds. Quoting for affected token is automatically blocked until peg recovers.                |
+| `PRICE_UNAVAILABLE`     | Warning  | Spot or reference oracle price feed is stale or missing.                                                     | Check oracle API connectivity. Quoting refuses with `PRICE_UNAVAILABLE` until fresh prices arrive.                              |
 
 ---
 
-## 3. Stopping the Solver
+## 4. Resolving Orders Needing Attention & Counter-Lock Failures
 
-The solver handles `SIGINT` (Ctrl+C) and `SIGTERM` signals with graceful shutdown:
+When an order enters `needs_attention`, it will never silently fail or double-spend. Query details:
 
-1. Stops accepting new quote requests (`QUOTING_PAUSED`).
-2. Finishes in-flight HTTP responses.
-3. Halts new transaction dispatches in the action executor.
-4. Flushes and checkpoints SQLite WAL logs.
-5. Closes Electrum WebSocket connections and EVM event subscriptions.
+```bash
+curl -H "Authorization: Bearer <OPERATOR_TOKEN>" http://localhost:3000/v1/operator/needs-attention
+```
 
-To stop cleanly:
+### What To Do When a Counter-Lock Fails
+
+A counter-lock failure occurs when a user has successfully locked funds on the origin chain (e.g., EVM USDC for `EVM_TO_BCH`), but the solver's transaction to lock counterparty funds on the destination chain (e.g., BCH CashTokens) fails to execute or confirm.
+
+#### Root Causes:
+
+1. **Network fee surge or UTXO contention**: Insufficient satoshis for miner fees or unconfirmed parent UTXO dependencies.
+2. **Ambiguous broadcast / RPC drop**: Broadcast returned a socket timeout or HTTP 504 while the node may or may not have relayed the transaction.
+3. **Nonce desync on EVM**: A previous transaction on Base is pending or replaced.
+
+#### Plain-Prose Resolution Procedure:
+
+1. **Do not blindly resubmit without verifying on-chain status**:
+   - Check the destination chain explorer (Fulcrum/BCH explorer or Basescan) using the solver's address and script hash.
+   - If the counter-lock transaction actually confirmed or is pending in the mempool, record the transaction hash in SQLite (`orders` table `solver_lock_tx_id`). The state machine will resume naturally.
+2. **Check the Clock (Quote Expiry & User Timelock)**:
+   - Check `order.quoteExpiry` and user lock refund height / deadline.
+   - **Rule**: If the remaining window before user refund is less than the required confirmation margin, **ABORT the counter-lock**. Do not lock funds if there is a risk that the user refunds while your counter-lock confirms.
+3. **Handling Safe Expiration**:
+   - If the solver does not counter-lock, solver inventory remains untouched.
+   - The user's lock will expire after their lock duration, allowing the user to claim a full refund via `evmRefund` or `bchRefund`.
+   - The engine will transition the order to `EXPIRED` once counter deadline passes without a counter-lock.
+4. **Resubmitting when Safe**:
+   - If ample time remains and the failure was transient (e.g. fee rate too low or transient RPC error), replenish UTXOs or adjust gas price and trigger execution from the write-ahead queue.
+
+---
+
+## 5. Draining and Graceful Shutdown
+
+When taking down the solver for maintenance, upgrades, or de-provisioning, follow this drain-and-stop procedure to prevent stuck user funds:
+
+### Step 1: Pause Quoting
+
+Prevent new quote requests from being accepted:
+
+```bash
+curl -X POST -H "Authorization: Bearer <OPERATOR_TOKEN>" http://localhost:3000/v1/pause
+```
+
+New quote requests will immediately be refused with `QUOTING_PAUSED`.
+
+### Step 2: Monitor In-Flight Swaps
+
+Inspect the inventory and open exposure:
+
+```bash
+curl -H "Authorization: Bearer <OPERATOR_TOKEN>" http://localhost:3000/v1/operator/inventory
+```
+
+Verify `exposure` across all assets. Inspect active orders:
+
+```bash
+curl http://localhost:3000/v1/orders/recent
+```
+
+Wait until all in-flight orders reach terminal states (`DONE`, `SOLVER_REFUNDED`, or `EXPIRED`).
+
+### Step 3: Stop the Engine & Process
+
+Once open exposure drops to 0:
+
+```bash
+curl -X POST -H "Authorization: Bearer <OPERATOR_TOKEN>" http://localhost:3000/v1/kill-switch
+```
+
+Then stop the daemon process:
 
 ```bash
 kill -TERM <pid>
 ```
 
-Wait for the log message: `Ferry solver stopped cleanly`.
+The process will close database connections, flush SQLite WAL checkpoints, and terminate cleanly.
 
 ---
 
-## 4. Emergency Kill Switch
+## 6. Inventory & Skew Pricing Management
 
-If unexpected price volatility, peg deviation, contract vulnerability, or upstream disruption occurs, pause quoting immediately:
-
-### Option A: Environment / Restart
-
-Set `QUOTING_ENABLED=0` in the environment configuration and restart the process.
-
-### Option B: Runtime Pause
-
-When quoting is paused:
-
-- `POST /v1/quotes` immediately returns HTTP 422 `QUOTING_PAUSED`.
-- Existing non-terminal orders continue to be safely settled, claimed, or refunded by the engine loop.
-- Fund safety is preserved without abrupt aborts of user trades.
-
----
-
-## 5. Liquidity Management & Rebalancing
-
-Check current available liquidity across routes:
+Check the current inventory view and dynamic skew adjustments:
 
 ```bash
-curl http://localhost:3000/v1/liquidity
+curl -H "Authorization: Bearer <OPERATOR_TOKEN>" http://localhost:3000/v1/operator/inventory
 ```
 
-### Inspecting Inventory and Exposure
+Example response:
 
-- `inventory`: Physical balance held in the solver's lock addresses.
-- `exposure`: Open commitments in non-terminal swaps.
-- `available`: `inventory - exposure - reserved`.
-- `reserved`: Amount temporarily reserved for valid, unfunded active quotes.
-
-### Rebalancing Flow
-
-1. **Low EVM USDC**: Send native USDC on Base to `config.solverEvmAddress`.
-2. **Low BCH CashTokens (PUSD / MUSD)**: Send token UTXOs with accompanying BCH gas sats (minimum carry sats) to `config.solverBchAddress`.
-3. Check `GET /v1/liquidity` to confirm the new inventory is recognized.
-
----
-
-## 6. Operational Alerts and Troubleshooting
-
-### Alert 1: `BCH_TIP_UNHEALTHY` / Stale Electrum Quorum
-
-- **Symptom**: `/v1/quotes` returns HTTP 503 `BCH_TIP_UNHEALTHY` or `STALE_CHAIN_TIP`.
-- **Cause**: One or more Electrum servers have fallen behind, lost connection, or desynchronized from the network tip.
-- **Action**:
-  1. Inspect `GET /v1/health` and logs for individual node tip heights.
-  2. If a specific Electrum server is unresponsive, update `BCH_ELECTRUM_HOSTS` to remove it or replace it with a healthy public Fulcrum node.
-  3. Ensure network connectivity to port 50004 / WSS.
-
-### Alert 2: `PEG_GUARD` Active
-
-- **Symptom**: Quotes refused with HTTP 422 `PEG_GUARD`.
-- **Cause**: Stablecoin reference price (USDC, PUSD, or MUSD) drifted beyond peg tolerance (default 2% / $0.02).
-- **Action**:
-  1. Check `GET /v1/pegs` for current oracle prices and timestamps.
-  2. Verify whether Cauldron DEX (chipnet/mainnet) or Chainlink feed experienced a real de-peg or an oracle liquidity anomaly.
-  3. Quoting will automatically resume when prices return to within peg tolerance.
-
-### Alert 3: `needs_attention` Orders
-
-- **Symptom**: Operator notification that an order requires manual inspection.
-- **Inspection**:
-  Query the operator endpoint using your secret bearer token:
-  ```bash
-  curl -H "Authorization: Bearer <OPERATOR_TOKEN>" http://localhost:3000/v1/operator/needs-attention
-  ```
-- **Common causes**:
-  - `AMBIGUOUS_BROADCAST`: Node returned an ambiguous error (e.g. network timeout) and the transaction was not observed on-chain within timeout.
-  - `REVERTED_TX`: EVM or BCH lock/claim transaction failed on-chain.
-- **Resolution**:
-  1. Check the transaction hash on the block explorer (Basescan or BCH 3xpl/explorer).
-  2. If the transaction succeeded, record the txid in SQLite `orders` table.
-  3. If the transaction definitively failed, clear the action in `actions` table and re-dispatch or mark refunded.
-
-### Alert 4: `PRICE_UNAVAILABLE`
-
-- **Symptom**: Quotes refused with HTTP 422 `PRICE_UNAVAILABLE`.
-- **Cause**: Price feed reading is older than `PRICE_MAX_AGE_S` (30 seconds for spot/DEX) or exceeded the Chainlink feed heartbeat interval plus margin.
-- **Action**:
-  1. Verify outbound network connectivity to price APIs (Cauldron / Paryon / RPC).
-  2. Check if Chainlink aggregator contract on Base is responding to `latestRoundData()`.
-
----
-
-## 7. Metrics & Privacy
-
-Public operational metrics can be queried at:
-
-```bash
-curl http://localhost:3000/v1/metrics
+```json
+{
+  "bch": {
+    "symbol": "PUSD",
+    "inventory": "100000000",
+    "reserved": "0",
+    "exposure": "0",
+    "available": "100000000"
+  },
+  "evm": {
+    "symbol": "USDC",
+    "inventory": "100000000",
+    "reserved": "0",
+    "exposure": "0",
+    "available": "100000000"
+  },
+  "skewBps": 25,
+  "skewMaxBps": 50,
+  "asOf": 1794820000
+}
 ```
 
-Metrics enforce strict privacy:
+The solver automatically applies skew pricing to incentivize inventory rebalancing:
 
-- Counters for quote volume, swap counts, settled totals, and active order counts.
-- **NEVER** exposes user wallet addresses, order lists, IP addresses, or secrets.
+- If EVM USDC inventory is higher than BCH PUSD inventory, forward swaps (`EVM_TO_BCH`) receive a slight spread surcharge (`+skewBps`), while reverse swaps (`BCH_TO_EVM`) receive a spread discount (`-skewBps`).
+- The maximum adjustment is strictly capped by `SKEW_MAX_BPS` (default 50 bps).

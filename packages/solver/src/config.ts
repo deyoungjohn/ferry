@@ -61,6 +61,7 @@ export const SolverConfigSchema = z
     revEvmDeadlineSeconds: z.coerce.number().default(21600),
     bchCarrySats: z.coerce.bigint().default(3000n),
     bchMaxFeeSats: z.coerce.bigint().default(1500n),
+    skewMaxBps: z.coerce.number().default(50),
     tpusdCategory: z
       .string()
       .default(
@@ -214,6 +215,7 @@ export function loadConfigFromEnv(
     revEvmDeadlineSeconds: env.REV_EVM_DEADLINE_SECONDS,
     bchCarrySats: env.BCH_CARRY_SATS,
     bchMaxFeeSats: env.BCH_MAX_FEE_SATS,
+    skewMaxBps: env.SKEW_MAX_BPS,
     tpusdCategory: env.TPUSD_CATEGORY,
     tmusdCategory: env.TMUSD_CATEGORY,
     allowMockPaylinkSignatures:
@@ -241,6 +243,7 @@ export function redactConfigForDisplay(config: SolverConfig): string {
     solverBchWif: config.solverBchWif ? '[REDACTED]' : undefined,
     operatorToken: config.operatorToken ? '[REDACTED]' : undefined,
     quotingEnabled: config.quotingEnabled,
+    skewMaxBps: config.skewMaxBps,
     dsproofWindowMs: config.dsproofWindowMs,
   };
   return JSON.stringify(safe, null, 2);
