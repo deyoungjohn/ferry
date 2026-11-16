@@ -205,6 +205,19 @@ describe('EvmChainAdapter', () => {
       bchMaxFee: 1000n,
       quoteId: `q-${secretLabel}`,
       quoteExpiry: now + 600,
+      pricing: {
+        refs: [
+          {
+            asset: 'USDC',
+            usdPrice: '1.00',
+            source: 'test-fixture',
+            asOf: now,
+          },
+        ],
+        spreadBps: 25,
+        fixedFeeBase: 0n,
+        rounding: 'floor',
+      },
       ...overrides,
     });
   }
