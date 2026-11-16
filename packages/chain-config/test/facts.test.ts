@@ -60,6 +60,45 @@ describe('chain fact data', () => {
     }
   });
 
+  it('keeps deployment facts null until a reviewed deployment fills them', () => {
+    for (const id of CHAIN_IDS) {
+      for (const network of NETWORKS) {
+        const deployment = data.chains[id][network].deployment;
+        expect(deployment.htlcAddress).toBeNull();
+        expect(deployment.deployBlock).toBeNull();
+        expect(deployment.relayCostUsd).toBeNull();
+        expect(deployment.evidence.status).toBe('unavailable');
+      }
+    }
+  });
+
+  it('records the expected mainnet price feeds and no testnet feeds', () => {
+    const expected: Record<string, string[]> = {
+      base: ['USDC'],
+      ethereum: ['USDC', 'USDT'],
+      arbitrum: ['USDC', 'USDT'],
+      arc: ['USDC'],
+      bnb: ['USDC', 'USDT'],
+      robinhood: [],
+    };
+    for (const id of CHAIN_IDS) {
+      const feeds = data.chains[id].mainnet.priceFeeds;
+      expect(feeds.map((feed) => feed.asset).sort()).toEqual(
+        expected[id]!.sort(),
+      );
+      for (const feed of feeds) {
+        expect(feed.source).toBe('Chainlink');
+        expect(feed.decimals).toBe(8);
+        expect(feed.heartbeatSeconds).toBeGreaterThan(0);
+        expect(feed.deviationThresholdPercent).toBeGreaterThan(0);
+        expect(feed.sampleAnswer).toMatch(/^\d+$/);
+        expect(feed.sampleUpdatedAt).toBeGreaterThan(0);
+        expect(feed.evidence.status).toBe('verified');
+      }
+      expect(data.chains[id].testnet.priceFeeds).toEqual([]);
+    }
+  });
+
   it('keeps the known route set and the deliberate disablement of BNB USDC', () => {
     const routes = new Map(
       CHAIN_IDS.flatMap((id) =>

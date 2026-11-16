@@ -92,8 +92,9 @@ describe('fail-closed route facts', () => {
   it('rejects fewer than two verified RPC URLs', () => {
     const chain = structuredClone(base);
     chain.rpcUrls[1]!.evidence.status = 'reported';
+    chain.rpcUrls[2]!.evidence.status = 'reported';
     expect(reasons(chain)).toContain(
-      'fewer than two verified RPC URLs (1 of 2)',
+      'fewer than two verified RPC URLs (1 of 3)',
     );
   });
 

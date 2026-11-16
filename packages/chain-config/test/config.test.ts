@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   EnabledRoutesError,
+  NetworkConfigurationError,
+  PREDICTED_FERRY_HTLC_ADDRESS,
   RouteConfigurationError,
   loadChainConfig,
   loadChainData,
@@ -12,36 +14,71 @@ function config() {
 }
 
 describe('loadChainConfig', () => {
-  it('loads all six chains on mainnet and testnet with no routes enabled by default', () => {
+  it('loads route-capable chains and the full fact set with no routes enabled by default', () => {
     const loaded = config();
+    expect(loaded.network).toBe('mainnet');
     expect(loaded.chains).toHaveLength(12);
+    expect(loaded.facts).toHaveLength(6);
+    expect(loaded.coreChains).toHaveLength(5);
     expect(loaded.routes).toHaveLength(8);
     expect(loaded.enabledRoutes).toEqual([]);
     expect(loaded.routes.every((route) => !route.enabled)).toBe(true);
   });
 
-  it('exposes the chain fields from the blueprint shape', () => {
+  it('keeps the rich chain view compatible with the deploy scripts', () => {
     const base = config().chains.find(
       (chain) => chain.id === 'base' && chain.network === 'mainnet',
     );
+    expect(base?.create2Factory.address).toBe(
+      '0x4e59b44847b379578588920cA78FbF26c0B4956C',
+    );
+    expect(base?.rpcUrls).toHaveLength(3);
+  });
+
+  it('returns core-shaped chain configs with the predicted HTLC address', () => {
+    const base = config().coreChains.find((chain) => chain.id === 'base');
     expect(base).toMatchObject({
       chainId: 8453,
       explorerUrl: 'https://basescan.org',
       nativeGas: 'ETH',
-      finality: { fast: 10, safe: 'safe', status: 'verified' },
-      create2Factory: {
-        address: '0x4e59b44847b379578588920cA78FbF26c0B4956C',
-        hasCode: true,
+      finality: { fast: 10, safe: 'safe' },
+      htlcAddress: PREDICTED_FERRY_HTLC_ADDRESS,
+      relayCostUsd: 0,
+      assets: [
+        {
+          symbol: 'USDC',
+          decimals: 6,
+          address: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+          permit: true,
+        },
+      ],
+    });
+    expect(base?.deployBlock).toBeUndefined();
+    expect(base?.rpcUrls).toHaveLength(3);
+  });
+
+  it('exposes deployment and price-feed facts separately from the core shape', () => {
+    const base = config().facts.find((chain) => chain.id === 'base');
+    expect(base).toMatchObject({
+      name: 'Base',
+      network: 'mainnet',
+      deployment: {
+        htlcAddress: null,
+        deployBlock: null,
+        relayCostUsd: null,
+        predictedHtlcAddress: PREDICTED_FERRY_HTLC_ADDRESS,
+        status: 'unavailable',
       },
     });
-    expect(base?.rpcUrls).toHaveLength(2);
-    expect(base?.assets[0]).toMatchObject({
-      symbol: 'USDC',
-      decimals: 6,
-      address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-      permit: true,
-      verified: true,
-    });
+    expect(base?.priceFeeds).toEqual([
+      expect.objectContaining({
+        asset: 'USDC',
+        pair: 'USDC/USD',
+        source: 'Chainlink',
+        decimals: 8,
+        heartbeatSeconds: 86400,
+      }),
+    ]);
   });
 
   it('enables a verified route when asked', () => {
@@ -62,17 +99,21 @@ describe('loadChainConfig', () => {
     ).toEqual(['usdc:base', 'usdc:arbitrum']);
   });
 
+  it('omits unverified assets from the core-shaped chain configs', () => {
+    const bnb = config().coreChains.find((chain) => chain.id === 'bnb');
+    expect(bnb?.assets.map((asset) => asset.symbol)).toEqual(['USDT']);
+    const testnet = loadChainConfig({ env: { FERRY_NETWORK: 'testnet' } });
+    expect(testnet.coreChains.some((chain) => chain.id === 'bnb')).toBe(false);
+  });
+
   it('enables the 18-decimal USDT route on BNB Chain', () => {
     const loaded = loadChainConfig({ env: { ENABLED_ROUTES: 'usdt:bnb' } });
     const route = loaded.routes.find((item) => item.key === 'usdt:bnb');
     expect(route?.enabled).toBe(true);
-    const bnb = loaded.chains.find(
-      (chain) => chain.id === 'bnb' && chain.network === 'mainnet',
-    );
+    const bnb = loaded.coreChains.find((chain) => chain.id === 'bnb');
     expect(bnb?.assets.find((asset) => asset.symbol === 'USDT')).toMatchObject({
       decimals: 18,
       permit: false,
-      verified: true,
     });
   });
 
@@ -106,6 +147,34 @@ describe('loadChainConfig', () => {
     expect(() =>
       loadChainConfig({ env: { ENABLED_ROUTES: 'usdc:base,' } }),
     ).toThrow(EnabledRoutesError);
+  });
+
+  it('selects the network from FERRY_NETWORK and keeps the same route keys', () => {
+    const loaded = loadChainConfig({
+      env: { FERRY_NETWORK: 'testnet', ENABLED_ROUTES: 'usdc:base' },
+    });
+    expect(loaded.network).toBe('testnet');
+    expect(loaded.enabledRoutes).toEqual(['usdc:base']);
+    expect(
+      loaded.coreChains.find((chain) => chain.id === 'base')?.chainId,
+    ).toBe(84532);
+    expect(
+      loaded.facts.find((chain) => chain.id === 'base')?.priceFeeds,
+    ).toEqual([]);
+  });
+
+  it('lets an explicit network option override FERRY_NETWORK', () => {
+    const loaded = loadChainConfig({
+      env: { FERRY_NETWORK: 'testnet' },
+      network: 'mainnet',
+    });
+    expect(loaded.network).toBe('mainnet');
+  });
+
+  it('rejects an invalid FERRY_NETWORK value', () => {
+    expect(() =>
+      loadChainConfig({ env: { FERRY_NETWORK: 'staging' } }),
+    ).toThrow(NetworkConfigurationError);
   });
 
   it('cannot be flipped on by the environment when decimals are unverified', () => {

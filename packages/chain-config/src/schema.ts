@@ -90,6 +90,29 @@ export const tokenFactsSchema = z.object({
 });
 export type TokenFacts = z.infer<typeof tokenFactsSchema>;
 
+export const deploymentFactsSchema = z.object({
+  htlcAddress: addressSchema.nullable(),
+  deployBlock: z.number().int().positive().nullable(),
+  relayCostUsd: z.number().nonnegative().nullable(),
+  evidence: factEvidenceSchema,
+});
+export type DeploymentFacts = z.infer<typeof deploymentFactsSchema>;
+
+export const priceFeedFactsSchema = z.object({
+  asset: z.enum(ASSET_SYMBOLS),
+  pair: z.enum(['USDC/USD', 'USDT/USD']),
+  source: z.literal('Chainlink'),
+  address: addressSchema,
+  decimals: z.number().int().min(0).max(36),
+  heartbeatSeconds: z.number().int().positive(),
+  deviationThresholdPercent: z.number().positive(),
+  sampleAnswer: z.string().regex(/^\d+$/),
+  sampleUpdatedAt: z.number().int().positive(),
+  sampleReadAt: z.string().min(1),
+  evidence: factEvidenceSchema,
+});
+export type PriceFeedFacts = z.infer<typeof priceFeedFactsSchema>;
+
 export const networkFactsSchema = z.object({
   chainId: z.number().int().positive(),
   rpcUrls: z.array(rpcSchema).min(2),
@@ -97,7 +120,9 @@ export const networkFactsSchema = z.object({
   nativeGas: z.enum(NATIVE_GAS_TOKENS),
   finality: finalitySchema,
   create2Factory: create2FactorySchema,
+  deployment: deploymentFactsSchema,
   tokens: z.array(tokenFactsSchema),
+  priceFeeds: z.array(priceFeedFactsSchema),
   notes: z.string().optional(),
 });
 export type NetworkFacts = z.infer<typeof networkFactsSchema>;
