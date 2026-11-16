@@ -3,6 +3,7 @@ import {
   createPublicClient,
   createWalletClient,
   encodeAbiParameters,
+  encodeFunctionData,
   http,
   keccak256,
   pad,
@@ -22,6 +23,7 @@ import { ferryHtlcAbi } from '../abi.js';
 import {
   CANONICAL_CREATE2_FACTORY,
   deployFerryHtlc,
+  loadFerryHtlcArtifact,
   predictFerryHtlcAddress,
 } from '../scripts/deploy.js';
 import { startAnvil } from './anvil.js';
@@ -393,9 +395,12 @@ describe.skipIf(!runForkTests)(
           });
           expect(deployRes.address).toBe(predicted);
 
-          const usdc = chain.assets.find((a) => a.symbol === 'USDC');
-          const usdcFacts = rawData.chains[chain.id].mainnet.tokens.find(
-            (t) => t.symbol === 'USDC',
+          const primarySymbol = chain.id === 'bnb' ? 'USDT' : 'USDC';
+          const primaryAsset = chain.assets.find(
+            (a) => a.symbol === primarySymbol,
+          );
+          const primaryFacts = rawData.chains[chain.id].mainnet.tokens.find(
+            (t) => t.symbol === primarySymbol,
           );
 
           let gasSummary: Record<string, string> = {
@@ -403,9 +408,14 @@ describe.skipIf(!runForkTests)(
             chainId: String(chain.chainId),
             rpc: rpcUrl,
             htlc: predicted,
+            token: primarySymbol,
           };
 
-          if (usdc && usdc.address && usdc.decimals !== null) {
+          if (
+            primaryAsset &&
+            primaryAsset.address &&
+            primaryAsset.decimals !== null
+          ) {
             if (chain.id === 'arc') {
               try {
                 const standard = await exerciseApproveLockClaimRefund({
@@ -413,8 +423,8 @@ describe.skipIf(!runForkTests)(
                   userClient,
                   recipientClient,
                   htlc: predicted,
-                  token: usdc.address as Address,
-                  decimals: usdc.decimals,
+                  token: primaryAsset.address as Address,
+                  decimals: primaryAsset.decimals,
                   label: `${chain.id}-usdc`,
                 });
                 gasSummary = {
@@ -439,9 +449,9 @@ describe.skipIf(!runForkTests)(
                 userClient,
                 recipientClient,
                 htlc: predicted,
-                token: usdc.address as Address,
-                decimals: usdc.decimals,
-                label: `${chain.id}-usdc`,
+                token: primaryAsset.address as Address,
+                decimals: primaryAsset.decimals,
+                label: `${chain.id}-${primarySymbol.toLowerCase()}`,
               });
               gasSummary = {
                 ...gasSummary,
@@ -450,19 +460,23 @@ describe.skipIf(!runForkTests)(
                 refundGas: standard.refundGas.toString(),
               };
 
-              if (usdc.permit && usdcFacts?.name && usdcFacts?.version) {
+              if (
+                primaryAsset.permit &&
+                primaryFacts?.name &&
+                primaryFacts?.version
+              ) {
                 const intentGas = await exerciseLockWithIntent({
                   publicClient,
                   userClient,
                   deployerClient,
                   recipient: recipient.address,
                   htlc: predicted,
-                  token: usdc.address as Address,
-                  tokenName: usdcFacts.name,
-                  tokenVersion: usdcFacts.version,
+                  token: primaryAsset.address as Address,
+                  tokenName: primaryFacts.name,
+                  tokenVersion: primaryFacts.version,
                   chainId: chain.chainId,
-                  decimals: usdc.decimals,
-                  label: `${chain.id}-usdc`,
+                  decimals: primaryAsset.decimals,
+                  label: `${chain.id}-${primarySymbol.toLowerCase()}`,
                 });
                 gasSummary = {
                   ...gasSummary,
@@ -499,5 +513,108 @@ describe.skipIf(!runForkTests)(
         }
       }, 120_000);
     }
+
+    it('performs read-only RPC check on arc (balance, allowance, eth_call, eth_estimateGas)', async () => {
+      const arc = config.chains.find(
+        (c) => c.id === 'arc' && c.network === 'mainnet',
+      );
+      expect(arc).toBeDefined();
+      const rpcUrl = arc!.rpcUrls[0]!;
+      const usdc = arc!.assets.find((a) => a.symbol === 'USDC');
+      expect(usdc?.address).toBeDefined();
+      const token = usdc!.address as Address;
+
+      const publicClient = createPublicClient({
+        transport: http(rpcUrl),
+        cacheTime: 0,
+      });
+
+      const chainId = await publicClient.getChainId();
+      expect(chainId).toBe(arc!.chainId);
+
+      const probeSender: Address = '0x0000000000000000000000000000000000000001';
+      const predictedHtlc = predictFerryHtlcAddress(
+        (arc!.create2Factory.address as Address) ?? CANONICAL_CREATE2_FACTORY,
+      );
+
+      const balance = await publicClient.readContract({
+        address: token,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [probeSender],
+      });
+      expect(typeof balance).toBe('bigint');
+
+      const allowance = await publicClient.readContract({
+        address: token,
+        abi: erc20Abi,
+        functionName: 'allowance',
+        args: [probeSender, predictedHtlc],
+      });
+      expect(typeof allowance).toBe('bigint');
+
+      const approveGas = await publicClient.estimateContractGas({
+        account: probeSender,
+        address: token,
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [predictedHtlc, 1_000_000n],
+      });
+      expect(approveGas).toBeGreaterThan(0n);
+
+      const latest = await publicClient.getBlock({ blockTag: 'latest' });
+      const lockData = encodeFunctionData({
+        abi: ferryHtlcAbi,
+        functionName: 'lock',
+        args: [
+          token,
+          recipient.address,
+          1_000_000n,
+          sha256(stringToHex('arc-readonly-probe')),
+          latest.timestamp + 3600n,
+        ],
+      });
+
+      const artifact = loadFerryHtlcArtifact();
+      let lockSimOutcome = 'unexpected-success';
+      try {
+        await publicClient.request({
+          method: 'eth_estimateGas' as never,
+          params: [
+            {
+              from: probeSender,
+              to: predictedHtlc,
+              data: lockData,
+            },
+            'latest',
+            {
+              [predictedHtlc]: { code: artifact.deployedBytecode },
+            },
+          ] as never,
+        });
+      } catch (err) {
+        // Expected without prior on-chain allowance; confirms lock() reached 0x3600 transferFrom.
+        lockSimOutcome =
+          err instanceof Error
+            ? (err.message.split('\n')[0] ?? err.message)
+            : String(err);
+      }
+
+      console.log(
+        'ARC_READONLY_REPORT',
+        JSON.stringify({
+          chain: arc!.id,
+          chainId,
+          rpc: rpcUrl,
+          token,
+          probeSender,
+          predictedHtlc,
+          balance: balance.toString(),
+          allowance: allowance.toString(),
+          approveEstimateGas: approveGas.toString(),
+          lockSimOutcome,
+        }),
+      );
+    }, 60_000);
   },
 );
