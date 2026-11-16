@@ -19,7 +19,24 @@ export type {
   FetchChainLocksResult,
 } from './activity.js';
 export { SendQueue, getSignerSendQueue } from './send-queue.js';
-export { relayCostUsd } from './gas.js';
+export {
+  estimateDeployFunding,
+  formatDeployFundingTable,
+  relayCostUsd,
+} from './gas.js';
+export type {
+  DeployFundingEstimate,
+  EstimateDeployFundingInput,
+} from './gas.js';
+export {
+  getEvmWalletRecoveryActions,
+  inspectEvmWalletRecovery,
+} from './recovery.js';
+export type {
+  EvmWalletRecoveryInput,
+  EvmWalletRecoveryPlan,
+  InspectEvmWalletRecoveryOptions,
+} from './recovery.js';
 export {
   RelayValidationError,
   validateRelayClaim,
