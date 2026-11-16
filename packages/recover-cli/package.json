@@ -20,7 +20,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src test",
+    "lint": "eslint --cache src test",
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {

@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx --conditions=ferry-source src/dev.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src test",
+    "lint": "eslint --cache src test",
     "start": "node dist/main.js",
     "test": "vitest run --config vitest.config.ts"
   },

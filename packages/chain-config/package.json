@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && mkdir -p dist/data && cp src/data/chains.json dist/data/chains.json",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src test",
+    "lint": "eslint --cache src test",
     "test": "vitest run --config vitest.config.ts",
     "verify": "node --conditions=ferry-source --import tsx src/verify.ts",
     "preflight": "node --conditions=ferry-source --import tsx src/preflight.ts",

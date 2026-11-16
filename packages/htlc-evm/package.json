@@ -13,7 +13,7 @@
     "snapshot": "forge snapshot",
     "abi": "node scripts/export-abi.mjs",
     "typecheck": "tsc --noEmit && node --check scripts/export-abi.mjs && node --check scripts/check-abi.mjs",
-    "lint": "forge fmt --check && eslint .",
+    "lint": "forge fmt --check && eslint --cache .",
     "slither": "slither . --filter-paths 'node_modules|lib|test|script'"
   },
   "devDependencies": {

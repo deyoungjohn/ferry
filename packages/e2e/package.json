@@ -6,7 +6,7 @@
   "description": "Opt-in end-to-end integration test suite for Ferry EVM flows.",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint test",
+    "lint": "eslint --cache test",
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {

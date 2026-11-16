@@ -18,7 +18,7 @@
   "scripts": {
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src test xo scripts",
+    "lint": "eslint --cache src test xo scripts",
     "compile": "tsx src/compile.ts",
     "xo:debug": "node --conditions=ferry-source --import tsx scripts/xo-debug-info.ts"
   },
