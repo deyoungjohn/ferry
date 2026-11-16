@@ -8,6 +8,8 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": [
+    "src/bch-servers.ts",
+    "src/record-deployment.ts",
     "src/preflight.ts",
     "src/watch-chains.ts",
     "src/measure-rpc.ts",

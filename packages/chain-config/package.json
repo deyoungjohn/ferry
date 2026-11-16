@@ -22,7 +22,9 @@
     "verify": "node --conditions=ferry-source --import tsx src/verify.ts",
     "preflight": "node --conditions=ferry-source --import tsx src/preflight.ts",
     "watch-chains": "node --conditions=ferry-source --import tsx src/watch-chains.ts",
-    "measure-rpc": "node --conditions=ferry-source --import tsx src/measure-rpc.ts"
+    "measure-rpc": "node --conditions=ferry-source --import tsx src/measure-rpc.ts",
+    "record-deployment": "node --conditions=ferry-source --import tsx src/record-deployment.ts",
+    "bch-servers": "node --conditions=ferry-source --import tsx src/bch-servers.ts"
   },
   "dependencies": {
     "@ferry/core": "workspace:*",

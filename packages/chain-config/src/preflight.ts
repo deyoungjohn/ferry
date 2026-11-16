@@ -78,26 +78,26 @@ interface BchHostResult {
   error: string | null;
 }
 
-interface EvmChainBalance {
+export interface EvmChainBalance {
   chainId: string;
   native: bigint;
   assets: Map<string, bigint>;
   error: string | null;
 }
 
-interface EvmBalanceResult {
+export interface EvmBalanceResult {
   byAddress: Map<string, EvmChainBalance[]>;
   errors: string[];
 }
 
-interface BchBalanceResult {
+export interface BchBalanceResult {
   byAddress: Map<string, BchBalance>;
   hostsOk: number;
   hostsTotal: number;
   errors: string[];
 }
 
-interface RoutePreflightResult {
+export interface RoutePreflightResult {
   route: RouteConfig;
   host: string;
   cap: number | null;
@@ -107,6 +107,11 @@ interface RoutePreflightResult {
   feed: 'ok' | 'stale' | 'fallback' | 'FAIL';
   activity: 'ok' | 'FAIL';
   decision: string;
+}
+
+export interface StrictPreflightResult {
+  ok: boolean;
+  issues: string[];
 }
 
 export function parsePreflightAddresses(
@@ -916,9 +921,93 @@ function printNextActions(
   }
 }
 
+export function evaluateStrictPreflight(
+  config: ChainConfig,
+  results: readonly RoutePreflightResult[],
+  addresses: PreflightAddresses,
+  evm: EvmBalanceResult,
+  bch: BchBalanceResult,
+): StrictPreflightResult {
+  const issues: string[] = [];
+  const enabled = config.routes.filter((route) => route.enabled);
+  if (enabled.length === 0) issues.push('no routes are enabled');
+
+  const byKey = new Map(results.map((result) => [result.route.key, result]));
+  for (const route of enabled) {
+    const result = byKey.get(route.key);
+    if (!result) {
+      issues.push(`${route.key}: no preflight result`);
+      continue;
+    }
+    if (result.htlc !== 'ok') issues.push(`${route.key}: HTLC is not deployed`);
+    if (result.feed !== 'ok')
+      issues.push(`${route.key}: price feed is not fresh`);
+    if (result.activity !== 'ok') {
+      issues.push(`${route.key}: no activity-capable RPC`);
+    }
+    if (result.factory !== 'ok' || result.token !== 'ok') {
+      issues.push(`${route.key}: factory or token check failed`);
+    }
+  }
+
+  if (addresses.solverEvm === null) {
+    issues.push('PREFLIGHT_ADDRESSES has no solver EVM address');
+  } else {
+    const solver = addresses.solverEvm;
+    const seen = new Set<string>();
+    for (const route of enabled) {
+      const chain = config.facts.find((item) => item.id === route.chain);
+      const token = chain?.assets.find((item) => item.symbol === route.asset);
+      if (!chain || !token || token.decimals === null) {
+        issues.push(`${route.key}: token config missing`);
+        continue;
+      }
+      const balance = evm.byAddress
+        .get(solver)
+        ?.find((item) => item.chainId === route.chain);
+      if (!balance || balance.error) {
+        issues.push(`${route.key}: solver balance unavailable`);
+        continue;
+      }
+      const key = `${route.chain}:${route.asset}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const stable = balance.assets.get(route.asset);
+      const target = routeMinimumTarget(chain.id, token.symbol, token.decimals);
+      if (stable === undefined || stable < target) {
+        issues.push(
+          `${route.key}: solver ${route.asset} is below the Minimum tier`,
+        );
+      }
+      if (balance.native === 0n) {
+        issues.push(`${route.key}: solver native gas is zero`);
+      }
+    }
+  }
+
+  if (addresses.solverBch === null) {
+    issues.push('PREFLIGHT_ADDRESSES has no solver BCH address');
+  } else {
+    const balance = bch.byAddress.get(addresses.solverBch);
+    if (!balance) {
+      issues.push('solver BCH balance is unavailable');
+    } else {
+      if (balance.pusd < BigInt(MINIMUM_TIER.pusd) * 100n) {
+        issues.push('solver PUSD is below the Minimum tier');
+      }
+      if (balance.sats < MINIMUM_TIER.bchSats) {
+        issues.push('solver BCH fee balance is below the Minimum tier');
+      }
+    }
+  }
+
+  return { ok: issues.length === 0, issues: [...new Set(issues)] };
+}
+
 export async function runPreflight(
   env: Record<string, string | undefined> = process.env,
-): Promise<void> {
+  options: { strict?: boolean } = {},
+): Promise<StrictPreflightResult> {
   const network = parseFerryNetwork(env.FERRY_NETWORK);
   const overrides = parseRpcOverrides(env);
   const overrideUrls = Object.values(overrides).flatMap((urls) => urls ?? []);
@@ -939,11 +1028,29 @@ export async function runPreflight(
   }
 
   const config = loadChainConfig({ env, rpcCaps });
+  const addresses = parsePreflightAddresses(env.PREFLIGHT_ADDRESSES);
   if (config.enabledRoutes.length === 0) {
     console.log(
       'No routes enabled. Set ENABLED_ROUTES to the routes to preflight.',
     );
-    return;
+    const empty = {
+      byAddress: new Map<string, EvmChainBalance[]>(),
+      errors: [],
+    };
+    const strict = evaluateStrictPreflight(config, [], addresses, empty, {
+      byAddress: new Map<string, BchBalance>(),
+      hostsOk: 0,
+      hostsTotal: 0,
+      errors: [],
+    });
+    console.log('');
+    console.log(
+      strict.ok
+        ? 'GO for mainnet launch'
+        : `NO-GO for mainnet launch: ${strict.issues.join('; ')}`,
+    );
+    if (options.strict && !strict.ok) process.exitCode = 1;
+    return strict;
   }
 
   const results: RoutePreflightResult[] = [];
@@ -952,7 +1059,6 @@ export async function runPreflight(
   }
   printRoutes(results);
 
-  const addresses = parsePreflightAddresses(env.PREFLIGHT_ADDRESSES);
   const evm = await readEvmBalances(addresses.evm, config, rpc);
   const bch =
     addresses.bch.length > 0
@@ -966,13 +1072,25 @@ export async function runPreflight(
   printBalances(evm, bch, addresses, config);
   printFunding(config, evm, bch, addresses);
   printNextActions(config, results, addresses, evm, bch);
+
+  const strict = evaluateStrictPreflight(config, results, addresses, evm, bch);
+  console.log('');
+  console.log(
+    strict.ok
+      ? 'GO for mainnet launch'
+      : `NO-GO for mainnet launch: ${strict.issues.join('; ')}`,
+  );
+  if (options.strict && !strict.ok) process.exitCode = 1;
+  return strict;
 }
 
 const isMain =
   process.argv[1] !== undefined &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
-  runPreflight().catch((error: unknown) => {
+  runPreflight(process.env, {
+    strict: process.argv.includes('--strict'),
+  }).catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });
