@@ -6,5 +6,5 @@
     "types": ["node"],
     "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "xo/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "xo/**/*.ts", "scripts/**/*.ts"]
 }

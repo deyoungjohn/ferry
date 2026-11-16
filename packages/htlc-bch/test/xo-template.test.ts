@@ -103,4 +103,48 @@ describe('XO Template: ferry-htlc (BCH-E-01)', () => {
     });
     expect(tplRedeemHex).toBe(cashScriptRedeemHex);
   });
+
+  it('produces byte-identical locking bytecode and valid XO invitation for forward and reverse OrderTerms', async () => {
+    const { buildXoLockInvitation, deriveXoHtlcLockingBytecode } =
+      await import('../xo/index.js');
+    const { deriveHtlcAddresses } = await import('../src/index.js');
+
+    const baseTerms = {
+      version: 1 as const,
+      bchToken: 'PUSD' as const,
+      bchTokenCategory:
+        '0xec335fd3ffa45f80cef7217cf98e8adf562df5a3e33f354f69df2951703586ac' as const,
+      bchTokenAmount: 1000n,
+      evmAmount: 10_050_000n,
+      evmToken: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const,
+      evmChainId: 8453,
+      evmHtlc: '0x5A0C062f4B7b8fF2263530e12bc15De9C836a641' as const,
+      userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd' as const,
+      userBchLockingBytecode: `0x76a914${'11'.repeat(20)}88ac` as const,
+      solverEvmAddress: '0xC9ec91859Bdb598dC2eeE715934D8231478f7A70' as const,
+      solverBchLockingBytecode: `0x76a914${'22'.repeat(20)}88ac` as const,
+      hashLock: `0x${'33'.repeat(32)}` as const,
+      evmDeadline: 1794850000,
+      bchRefundHeight: 500_000,
+      bchCarrySats: 3000n,
+      bchMaxFee: 1500n,
+      quoteId: 'q-xo-001',
+      quoteExpiry: 1794764200,
+    };
+
+    for (const direction of ['EVM_TO_BCH', 'BCH_TO_EVM'] as const) {
+      const terms = { ...baseTerms, direction };
+      const params = encodeHtlcParameters(terms);
+      const csAddrs = deriveHtlcAddresses(params, 'chipnet');
+      const xoLockingHex = deriveXoHtlcLockingBytecode(params);
+      expect(xoLockingHex).toBe(libauth.binToHex(csAddrs.lockingBytecode));
+
+      const invitation = buildXoLockInvitation(params, 'chipnet');
+      expect(invitation.action).toBe('lock');
+      expect(invitation.lockAddress).toBe(csAddrs.p2sh32Address);
+      expect(invitation.tokenAddress).toBe(csAddrs.tokenAddress);
+      expect(invitation.lockingBytecode).toBe(xoLockingHex);
+      expect(invitation.template.name).toBe('Ferry HTLC');
+    }
+  });
 });
