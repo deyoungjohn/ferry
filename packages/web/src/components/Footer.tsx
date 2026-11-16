@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { BANNER_CONFIG } from '../lib/config';
 import { FOOTER_COPY } from '../lib/copy';
 
@@ -21,6 +22,9 @@ export function Footer() {
           <a href="#faq" className="hover:text-text transition-colors">
             {FOOTER_COPY.faq}
           </a>
+          <Link to="/status" className="hover:text-text transition-colors">
+            {FOOTER_COPY.status}
+          </Link>
           {BANNER_CONFIG.repoUrl && (
             <a
               href={BANNER_CONFIG.repoUrl}

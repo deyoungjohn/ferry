@@ -122,17 +122,43 @@ export const FAQ_ITEMS: readonly FaqItem[] = [
 export const PEG_SOURCES = {
   title: 'BCH Stablecoin Pegs',
   description: 'Real-time parity vs USD on Bitcoin Cash CashTokens DEXs.',
-  sourcesLabel:
-    'Data sources: Paryon stats API & Cauldron DEX spot on Bitcoin Cash.',
 } as const;
+
+export function formatPegSources(
+  sources?:
+    readonly (string | undefined)[] | readonly { readonly source?: string }[],
+): string {
+  if (!sources || sources.length === 0) {
+    return 'Real-time oracle references';
+  }
+  const names = sources
+    .map((s) => (typeof s === 'string' ? s : s?.source))
+    .filter((s): s is string => Boolean(s && s.trim().length > 0));
+  const unique = Array.from(new Set(names));
+  if (unique.length === 0) return 'Real-time oracle references';
+  return `Data sources: ${unique.join(', ')}`;
+}
 
 export const FOOTER_COPY = {
   tagline:
     'Trust-minimised atomic swaps between Bitcoin Cash and EVM networks.',
   howItWorks: 'How it works',
   faq: 'FAQ',
+  status: 'Route Status',
   github: 'GitHub',
   license: 'MIT License',
+} as const;
+
+export const ROUTE_STATUS_COPY = {
+  title: 'Route Status & Network Health',
+  description:
+    'Public real-time route verification, liquidity telemetry, and dry-run quoting.',
+  testAllButton: 'Test All Routes (Quote-Only)',
+  testAllDisclaimer:
+    'Issues a minimum-amount dry-run quote across all enabled routes. Never locks funds or broadcasts transactions.',
+  operatorSectionTitle: 'Operator Route Telemetry',
+  operatorSectionDescription:
+    'Provide an operator token for direct solver engine telemetry. Kept in memory only — never stored or logged.',
 } as const;
 
 export const STATUS_PLAIN_WORDS: Record<string, string> = {

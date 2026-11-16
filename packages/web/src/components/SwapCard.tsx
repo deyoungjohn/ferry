@@ -439,7 +439,7 @@ export function SwapCard({
 
   const submitButtonText = useMemo(() => {
     if (isReadOnly) return FAILURE_COPY.readOnlyMode.button;
-    if (isChainDisabled) return 'Route disabled';
+    if (isChainDisabled) return 'Not live yet';
     if (isSubmitting) return 'Starting swap…';
     if (isAddressEmpty) {
       return isReverse
@@ -545,8 +545,13 @@ export function SwapCard({
                       className="bg-surface-2"
                     >
                       {c.name}{' '}
-                      {!c.enabled && c.disabledReason
-                        ? `(${c.disabledReason})`
+                      {!c.enabled
+                        ? `(${
+                            !c.disabledReason ||
+                            c.disabledReason.toLowerCase().includes('htlc')
+                              ? 'not live yet'
+                              : c.disabledReason
+                          })`
                         : ''}
                     </option>
                   ))}
@@ -630,8 +635,13 @@ export function SwapCard({
                       className="bg-surface-2"
                     >
                       {c.name}{' '}
-                      {!c.enabled && c.disabledReason
-                        ? `(${c.disabledReason})`
+                      {!c.enabled
+                        ? `(${
+                            !c.disabledReason ||
+                            c.disabledReason.toLowerCase().includes('htlc')
+                              ? 'not live yet'
+                              : c.disabledReason
+                          })`
                         : ''}
                     </option>
                   ))}
