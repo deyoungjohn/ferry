@@ -21,8 +21,8 @@ describe('Network Profile', () => {
     expect(setting.error).toBeDefined();
   });
 
-  it('verifies testnet profile has 6 far chains and BCH chipnet configured', () => {
-    expect(TESTNET_PROFILE.farChains).toHaveLength(6);
+  it('verifies testnet profile has 4 EVM chains and BCH chipnet configured', () => {
+    expect(TESTNET_PROFILE.farChains).toHaveLength(4);
     expect(TESTNET_PROFILE.bch.network).toBe('chipnet');
     expect(TESTNET_PROFILE.isConfigured).toBe(true);
   });

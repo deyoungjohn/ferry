@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { getModeCopy } from '../lib/copy';
 import { NETWORK_PROFILE } from '../lib/config';
 import { useSolver } from '../lib/solver/useSolver';
-import type { FarChain, SupportedToken } from '../lib/network';
+import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
 import { ArrowUpDownIcon, ChevronDownIcon } from './icons';
 
@@ -19,16 +19,16 @@ export function SwapCard() {
     farChains[0]?.id ?? 84532,
   );
 
-  const selectedChain: FarChain =
+  const selectedChain: ChainDisplay =
     farChains.find((c) => c.id === selectedChainId) ?? farChains[0]!;
 
   const [selectedFarToken, setSelectedFarToken] = useState<string>(
-    selectedChain?.tokens[0]?.symbol ?? 'USDC',
+    selectedChain?.tokenSymbols[0] ?? 'USDC',
   );
 
-  const bchTokens = NETWORK_PROFILE.bch.tokens;
+  const bchTokens = NETWORK_PROFILE.bch.tokenSymbols;
   const [selectedBchToken, setSelectedBchToken] = useState<string>(
-    bchTokens[0]?.symbol ?? 'tPUSD',
+    bchTokens[0] ?? 'tPUSD',
   );
 
   // Send amount
@@ -80,10 +80,16 @@ export function SwapCard() {
 
   // Update token when chain changes
   function handleChainChange(newChainId: string | number) {
-    setSelectedChainId(newChainId);
-    const chain = farChains.find((c) => c.id === newChainId);
-    if (chain && chain.tokens[0]) {
-      setSelectedFarToken(chain.tokens[0].symbol);
+    const numericId =
+      typeof newChainId === 'string' && !isNaN(Number(newChainId))
+        ? Number(newChainId)
+        : newChainId;
+    setSelectedChainId(numericId);
+    const chain = farChains.find(
+      (c) => c.id === numericId || String(c.id) === String(newChainId),
+    );
+    if (chain && chain.tokenSymbols[0]) {
+      setSelectedFarToken(chain.tokenSymbols[0]);
     }
   }
 
@@ -91,13 +97,13 @@ export function SwapCard() {
   const receiveTokenSymbol = isReverse ? selectedFarToken : selectedBchToken;
 
   return (
-    <div className="swap-stage mx-auto w-full max-w-md px-4">
+    <div className="swap-stage mx-auto w-full max-w-md px-4 pt-1 pb-4">
       {/* Mock interface disclaimer banner */}
       <div
         data-testid="mock-label"
-        className="mb-3 flex items-center justify-between rounded-xl border border-hairline bg-surface-2 px-3.5 py-2 text-xs text-text-muted"
+        className="mb-2 flex items-center justify-between rounded-lg border border-warn/30 bg-warn/10 px-3 py-1 text-xs"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-warn shadow-[0_0_8px_var(--warn)]" />
           <span className="font-medium text-text">{solver.getLabel()}</span>
         </div>
@@ -105,23 +111,23 @@ export function SwapCard() {
       </div>
 
       {/* Main swap card shell */}
-      <div className="card-ring relative rounded-card border border-hairline bg-surface-1 p-4 sm:p-5">
+      <div className="card-ring relative rounded-card border border-hairline bg-surface-1 p-3.5 sm:p-4">
         {/* Lane Toggle */}
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between">
           <span className="text-xs font-medium text-text-muted">
             Execution lane:
           </span>
           <div
             role="radiogroup"
             aria-label="Execution lane"
-            className="inline-flex rounded-pill border border-hairline bg-surface-2 p-1"
+            className="inline-flex rounded-pill border border-hairline bg-surface-2 p-0.5"
           >
             <button
               type="button"
               role="radio"
               aria-checked={lane === 'fast'}
               onClick={() => setLane('fast')}
-              className={`rounded-pill px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
+              className={`rounded-pill px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
                 lane === 'fast'
                   ? 'bg-lime text-lime-ink'
                   : 'text-text-muted hover:text-text'
@@ -134,7 +140,7 @@ export function SwapCard() {
               role="radio"
               aria-checked={lane === 'safe'}
               onClick={() => setLane('safe')}
-              className={`rounded-pill px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
+              className={`rounded-pill px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
                 lane === 'safe'
                   ? 'bg-lime text-lime-ink'
                   : 'text-text-muted hover:text-text'
@@ -146,8 +152,8 @@ export function SwapCard() {
         </div>
 
         {/* You send Well */}
-        <div className="relative rounded-well border border-hairline bg-surface-2 p-3.5 transition-colors focus-within:border-lime/40">
-          <div className="flex items-center justify-between text-xs text-text-muted mb-1.5">
+        <div className="relative rounded-well border border-hairline bg-surface-2 p-3 transition-colors focus-within:border-lime/40">
+          <div className="flex items-center justify-between text-xs text-text-muted mb-1">
             <label htmlFor="send-input" className="font-medium">
               {copy.sendLabel}
             </label>
@@ -158,7 +164,7 @@ export function SwapCard() {
                   aria-label="Source chain"
                   value={selectedChainId}
                   onChange={(e) => handleChainChange(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2.5 pr-7 py-1 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
+                  className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
                 >
                   {farChains.map((c) => (
                     <option key={c.id} value={c.id} className="bg-surface-2">
@@ -166,7 +172,7 @@ export function SwapCard() {
                     </option>
                   ))}
                 </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-2 size-3 text-text-muted" />
+                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
               </div>
             ) : (
               <span className="text-[11px] text-text-dim">Bitcoin Cash</span>
@@ -182,11 +188,11 @@ export function SwapCard() {
               value={sendAmount}
               onChange={(e) => setSendAmount(e.target.value)}
               placeholder="0.0"
-              className="w-full bg-transparent text-2xl sm:text-3xl font-semibold text-text outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="w-full bg-transparent text-xl sm:text-2xl font-semibold text-text outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
             {/* Token Pill */}
             {!isReverse ? (
-              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface-3 px-3 py-1.5 text-xs font-semibold text-text">
+              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text">
                 <span>{sendTokenSymbol}</span>
               </div>
             ) : (
@@ -195,39 +201,35 @@ export function SwapCard() {
                   aria-label="Send token"
                   value={selectedBchToken}
                   onChange={(e) => setSelectedBchToken(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-3 pr-7 py-1.5 rounded-pill text-xs font-semibold text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
+                  className="appearance-none bg-surface-3 pl-2.5 pr-6 py-1 rounded-pill text-xs font-semibold text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
                 >
-                  {bchTokens.map((t: SupportedToken) => (
-                    <option
-                      key={t.symbol}
-                      value={t.symbol}
-                      className="bg-surface-2"
-                    >
-                      {t.symbol}
+                  {bchTokens.map((sym: string) => (
+                    <option key={sym} value={sym} className="bg-surface-2">
+                      {sym}
                     </option>
                   ))}
                 </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-2 size-3 text-text-muted" />
+                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
               </div>
             )}
           </div>
         </div>
 
         {/* Direction Toggle button in center */}
-        <div className="relative my-[-10px] z-10 flex justify-center">
+        <div className="relative my-[-8px] z-10 flex justify-center">
           <button
             type="button"
             onClick={handleFlipDirection}
             aria-label="Toggle swap direction"
-            className="flex size-9 items-center justify-center rounded-full border border-hairline bg-surface-3 text-text shadow-md transition-transform hover:scale-110 hover:text-lime cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+            className="flex size-8 items-center justify-center rounded-full border border-hairline bg-surface-3 text-text shadow-md transition-transform hover:scale-110 hover:text-lime cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
           >
-            <ArrowUpDownIcon className="size-4" />
+            <ArrowUpDownIcon className="size-3.5" />
           </button>
         </div>
 
         {/* You receive Well */}
-        <div className="relative rounded-well border border-hairline bg-surface-2 p-3.5 transition-colors">
-          <div className="flex items-center justify-between text-xs text-text-muted mb-1.5">
+        <div className="relative rounded-well border border-hairline bg-surface-2 p-3 transition-colors">
+          <div className="flex items-center justify-between text-xs text-text-muted mb-1">
             <span className="font-medium">{copy.receiveLabel}</span>
             {isReverse ? (
               /* Chain picker on far well only (now the receive well) */
@@ -236,7 +238,7 @@ export function SwapCard() {
                   aria-label="Destination chain"
                   value={selectedChainId}
                   onChange={(e) => handleChainChange(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2.5 pr-7 py-1 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
+                  className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
                 >
                   {farChains.map((c) => (
                     <option key={c.id} value={c.id} className="bg-surface-2">
@@ -244,7 +246,7 @@ export function SwapCard() {
                     </option>
                   ))}
                 </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-2 size-3 text-text-muted" />
+                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
               </div>
             ) : (
               <span className="text-[11px] text-text-dim">Bitcoin Cash</span>
@@ -252,12 +254,12 @@ export function SwapCard() {
           </div>
 
           <div className="flex items-center justify-between gap-3">
-            <div className="text-2xl sm:text-3xl font-semibold text-text">
+            <div className="text-xl sm:text-2xl font-semibold text-text">
               {quote ? quote.toAmount.toFixed(2) : '0.00'}
             </div>
             {/* Token Pill */}
             {isReverse ? (
-              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface-3 px-3 py-1.5 text-xs font-semibold text-text">
+              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text">
                 <span>{receiveTokenSymbol}</span>
               </div>
             ) : (
@@ -266,26 +268,22 @@ export function SwapCard() {
                   aria-label="Receive token"
                   value={selectedBchToken}
                   onChange={(e) => setSelectedBchToken(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-3 pr-7 py-1.5 rounded-pill text-xs font-semibold text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
+                  className="appearance-none bg-surface-3 pl-2.5 pr-6 py-1 rounded-pill text-xs font-semibold text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
                 >
-                  {bchTokens.map((t: SupportedToken) => (
-                    <option
-                      key={t.symbol}
-                      value={t.symbol}
-                      className="bg-surface-2"
-                    >
-                      {t.symbol}
+                  {bchTokens.map((sym: string) => (
+                    <option key={sym} value={sym} className="bg-surface-2">
+                      {sym}
                     </option>
                   ))}
                 </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-2 size-3 text-text-muted" />
+                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
               </div>
             )}
           </div>
         </div>
 
         {/* Quote Details Row */}
-        <div className="mt-3.5 space-y-1 rounded-xl bg-surface-2/60 p-2.5 text-xs text-text-muted">
+        <div className="mt-2.5 space-y-0.5 rounded-xl bg-surface-2/60 p-2 text-xs text-text-muted">
           <div className="flex items-center justify-between">
             <span className="text-text-dim">Rate</span>
             <span className="font-mono text-text">
@@ -314,13 +312,14 @@ export function SwapCard() {
         {/* Primary Action Button */}
         <button
           type="button"
-          className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-pill bg-olive text-text font-semibold transition-colors hover:bg-olive/90 cursor-pointer shadow-elev-pill focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
+          data-testid="swap-submit-button"
+          className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-pill bg-olive text-text font-semibold transition-colors hover:bg-olive/90 cursor-pointer shadow-elev-pill focus:outline-none focus-visible:ring-2 focus-visible:ring-lime"
         >
           <span>{copy.actionLabel}</span>
         </button>
       </div>
 
-      {/* Thin arc horizon underneath per §20.1 signature elements */}
+      {/* Thin arc horizon underneath */}
       <div className="horizon-arc" aria-hidden="true" />
     </div>
   );

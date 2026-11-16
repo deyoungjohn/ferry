@@ -1,5 +1,17 @@
 export type SwapLane = 'fast' | 'safe';
 
+export type OrderStatus =
+  | 'QUOTED'
+  | 'USER_LOCK_SEEN'
+  | 'USER_LOCK_FINAL'
+  | 'SOLVER_LOCK_SEEN'
+  | 'SOLVER_LOCK_FINAL'
+  | 'USER_CLAIM_SEEN'
+  | 'SOLVER_CLAIM_SEEN'
+  | 'DONE'
+  | 'REFUNDED'
+  | 'EXPIRED';
+
 export interface QuoteRequest {
   readonly fromToken: string;
   readonly toToken: string;
@@ -57,6 +69,41 @@ export interface PegPrice {
   readonly sparkline: readonly number[];
 }
 
+export interface OrderTransaction {
+  readonly id: string;
+  readonly label: string;
+  readonly actor: 'user' | 'solver';
+  readonly chainName: string;
+  readonly hash: string;
+  readonly explorerUrl?: string;
+  readonly isMock?: boolean;
+}
+
+export interface SwapOrder {
+  readonly id: string;
+  readonly mode: 'swap' | 'pay-link' | 'send-link';
+  readonly status: OrderStatus;
+  readonly lane: SwapLane;
+  readonly fromToken: string;
+  readonly toToken: string;
+  readonly fromAmount: number;
+  readonly toAmount: number;
+  readonly fromChain: string;
+  readonly toChain: string;
+  readonly userAddress: string;
+  readonly recipientAddress: string;
+  readonly solverAddress: string;
+  readonly currentConfirmations: number;
+  readonly requiredConfirmations: number;
+  readonly estimatedSecondsRemaining: number;
+  readonly elapsedSeconds: number;
+  readonly waitDescription: string;
+  readonly transactions: readonly OrderTransaction[];
+  readonly createdAtSeconds: number;
+  readonly updatedAtSeconds: number;
+  readonly isMock: boolean;
+}
+
 export interface SolverClient {
   isLive(): boolean;
   getLabel(): string;
@@ -64,4 +111,5 @@ export interface SolverClient {
   getStats(): Promise<SolverStats>;
   getRecentSwaps(page: number, pageSize: number): Promise<PaginatedRecentSwaps>;
   getPegPrices(): Promise<readonly PegPrice[]>;
+  getOrder(orderId: string): Promise<SwapOrder | null>;
 }

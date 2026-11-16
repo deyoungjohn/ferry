@@ -29,6 +29,9 @@ describe('Mock labelling and explorer link safety', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Recent Swaps')).toBeInTheDocument();
+      expect(
+        screen.queryByText('Loading recent swaps…'),
+      ).not.toBeInTheDocument();
     });
 
     const links = screen.queryAllByRole('link');
@@ -37,8 +40,8 @@ describe('Mock labelling and explorer link safety', () => {
       expect(href).not.toContain('mock');
       expect(href).not.toContain('basescan');
       expect(href).not.toContain('etherscan');
-      expect(href).not.toContain('tronscan');
-      expect(href).not.toContain('solana.com');
+      expect(href).not.toContain('bscscan');
+      expect(href).not.toContain('arbiscan');
     }
 
     // Hashes are displayed as plaintext spans

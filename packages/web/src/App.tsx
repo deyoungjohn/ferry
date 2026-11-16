@@ -8,11 +8,33 @@ const NotFoundPage = lazy(async () => {
   return { default: m.NotFoundPage };
 });
 
+const SwapStatusPage = lazy(async () => {
+  const m = await import('./routes/SwapStatusPage');
+  return { default: m.SwapStatusPage };
+});
+
 export function App() {
   return (
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<HomePage />} />
+        <Route
+          path="/swap/:orderId"
+          element={
+            <Suspense
+              fallback={
+                <div
+                  className="mx-auto max-w-xl py-16 text-center text-xs text-text-muted"
+                  role="status"
+                >
+                  Loading status…
+                </div>
+              }
+            >
+              <SwapStatusPage />
+            </Suspense>
+          }
+        />
         <Route
           path="*"
           element={
