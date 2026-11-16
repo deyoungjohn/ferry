@@ -1,0 +1,17 @@
+[Unit]
+Description=Ferry SQLite backup
+ConditionPathExists=/var/lib/ferry/solver.db
+
+[Service]
+Type=oneshot
+User=ferry
+Group=ferry
+ExecStart=/usr/local/sbin/ferry-backup
+Nice=10
+IOSchedulingClass=best-effort
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/ferry
+UMask=0077

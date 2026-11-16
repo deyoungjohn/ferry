@@ -1,0 +1,41 @@
+[Unit]
+Description=Ferry solver daemon
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ferry
+Group=ferry
+WorkingDirectory=/home/ferry/ferry
+EnvironmentFile=/etc/ferry/solver.env
+Environment=NODE_ENV=production
+ExecStart=/usr/local/bin/node /home/ferry/ferry/packages/solver/dist/main.js
+Restart=on-failure
+RestartSec=5s
+RestartSteps=10
+RestartMaxDelaySec=60s
+TimeoutStopSec=90s
+KillSignal=SIGTERM
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+UMask=0077
+LimitNOFILE=65536
+MemoryHigh=1536M
+MemoryMax=2G
+ReadWritePaths=/var/lib/ferry /var/log/ferry
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

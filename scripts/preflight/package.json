@@ -8,6 +8,7 @@
     "measure-rpc": "pnpm --dir ../.. --filter @ferry/chain-config measure-rpc",
     "deploy-funding": "node --conditions=ferry-source --import tsx deploy-funding.ts",
     "typecheck": "pnpm --dir ../.. exec tsc --noEmit -p scripts/preflight/tsconfig.json",
-    "bch-servers": "pnpm --dir ../.. --filter @ferry/chain-config bch-servers"
+    "bch-servers": "pnpm --dir ../.. --filter @ferry/chain-config bch-servers",
+    "test": "pnpm --dir ../.. exec vitest run scripts/preflight/deploy-config.test.ts"
   }
 }
