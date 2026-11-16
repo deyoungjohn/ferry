@@ -1,20 +1,26 @@
 import { readFileSync } from 'node:fs';
 import {
+  EvmChainConfigSchema,
+  type EvmChainConfig as CoreEvmChainConfig,
+} from '@ferry/core';
+import { getAddress } from 'viem';
+import {
   CHAIN_IDS,
-  NETWORKS,
   type AssetSymbol,
   type ChainConfigData,
   type ChainId,
   type FactStatus,
   type Network,
   type NetworkFacts,
+  type PriceFeedFacts,
   type TokenFacts,
   isVerified,
   parseChainConfigData,
 } from './schema.js';
+import { predictHtlcAddress } from './htlc.js';
 import { parseEnabledRoutes, type RouteKey } from './routes.js';
 
-export interface EvmAssetConfig {
+export interface EvmAssetFact {
   symbol: AssetSymbol;
   decimals: number | null;
   address: string | null;
@@ -25,11 +31,19 @@ export interface EvmAssetConfig {
   notes: string | null;
 }
 
-export interface EvmChainConfig {
+export interface ChainDeploymentFactView {
+  htlcAddress: string | null;
+  deployBlock: number | null;
+  relayCostUsd: number | null;
+  predictedHtlcAddress: string;
+  status: FactStatus;
+}
+
+export interface ChainFactView {
   id: ChainId;
+  name: string;
   network: Network;
   chainId: number;
-  rpcUrls: string[];
   explorerUrl: string;
   nativeGas: NetworkFacts['nativeGas'];
   finality: {
@@ -41,9 +55,9 @@ export interface EvmChainConfig {
     address: string;
     hasCode: boolean;
   };
-  htlcAddress: string | null;
-  assets: EvmAssetConfig[];
-  relayCostUsd: number | null;
+  deployment: ChainDeploymentFactView;
+  assets: EvmAssetFact[];
+  priceFeeds: PriceFeedFacts[];
   notes: string | null;
 }
 
@@ -57,9 +71,28 @@ export interface RouteConfig {
 
 export interface ChainConfig {
   generatedAt: string;
-  chains: EvmChainConfig[];
+  network: Network;
+  chains: CoreEvmChainConfig[];
+  facts: ChainFactView[];
   routes: RouteConfig[];
   enabledRoutes: string[];
+}
+
+export interface ChainDisplayConfig {
+  id: ChainId;
+  name: string;
+  chainId: number;
+  explorerUrl: string;
+  tokenSymbols: AssetSymbol[];
+  enabled: boolean;
+  disabledReason: string | null;
+  priceSource: string;
+}
+
+export interface ChainDisplayResult {
+  generatedAt: string;
+  network: Network;
+  chains: ChainDisplayConfig[];
 }
 
 export class RouteConfigurationError extends Error {
@@ -74,9 +107,39 @@ export class RouteConfigurationError extends Error {
   }
 }
 
+export class NetworkConfigurationError extends Error {
+  readonly value: string;
+
+  constructor(value: string) {
+    super(`Invalid FERRY_NETWORK "${value}"; expected "mainnet" or "testnet".`);
+    this.name = 'NetworkConfigurationError';
+    this.value = value;
+  }
+}
+
+export class DeploymentAddressError extends Error {
+  constructor(
+    readonly chain: ChainId,
+    readonly configured: string,
+    readonly predicted: string,
+  ) {
+    super(
+      `Configured HTLC address ${configured} on ${chain} does not match the CREATE2 prediction ${predicted}.`,
+    );
+    this.name = 'DeploymentAddressError';
+  }
+}
+
 export function loadChainData(): unknown {
   const dataUrl = new URL('./data/chains.json', import.meta.url);
   return JSON.parse(readFileSync(dataUrl, 'utf8')) as unknown;
+}
+
+export function parseFerryNetwork(raw: string | null | undefined): Network {
+  if (raw === null || raw === undefined || raw.trim() === '') return 'mainnet';
+  const value = raw.trim().toLowerCase();
+  if (value === 'mainnet' || value === 'testnet') return value;
+  throw new NetworkConfigurationError(raw);
 }
 
 function tokenIneligibilityReasons(token: TokenFacts): string[] {
@@ -155,7 +218,7 @@ export function routeIneligibilityReasons(
   ];
 }
 
-function toAssetConfig(token: TokenFacts): EvmAssetConfig {
+function toAssetFact(token: TokenFacts): EvmAssetFact {
   return {
     symbol: token.symbol,
     decimals: token.decimals,
@@ -168,16 +231,17 @@ function toAssetConfig(token: TokenFacts): EvmAssetConfig {
   };
 }
 
-function toChainConfig(
+function toChainFactView(
   id: ChainId,
+  name: string,
   network: Network,
   chain: NetworkFacts,
-): EvmChainConfig {
+): ChainFactView {
   return {
     id,
+    name,
     network,
     chainId: chain.chainId,
-    rpcUrls: chain.rpcUrls.map((rpc) => rpc.url),
     explorerUrl: chain.explorerUrl,
     nativeGas: chain.nativeGas,
     finality: {
@@ -189,11 +253,86 @@ function toChainConfig(
       address: chain.create2Factory.address,
       hasCode: chain.create2Factory.hasCode,
     },
-    htlcAddress: null,
-    assets: chain.tokens.map(toAssetConfig),
-    relayCostUsd: null,
+    deployment: {
+      htlcAddress:
+        chain.deployment.htlcAddress === null
+          ? null
+          : getAddress(chain.deployment.htlcAddress),
+      deployBlock: chain.deployment.deployBlock,
+      relayCostUsd: chain.deployment.relayCostUsd,
+      predictedHtlcAddress: predictHtlcAddress(),
+      status: chain.deployment.evidence.status,
+    },
+    assets: chain.tokens.map(toAssetFact),
+    priceFeeds: chain.priceFeeds,
     notes: chain.notes ?? null,
   };
+}
+
+function toCoreChainConfig(
+  id: ChainId,
+  network: Network,
+  chain: NetworkFacts,
+): CoreEvmChainConfig | null {
+  const assets = chain.tokens.flatMap((token) => {
+    if (token.address === null || token.decimals === null) return [];
+    if (tokenIneligibilityReasons(token).length > 0) return [];
+    return [
+      {
+        symbol: token.symbol,
+        decimals: token.decimals,
+        address: token.address,
+        permit: token.permit,
+      },
+    ];
+  });
+
+  if (assets.length === 0) return null;
+
+  const predicted = predictHtlcAddress();
+  const configured = chain.deployment.htlcAddress;
+  if (configured !== null && getAddress(configured) !== predicted) {
+    throw new DeploymentAddressError(id, configured, predicted);
+  }
+
+  const candidate: Record<string, unknown> = {
+    id,
+    chainId: chain.chainId,
+    rpcUrls: chain.rpcUrls.map((rpc) => rpc.url),
+    explorerUrl: chain.explorerUrl,
+    htlcAddress: configured ?? predicted,
+    nativeGas: chain.nativeGas,
+    finality: {
+      fast: chain.finality.fastBlocks,
+      safe: chain.finality.safeTag,
+    },
+    assets,
+    relayCostUsd: chain.deployment.relayCostUsd ?? 0,
+  };
+  if (chain.deployment.deployBlock !== null) {
+    candidate.deployBlock = chain.deployment.deployBlock;
+  }
+
+  const parsed = EvmChainConfigSchema.parse(candidate);
+  return { ...parsed, htlcAddress: getAddress(parsed.htlcAddress) };
+}
+
+function buildRoutes(network: Network, data: ChainConfigData): RouteConfig[] {
+  const routes: RouteConfig[] = [];
+  for (const id of CHAIN_IDS) {
+    const chain = data.chains[id][network];
+    for (const token of chain.tokens) {
+      const key = `${token.symbol.toLowerCase()}:${id}`;
+      routes.push({
+        key,
+        asset: token.symbol,
+        chain: id,
+        enabled: false,
+        reasons: routeIneligibilityReasons(chain, token),
+      });
+    }
+  }
+  return routes;
 }
 
 function requestedRouteKeys(
@@ -228,40 +367,29 @@ function requestedRouteKeys(
 export interface LoadChainConfigOptions {
   env?: Record<string, string | undefined>;
   data?: unknown;
+  network?: Network;
 }
 
 export function loadChainConfig(
   options: LoadChainConfigOptions = {},
 ): ChainConfig {
+  const environment = options.env ?? process.env;
+  const network =
+    options.network ?? parseFerryNetwork(environment.FERRY_NETWORK);
   const data: ChainConfigData = parseChainConfigData(
     options.data ?? loadChainData(),
   );
-  const requested = parseEnabledRoutes(
-    (options.env ?? process.env).ENABLED_ROUTES,
+  const requested = parseEnabledRoutes(environment.ENABLED_ROUTES);
+
+  const facts = CHAIN_IDS.map((id) =>
+    toChainFactView(
+      id,
+      data.chains[id].name,
+      network,
+      data.chains[id][network],
+    ),
   );
-
-  const chains: EvmChainConfig[] = [];
-  for (const id of CHAIN_IDS) {
-    for (const network of NETWORKS) {
-      chains.push(toChainConfig(id, network, data.chains[id][network]));
-    }
-  }
-
-  const routes: RouteConfig[] = [];
-  for (const id of CHAIN_IDS) {
-    const mainnet = data.chains[id].mainnet;
-    for (const token of mainnet.tokens) {
-      const key = `${token.symbol.toLowerCase()}:${id}`;
-      routes.push({
-        key,
-        asset: token.symbol,
-        chain: id,
-        enabled: false,
-        reasons: routeIneligibilityReasons(mainnet, token),
-      });
-    }
-  }
-
+  const routes = buildRoutes(network, data);
   const routesByKey = new Map(routes.map((route) => [route.key, route]));
   const enabledKeys = requestedRouteKeys(requested, routesByKey);
 
@@ -269,12 +397,77 @@ export function loadChainConfig(
     route.enabled = enabledKeys.has(route.key);
   }
 
+  const chains = CHAIN_IDS.flatMap((id) => {
+    const chain = toCoreChainConfig(id, network, data.chains[id][network]);
+    return chain === null ? [] : [chain];
+  });
+
   return {
     generatedAt: data.generatedAt,
+    network,
     chains,
+    facts,
     routes,
     enabledRoutes: requested
       .filter((route) => enabledKeys.has(route.key))
       .map((route) => route.key),
+  };
+}
+
+function disabledReasonFor(routes: RouteConfig[]): string | null {
+  if (routes.length === 0) return 'No canonical USDC or USDT route';
+  const parts = routes
+    .filter((route) => !route.enabled)
+    .map((route) =>
+      route.reasons.length > 0
+        ? `${route.key}: ${route.reasons.join('; ')}`
+        : `${route.key}: route not enabled`,
+    );
+  return parts.length === 0 ? null : parts.join(' | ');
+}
+
+function priceSourceFor(facts: ChainFactView, routes: RouteConfig[]): string {
+  if (routes.length === 0) return 'Fallback (no route)';
+  const enabledAssets = routes
+    .filter((route) => route.enabled)
+    .map((route) => route.asset);
+  const assets =
+    enabledAssets.length > 0
+      ? enabledAssets
+      : facts.assets.map((asset) => asset.symbol);
+  const feeds = facts.priceFeeds.filter((feed) => assets.includes(feed.asset));
+  if (feeds.length > 0) {
+    return feeds.map((feed) => `Chainlink ${feed.pair}`).join(', ');
+  }
+  return 'Issuer/independent fallback';
+}
+
+export function loadChainDisplay(
+  options: LoadChainConfigOptions = {},
+): ChainDisplayResult {
+  const config = loadChainConfig(options);
+  const chains = config.facts.map((facts) => {
+    const routes = config.routes.filter((route) => route.chain === facts.id);
+    const enabled = routes.some((route) => route.enabled);
+    const tokenSymbols = facts.assets
+      .filter((asset) => asset.verified)
+      .map((asset) => asset.symbol)
+      .filter((symbol, index, all) => all.indexOf(symbol) === index);
+    return {
+      id: facts.id,
+      name: facts.name,
+      chainId: facts.chainId,
+      explorerUrl: facts.explorerUrl,
+      tokenSymbols,
+      enabled,
+      disabledReason: enabled ? null : disabledReasonFor(routes),
+      priceSource: priceSourceFor(facts, routes),
+    };
+  });
+
+  return {
+    generatedAt: config.generatedAt,
+    network: config.network,
+    chains,
   };
 }

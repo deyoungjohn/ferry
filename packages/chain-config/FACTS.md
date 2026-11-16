@@ -1,8 +1,10 @@
 # Chain and token facts
 
-Baseline date: **2026-11-15**. This file records the facts the EVM routes depend
+Baseline date: **2026-11-16**. This file records the facts the EVM routes depend
 on. The machine-readable copy is `src/data/chains.json`; the tables below record
-the value, source, date and status for the facts that gate a route.
+the value, source, date and status for the facts that gate a route. Chain and
+token facts were first verified on 2026-11-15; the S-17 price feeds and the RPC
+refreshes were verified on 2026-11-16.
 
 ## Status legend
 
@@ -34,41 +36,48 @@ permit facts, at least two RPC URLs and finality policy are all verified.
 | O2  | Arbitrum documentation: https://docs.arbitrum.io/                                                                      |
 | O3  | BNB Chain wallet and network documentation: https://docs.bnbchain.org/bnb-smart-chain/developers/wallet-configuration/ |
 | O4  | Ethereum networks: https://ethereum.org/en/developers/docs/networks/                                                   |
+| L1  | Chainlink reference data, Base: https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-base-1.json         |
+| L2  | Chainlink reference data, Ethereum: https://reference-data-directory.vercel.app/feeds-mainnet.json                     |
+| L3  | Chainlink reference data, Arbitrum: https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-arbitrum-1.json |
+| L4  | Chainlink reference data, Arc: https://reference-data-directory.vercel.app/feeds-arc-mainnet.json                      |
+| L5  | Chainlink reference data, BNB Chain: https://reference-data-directory.vercel.app/feeds-bsc-mainnet.json                |
 
 On-chain commands use these forms:
 
-| Key      | Command                                                                                                                             |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| CHAIN_ID | `eth_chainId` JSON-RPC call to the listed URL                                                                                       |
-| CALL     | `cast call <token> "<signature>" --rpc-url <url>`                                                                                   |
-| CODE     | `cast codesize <address> --rpc-url <url>`                                                                                           |
-| BLOCK    | `cast block <safe\|finalized\|latest> --field number --rpc-url <url>`                                                               |
-| LOGS     | `eth_getLogs` over the last N blocks for `0x0000000000000000000000000000000000000001`; N is increased until the endpoint rejects it |
+| Key      | Command                                                                                                                                                            |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| CHAIN_ID | `eth_chainId` JSON-RPC call to the listed URL                                                                                                                      |
+| CALL     | `cast call <token> "<signature>" --rpc-url <url>`                                                                                                                  |
+| CODE     | `cast codesize <address> --rpc-url <url>`                                                                                                                          |
+| BLOCK    | `cast block <safe\|finalized\|latest> --field number --rpc-url <url>`                                                                                              |
+| LOGS     | `eth_getLogs` over the last N blocks for `0x0000000000000000000000000000000000000001`; N is increased until the endpoint rejects it                                |
+| FEED     | `cast call <feed> "latestRoundData()(uint80,int256,uint256,uint256,uint80)" --rpc-url <url>` and the same call for `description()(string)` and `decimals()(uint8)` |
 
 ## Chain facts
 
 ### Base
 
-| Network | Fact                      | Value                                                                      | Source                                      | Date       | Status |
-| ------- | ------------------------- | -------------------------------------------------------------------------- | ------------------------------------------- | ---------- | ------ |
-| mainnet | Chain ID                  | 8453 (`0x2105`)                                                            | CHAIN_ID via `https://mainnet.base.org`; O1 | 2026-11-15 | ✔      |
-| mainnet | Public RPC 1              | `https://mainnet.base.org`; `eth_getLogs` cap 200 blocks                   | LOGS; CHAIN_ID                              | 2026-11-15 | ✔      |
-| mainnet | Public RPC 2              | `https://base-rpc.publicnode.com`; `eth_getLogs` cap 50,000 blocks         | LOGS; CHAIN_ID                              | 2026-11-15 | ✔      |
-| mainnet | Explorer                  | `https://basescan.org`                                                     | O1                                          | 2026-11-15 | ✔      |
-| mainnet | Native gas token          | ETH                                                                        | O1                                          | 2026-11-15 | ✔      |
-| mainnet | `safe` block tag          | works; safe block 57,937,206                                               | BLOCK                                       | 2026-11-15 | ✔      |
-| mainnet | `finalized` block tag     | works; finalized block 57,933,212                                          | BLOCK                                       | 2026-11-15 | ✔      |
-| mainnet | Typical block time        | 0.2 s (50-block sample)                                                    | CHAIN_ID + block timestamps                 | 2026-11-15 | ✔      |
-| mainnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code             | CODE                                        | 2026-11-15 | ✔      |
-| testnet | Chain ID                  | 84532 (`0x14a34`)                                                          | CHAIN_ID via `https://sepolia.base.org`; O1 | 2026-11-15 | ✔      |
-| testnet | Public RPC 1              | `https://sepolia.base.org`; `eth_getLogs` cap 200 blocks                   | LOGS; CHAIN_ID                              | 2026-11-15 | ✔      |
-| testnet | Public RPC 2              | `https://base-sepolia-rpc.publicnode.com`; `eth_getLogs` cap 50,000 blocks | LOGS; CHAIN_ID                              | 2026-11-15 | ✔      |
-| testnet | Explorer                  | `https://sepolia.basescan.org`                                             | O1                                          | 2026-11-15 | ✔      |
-| testnet | Native gas token          | ETH                                                                        | O1                                          | 2026-11-15 | ✔      |
-| testnet | `safe` block tag          | works; safe block 59,279,851                                               | BLOCK                                       | 2026-11-15 | ✔      |
-| testnet | `finalized` block tag     | works; finalized block 59,274,179                                          | BLOCK                                       | 2026-11-15 | ✔      |
-| testnet | Typical block time        | 0.2 s (50-block sample)                                                    | block timestamps                            | 2026-11-15 | ✔      |
-| testnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code             | CODE                                        | 2026-11-15 | ✔      |
+| Network | Fact                      | Value                                                                           | Source                                             | Date       | Status |
+| ------- | ------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------- | ---------- | ------ |
+| mainnet | Chain ID                  | 8453 (`0x2105`)                                                                 | CHAIN_ID via `https://base-rpc.publicnode.com`; O1 | 2026-11-15 | ✔      |
+| mainnet | Public RPC 1              | `https://base-rpc.publicnode.com`; `eth_getLogs` cap 50,000 blocks              | LOGS; CHAIN_ID                                     | 2026-11-16 | ✔      |
+| mainnet | Public RPC 2              | `https://1rpc.io/base`; `eth_getLogs` cap 50 blocks                             | LOGS; CHAIN_ID                                     | 2026-11-16 | ✔      |
+| mainnet | Other public RPC          | `https://mainnet.base.org`; `eth_getLogs` cap 200 blocks but rate-limits bursts | LOGS; CHAIN_ID                                     | 2026-11-16 | ◇      |
+| mainnet | Explorer                  | `https://basescan.org`                                                          | O1                                                 | 2026-11-15 | ✔      |
+| mainnet | Native gas token          | ETH                                                                             | O1                                                 | 2026-11-15 | ✔      |
+| mainnet | `safe` block tag          | works; safe block 57,937,206                                                    | BLOCK                                              | 2026-11-15 | ✔      |
+| mainnet | `finalized` block tag     | works; finalized block 57,933,212                                               | BLOCK                                              | 2026-11-15 | ✔      |
+| mainnet | Typical block time        | 0.2 s (50-block sample)                                                         | CHAIN_ID + block timestamps                        | 2026-11-15 | ✔      |
+| mainnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code                  | CODE                                               | 2026-11-15 | ✔      |
+| testnet | Chain ID                  | 84532 (`0x14a34`)                                                               | CHAIN_ID via `https://sepolia.base.org`; O1        | 2026-11-15 | ✔      |
+| testnet | Public RPC 1              | `https://sepolia.base.org`; `eth_getLogs` cap 200 blocks                        | LOGS; CHAIN_ID                                     | 2026-11-15 | ✔      |
+| testnet | Public RPC 2              | `https://base-sepolia-rpc.publicnode.com`; `eth_getLogs` cap 50,000 blocks      | LOGS; CHAIN_ID                                     | 2026-11-15 | ✔      |
+| testnet | Explorer                  | `https://sepolia.basescan.org`                                                  | O1                                                 | 2026-11-15 | ✔      |
+| testnet | Native gas token          | ETH                                                                             | O1                                                 | 2026-11-15 | ✔      |
+| testnet | `safe` block tag          | works; safe block 59,279,851                                                    | BLOCK                                              | 2026-11-15 | ✔      |
+| testnet | `finalized` block tag     | works; finalized block 59,274,179                                               | BLOCK                                              | 2026-11-15 | ✔      |
+| testnet | Typical block time        | 0.2 s (50-block sample)                                                         | block timestamps                                   | 2026-11-15 | ✔      |
+| testnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code                  | CODE                                               | 2026-11-15 | ✔      |
 
 ### Ethereum
 
@@ -85,7 +94,7 @@ On-chain commands use these forms:
 | mainnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code                            | CODE                                                           | 2026-11-15 | ✔      |
 | testnet | Chain ID                  | 11155111 (`0xaa36a7`)                                                                     | CHAIN_ID via `https://ethereum-sepolia-rpc.publicnode.com`; O4 | 2026-11-15 | ✔      |
 | testnet | Public RPC 1              | `https://ethereum-sepolia-rpc.publicnode.com`; `eth_getLogs` cap 10,000 blocks            | LOGS; CHAIN_ID                                                 | 2026-11-15 | ✔      |
-| testnet | Public RPC 2              | `https://1rpc.io/sepolia`; `eth_getLogs` cap 50 blocks                                    | LOGS; CHAIN_ID                                                 | 2026-11-15 | ✔      |
+| testnet | Public RPC 2              | `https://rpc.sepolia.ethpandaops.io`; `eth_getLogs` cap 10,000 blocks                     | LOGS; CHAIN_ID                                                 | 2026-11-16 | ✔      |
 | testnet | Explorer                  | `https://sepolia.etherscan.io`                                                            | O4                                                             | 2026-11-15 | ✔      |
 | testnet | Native gas token          | ETH                                                                                       | O4                                                             | 2026-11-15 | ✔      |
 | testnet | `safe` block tag          | works; safe block 12,142,819                                                              | BLOCK                                                          | 2026-11-15 | ✔      |
@@ -99,7 +108,7 @@ On-chain commands use these forms:
 | ------- | ------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------- | ---------- | ------ |
 | mainnet | Chain ID                  | 42161 (`0xa4b1`)                                                               | CHAIN_ID via `https://arb1.arbitrum.io/rpc`; O2           | 2026-11-15 | ✔      |
 | mainnet | Public RPC 1              | `https://arb1.arbitrum.io/rpc`; `eth_getLogs` accepts 100,000 blocks           | LOGS; CHAIN_ID                                            | 2026-11-15 | ✔      |
-| mainnet | Public RPC 2              | `https://1rpc.io/arb`; `eth_getLogs` cap 50 blocks                             | LOGS; CHAIN_ID                                            | 2026-11-15 | ✔      |
+| mainnet | Public RPC 2              | `https://arbitrum.gateway.tenderly.co`; `eth_getLogs` accepts 100,000 blocks   | LOGS; CHAIN_ID                                            | 2026-11-16 | ✔      |
 | mainnet | Explorer                  | `https://arbiscan.io`                                                          | O2                                                        | 2026-11-15 | ✔      |
 | mainnet | Native gas token          | ETH                                                                            | O2                                                        | 2026-11-15 | ✔      |
 | mainnet | `safe` block tag          | works; safe block 524,565,907                                                  | BLOCK                                                     | 2026-11-15 | ✔      |
@@ -155,7 +164,8 @@ On-chain commands use these forms:
 | mainnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code                       | CODE                                                      | 2026-11-15 | ✔      |
 | testnet | Chain ID                  | 97 (`0x61`)                                                                          | CHAIN_ID via `https://bsc-testnet-rpc.publicnode.com`; O3 | 2026-11-15 | ✔      |
 | testnet | Public RPC 1              | `https://bsc-testnet-rpc.publicnode.com`; `eth_getLogs` cap 50,000 blocks            | LOGS; CHAIN_ID                                            | 2026-11-15 | ✔      |
-| testnet | Public RPC 2              | `https://data-seed-prebsc-1-s1.binance.org:8545` rejects `eth_getLogs` with `-32005` | LOGS; CHAIN_ID                                            | 2026-11-15 | ✔      |
+| testnet | Public RPC 2              | `https://bsc-testnet.publicnode.com`; `eth_getLogs` cap 50,000 blocks                | LOGS; CHAIN_ID                                            | 2026-11-16 | ✔      |
+| testnet | Other public RPC          | `https://data-seed-prebsc-1-s1.binance.org:8545` rejects `eth_getLogs` with `-32005` | LOGS; CHAIN_ID                                            | 2026-11-16 | ✔      |
 | testnet | Explorer                  | `https://testnet.bscscan.com`                                                        | O3                                                        | 2026-11-15 | ✔      |
 | testnet | Native gas token          | BNB                                                                                  | O3                                                        | 2026-11-15 | ✔      |
 | testnet | `safe` block tag          | works; safe block 142,944,812                                                        | BLOCK                                                     | 2026-11-15 | ✔      |
@@ -355,12 +365,64 @@ tests, and the route uses approve plus lock. If the product decides that only
 Tether-issued USDT is acceptable, **wait** instead; the chain facts are ready,
 but the asset gate is not met.
 
+## Deployment data
+
+`htlcAddress`, `deployBlock` and `relayCostUsd` live in this package. They are
+`null` in the data file until a reviewed deployment change fills them.
+
+| Fact                               | Value                                                                                    | Source                                                                                                    | Date       | Status |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------- | ------ |
+| Salt                               | `keccak256("ferry-htlc.v1")`                                                             | `packages/htlc-evm/script/Deploy.s.sol`; `packages/htlc-evm/README.md`                                    | 2026-11-16 | ✔      |
+| Init-code hash                     | `0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430`                     | `packages/htlc-evm/README.md`; `preparation/Ferry_Blueprint.md` §18                                       | 2026-11-16 | ✔      |
+| Predicted CREATE2 address          | `0x8b968625F983420B571C102eC0b57F7e509c916e` on every network with the canonical factory | `packages/htlc-evm/README.md`; `preparation/Ferry_Blueprint.md` §18; recomputed by `predictHtlcAddress()` | 2026-11-16 | ✔      |
+| Mainnet and testnet `htlcAddress`  | `null` until a reviewed deployment                                                       | No deployment of the current bytecode                                                                     | 2026-11-16 | ✗      |
+| Mainnet and testnet `deployBlock`  | `null` until a reviewed deployment                                                       | No deployment of the current bytecode                                                                     | 2026-11-16 | ✗      |
+| Mainnet and testnet `relayCostUsd` | `null` until measured after deployment                                                   | No mainnet deployment                                                                                     | 2026-11-16 | ✗      |
+
+`loadChainConfig()` resolves the predicted address for its core-shaped chain
+objects and exposes the configured value separately in `facts[].deployment`.
+A configured address that does not match the prediction is rejected. The core
+shape is strict and accepts `deployBlock` only when it is a positive integer.
+The core output uses `0` for `relayCostUsd` while the deployment fact is null;
+treat `0` as unmeasured, not as a real cost.
+
+## S-17 price feeds
+
+For each enabled mainnet chain, the table records a documented Chainlink
+USDC/USD or USDT/USD feed. The address, decimals, `description()` and
+`latestRoundData()` were read on chain on 2026-11-16. The heartbeat and
+deviation threshold come from Chainlink's reference data directory. Testnets
+and Robinhood Chain have no recorded feed and use the fallback source.
+
+| Chain            | Pair                 | Address                                      | Decimals | Heartbeat | Deviation | Latest answer            | `updatedAt` | Read at                   | Source                             | Date       | Status |
+| ---------------- | -------------------- | -------------------------------------------- | -------- | --------- | --------- | ------------------------ | ----------- | ------------------------- | ---------------------------------- | ---------- | ------ |
+| Base             | USDC/USD             | `0x7e860098F58bBFC8648a4311b374B1D669a2bc6B` | 8        | 86,400 s  | 0.3%      | `99976257` ($0.99976257) | 1794747564  | 2026-11-16T00:39:20+01:00 | L1; on-chain                       | 2026-11-16 | ✔      |
+| Ethereum         | USDC/USD             | `0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6` | 8        | 82,800 s  | 0.25%     | `99978160` ($0.99978160) | 1794704099  | 2026-11-16T00:39:20+01:00 | L2; on-chain                       | 2026-11-16 | ✔      |
+| Ethereum         | USDT/USD             | `0x3E7d1eAB13ad0104d2750B8863b489D65364e32D` | 8        | 86,400 s  | 0.25%     | `99932677` ($0.99932677) | 1794754343  | 2026-11-16T00:39:20+01:00 | L2; on-chain                       | 2026-11-16 | ✔      |
+| Arbitrum One     | USDC/USD             | `0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3` | 8        | 255 s     | 0.1%      | `99972538` ($0.99972538) | 1794785693  | 2026-11-16T00:39:20+01:00 | L3; on-chain                       | 2026-11-16 | ✔      |
+| Arbitrum One     | USDT/USD             | `0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7` | 8        | 255 s     | 0.1%      | `99943948` ($0.99943948) | 1794785849  | 2026-11-16T00:39:20+01:00 | L3; on-chain                       | 2026-11-16 | ✔      |
+| Arc              | USDC/USD             | `0x84EA90AC252Dc437031461836DB5164219147905` | 8        | 86,400 s  | 0.5%      | `99979737` ($0.99979737) | 1794756506  | 2026-11-16T00:39:20+01:00 | L4; on-chain                       | 2026-11-16 | ✔      |
+| BNB Chain        | USDC/USD             | `0x51597f405303C4377E36123cBc172b13269EA163` | 8        | 900 s     | 0.1%      | `99972468` ($0.99972468) | 1794785459  | 2026-11-16T00:39:20+01:00 | L5; on-chain                       | 2026-11-16 | ✔      |
+| BNB Chain        | USDT/USD             | `0xB97Ad0E74fa7d920791E90258A6E2085088b4320` | 8        | 900 s     | 0.1%      | `99946275` ($0.99946275) | 1794785127  | 2026-11-16T00:39:20+01:00 | L5; on-chain                       | 2026-11-16 | ✔      |
+| Base Sepolia     | USDC/USD             | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
+| Ethereum Sepolia | USDC/USD             | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
+| Arbitrum Sepolia | USDC/USD             | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
+| Arc Testnet      | USDC/USD             | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
+| BNB Testnet      | USDT/USD             | none recorded                                | —        | —         | —         | —                        | —           | 2026-11-16                | No testnet feed recorded; fallback | 2026-11-16 | ✗      |
+| Robinhood Chain  | USDC/USD or USDT/USD | none                                         | —        | —         | —         | —                        | —           | 2026-11-16                | No route; fallback                 | 2026-11-16 | ✗      |
+
+The latest answer is a snapshot and changes. `verify` re-reads
+`latestRoundData()` and checks the answer is positive, `updatedAt` is present
+and the feed is younger than twice its heartbeat. The display view exposes only
+the source name ("Chainlink USDC/USD", "Chainlink USDT/USD" or the fallback),
+never the feed address.
+
 ## Verification run
 
-The opt-in `verify` script re-read every ✔ fact over public RPCs on 2026-11-15:
+The opt-in `verify` script re-read every ✔ fact over public RPCs on 2026-11-16:
 
 ```
-Checked 179 facts, skipped 7, differences 0.
+Checked 230 facts, skipped 17, differences 0.
 
 Routes:
   usdc:base: eligible
@@ -373,19 +435,28 @@ Routes:
   usdt:bnb: eligible
 ```
 
-The seven skips are endpoints that reject `eth_getLogs` or rate-limit bursts:
-the Base primary endpoint, the Arc dRPC endpoints, the BNB testnet data-seed
-endpoint and the Robinhood dRPC endpoints. They remain listed as public RPC URLs
-with their measured limits; the second endpoint in each case is usable for
-reads. The script sends no transaction.
+The 17 skips are 12 undeployed HTLC checks, the four Arc and Robinhood dRPC
+endpoints that reject `eth_getLogs`, and the USDT0 `version()` check whose
+value is reconstructed from the domain separator instead. The Arc and Robinhood
+dRPC endpoints remain listed as read-only fallbacks because no free public
+log-capable endpoint was found. The Base `mainnet.base.org` endpoint is recorded
+as reported because it rate-limits bursts; the publicnode and 1RPC endpoints are
+the verified log sources. The script sends no transaction.
 
 ## Limitations and follow-ups
 
-- `FerryHTLC` is not deployed on mainnet. `loadChainConfig()` returns
-  `htlcAddress: null`; deployment addresses must be added after mainnet
-  acceptance.
-- `relayCostUsd` is `null`. The quote layer must measure live gas; no estimate is
-  invented here.
+- `FerryHTLC` is not deployed. The facts record `htlcAddress: null`; the
+  core-shaped output resolves the CREATE2 prediction and rejects a configured
+  address that does not match it. Add the deployment address and block after a
+  reviewed mainnet deployment.
+- `relayCostUsd` is `null` in the facts. The core-shaped output uses `0` until it
+  is measured; the quote layer must treat `0` as unmeasured and use a live gas
+  estimate.
+- Testnet price feeds are not recorded. The display view uses the fallback
+  source on testnets, and the solver must use the fallback price path there.
+- The core-shaped `chains` omit reported or unverified assets; those remain
+  visible in `facts` with their evidence. This keeps a reported token such as BNB
+  USDC out of an adapter's asset list even though it is documented in the facts.
 - Block times are typical measured values, not guarantees. Re-run `verify`
   before mainnet.
 - Public RPC limits change. Re-probe `eth_getLogs` before relying on a wide scan.

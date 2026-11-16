@@ -1,3 +1,4 @@
+import { getAddress } from 'viem';
 import {
   CHAIN_IDS,
   NETWORKS,
@@ -6,10 +7,12 @@ import {
   type ChainConfigData,
   type FactEvidence,
   type NetworkFacts,
+  type PriceFeedFacts,
   type RpcFact,
   type TokenFacts,
 } from './schema.js';
 import { loadChainData, routeIneligibilityReasons } from './config.js';
+import { predictHtlcAddress, usdt0DomainSeparator } from './htlc.js';
 
 interface JsonRpcError {
   code: number;
@@ -114,7 +117,7 @@ async function rpc<T>(
 
 function isTransient(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /rate limit|request limit|too many|timeout|aborted|fetch failed|temporarily|try again/i.test(
+  return /rate limit|request limit|too many|timeout|aborted|fetch failed|temporarily|try again|beyond current head|head block/i.test(
     message,
   );
 }
@@ -200,8 +203,9 @@ async function checkRpc(
       const latest = hexToNumber(
         await withRetry(() => rpc<string>(rpcFact.url, 'eth_blockNumber', [])),
       );
-      const fromBlock = `0x${(latest - maxRange + 1).toString(16)}`;
-      const toBlock = `0x${latest.toString(16)}`;
+      const head = latest - 1;
+      const fromBlock = `0x${(head - maxRange + 1).toString(16)}`;
+      const toBlock = `0x${head.toString(16)}`;
       await withRetry(
         () =>
           rpc<unknown[]>(
@@ -394,6 +398,7 @@ async function ethCall(
 
 async function checkToken(
   network: string,
+  chainId: number,
   token: TokenFacts,
   url: string,
   summary: Summary,
@@ -538,6 +543,32 @@ async function checkToken(
       }
     }
 
+    if (token.name === 'USD₮0' && token.domainSeparator !== null) {
+      try {
+        const computed = usdt0DomainSeparator(chainId, getAddress(address));
+        check(
+          normalizeHex(computed) === normalizeHex(token.domainSeparator),
+          summary,
+          network,
+          `${token.symbol} USDT0 domain reconstruction`,
+          token.domainSeparator,
+          computed,
+        );
+      } catch (error) {
+        if (isTransient(error)) {
+          skip(summary);
+        } else {
+          record(
+            summary,
+            network,
+            `${token.symbol} USDT0 domain reconstruction`,
+            token.domainSeparator,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+    }
+
     try {
       const raw = await withRetry(() =>
         ethCall(
@@ -594,6 +625,241 @@ async function checkToken(
   }
 }
 
+interface LatestRoundData {
+  roundId: bigint;
+  answer: bigint;
+  startedAt: bigint;
+  updatedAt: bigint;
+  answeredInRound: bigint;
+}
+
+function decodeLatestRoundData(value: string): LatestRoundData {
+  const body = value.startsWith('0x') ? value.slice(2) : value;
+  if (body.length < 320)
+    throw new Error('latestRoundData returned too few words');
+  const word = (index: number): bigint =>
+    BigInt(`0x${body.slice(index * 64, (index + 1) * 64)}`);
+  return {
+    roundId: word(0),
+    answer: word(1),
+    startedAt: word(2),
+    updatedAt: word(3),
+    answeredInRound: word(4),
+  };
+}
+
+async function checkPriceFeed(
+  network: string,
+  feed: PriceFeedFacts,
+  url: string,
+  summary: Summary,
+): Promise<void> {
+  const label = `${feed.asset}/USD`;
+
+  try {
+    const code = await withRetry(() =>
+      rpc<string>(url, 'eth_getCode', [feed.address, 'latest']),
+    );
+    check(
+      code !== '0x',
+      summary,
+      network,
+      `${label} feed code exists`,
+      'true',
+      String(code !== '0x'),
+    );
+  } catch (error) {
+    if (isTransient(error)) {
+      skip(summary);
+    } else {
+      record(
+        summary,
+        network,
+        `${label} feed code exists`,
+        'true',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  try {
+    const raw = await withRetry(() => ethCall(url, feed.address, '0x7284e416'));
+    const description = decodeAbiString(raw);
+    check(
+      description === `${feed.asset} / USD`,
+      summary,
+      network,
+      `${label} feed description`,
+      `${feed.asset} / USD`,
+      description,
+    );
+  } catch (error) {
+    if (isTransient(error)) {
+      skip(summary);
+    } else {
+      record(
+        summary,
+        network,
+        `${label} feed description`,
+        `${feed.asset} / USD`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  try {
+    const raw = await withRetry(() => ethCall(url, feed.address, '0x313ce567'));
+    const decimals = Number(hexToBigInt(raw));
+    check(
+      decimals === feed.decimals,
+      summary,
+      network,
+      `${label} feed decimals`,
+      String(feed.decimals),
+      String(decimals),
+    );
+  } catch (error) {
+    if (isTransient(error)) {
+      skip(summary);
+    } else {
+      record(
+        summary,
+        network,
+        `${label} feed decimals`,
+        String(feed.decimals),
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  try {
+    const raw = await withRetry(() => ethCall(url, feed.address, '0xfeaf968c'));
+    const round = decodeLatestRoundData(raw);
+    const now = Math.floor(Date.now() / 1000);
+    const age = now - Number(round.updatedAt);
+    check(
+      round.answer > 0n,
+      summary,
+      network,
+      `${label} feed answer`,
+      '> 0',
+      round.answer.toString(),
+    );
+    check(
+      round.updatedAt > 0n,
+      summary,
+      network,
+      `${label} feed updatedAt`,
+      '> 0',
+      round.updatedAt.toString(),
+    );
+    check(
+      age >= -600 && age <= feed.heartbeatSeconds * 2,
+      summary,
+      network,
+      `${label} feed freshness`,
+      `age <= ${feed.heartbeatSeconds * 2}s`,
+      `${age}s`,
+    );
+    console.log(
+      `  - feed ${label}: ${round.answer.toString()} at ${round.updatedAt.toString()} (age ${age}s; heartbeat ${feed.heartbeatSeconds}s)`,
+    );
+  } catch (error) {
+    if (isTransient(error)) {
+      skip(summary);
+    } else {
+      record(
+        summary,
+        network,
+        `${label} feed read`,
+        'latestRoundData succeeds',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+}
+
+async function checkDeployment(
+  network: string,
+  chain: NetworkFacts,
+  url: string,
+  summary: Summary,
+): Promise<void> {
+  const configured = chain.deployment.htlcAddress;
+  if (configured === null) {
+    console.log(
+      `  - HTLC deployment: not deployed; predicted ${predictHtlcAddress()}`,
+    );
+    skip(summary);
+    return;
+  }
+
+  try {
+    const code = await withRetry(() =>
+      rpc<string>(url, 'eth_getCode', [configured, 'latest']),
+    );
+    check(
+      code !== '0x',
+      summary,
+      network,
+      'HTLC contract code',
+      'true',
+      String(code !== '0x'),
+    );
+    check(
+      normalizeHex(configured) === normalizeHex(predictHtlcAddress()),
+      summary,
+      network,
+      'HTLC address matches CREATE2 prediction',
+      predictHtlcAddress(),
+      configured,
+    );
+  } catch (error) {
+    if (isTransient(error)) {
+      skip(summary);
+    } else {
+      record(
+        summary,
+        network,
+        'HTLC contract code',
+        'true',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  if (chain.deployment.deployBlock !== null) {
+    try {
+      const block = await withRetry(() =>
+        rpc<BlockHeader | null>(url, 'eth_getBlockByNumber', [
+          `0x${chain.deployment.deployBlock!.toString(16)}`,
+          false,
+        ]),
+      );
+      check(
+        block !== null,
+        summary,
+        network,
+        'HTLC deployBlock exists',
+        String(chain.deployment.deployBlock),
+        block === null ? 'missing' : String(hexToNumber(block.number)),
+      );
+    } catch (error) {
+      if (isTransient(error)) {
+        skip(summary);
+      } else {
+        record(
+          summary,
+          network,
+          'HTLC deployBlock exists',
+          String(chain.deployment.deployBlock),
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+  }
+}
+
 function evidenceLabel(evidence: FactEvidence): string {
   return `${evidence.status} (${evidence.source})`;
 }
@@ -632,6 +898,7 @@ async function main(): Promise<void> {
       }
 
       await checkChainFacts(label, chain, firstRpc, summary);
+      await checkDeployment(label, chain, firstRpc.url, summary);
 
       for (const token of chain.tokens) {
         if (token.address === null) {
@@ -639,7 +906,11 @@ async function main(): Promise<void> {
           skip(summary);
           continue;
         }
-        await checkToken(label, token, firstRpc.url, summary);
+        await checkToken(label, chain.chainId, token, firstRpc.url, summary);
+      }
+
+      for (const feed of chain.priceFeeds) {
+        await checkPriceFeed(label, feed, firstRpc.url, summary);
       }
     }
   }

@@ -24,7 +24,7 @@ function issues(mutate: (data: ChainConfigData) => void): string[] {
 
 describe('chainConfigDataSchema', () => {
   it('parses the committed facts file', () => {
-    expect(validData().generatedAt).toBe('2026-11-15');
+    expect(validData().generatedAt).toBe('2026-11-16');
   });
 
   it('requires every chain', () => {
@@ -40,6 +40,7 @@ describe('chainConfigDataSchema', () => {
   it('requires at least two RPC URLs per network', () => {
     expect(
       issues((data) => {
+        data.chains.base.mainnet.rpcUrls.pop();
         data.chains.base.mainnet.rpcUrls.pop();
       }),
     ).toEqual(expect.arrayContaining([expect.stringContaining('rpcUrls')]));
