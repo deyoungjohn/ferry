@@ -30,6 +30,7 @@ import {
 } from './rpc-overrides.js';
 import { makeJsonRpc } from './rpc-client.js';
 import { usdt0DomainSeparator } from './htlc.js';
+import { MINIMUM_TIER, routeMinimumTarget } from './floors.js';
 
 const MAINNET_GENESIS =
   '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f';
@@ -47,14 +48,6 @@ const PUSD_CATEGORY =
   '2469acc5afa4b10cb5b5c04afb89c3a3ffd61c5da9c01e26d00951cae2a02544';
 const MUSD_CATEGORY =
   'b38a33f750f84c5c169a6f23cb873e6e79605021585d4f3408789689ed87f366';
-
-const MINIMUM_TIER = {
-  baseUsdcUsd: 15,
-  otherStablecoinUsd: 10,
-  pusd: 15,
-  musd: 5,
-  bchSats: 500_000n,
-} as const;
 
 export interface PreflightAddresses {
   evm: string[];
@@ -785,18 +778,6 @@ function printFunding(
       );
     }
   }
-}
-
-function routeMinimumTarget(
-  chainId: string,
-  symbol: string,
-  decimals: number,
-): bigint {
-  const usd =
-    chainId === 'base' && symbol === 'USDC'
-      ? MINIMUM_TIER.baseUsdcUsd
-      : MINIMUM_TIER.otherStablecoinUsd;
-  return BigInt(usd) * 10n ** BigInt(decimals);
 }
 
 function fundingShortReason(
