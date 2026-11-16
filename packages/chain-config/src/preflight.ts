@@ -105,6 +105,7 @@ interface RoutePreflightResult {
   factory: 'ok' | 'FAIL';
   token: 'ok' | 'FAIL';
   feed: 'ok' | 'stale' | 'fallback' | 'FAIL';
+  activity: 'ok' | 'FAIL';
   decision: string;
 }
 
@@ -449,6 +450,7 @@ async function checkRoute(
       factory: 'FAIL',
       token: 'FAIL',
       feed: 'FAIL',
+      activity: 'FAIL',
       decision: 'NO-GO (chain config missing)',
     };
   }
@@ -464,6 +466,7 @@ async function checkRoute(
       factory: 'FAIL',
       token: 'FAIL',
       feed: 'FAIL',
+      activity: 'FAIL',
       decision: 'NO-GO (route config missing)',
     };
   }
@@ -586,6 +589,10 @@ async function checkRoute(
   if (feedStatus === 'stale' || feedStatus === 'FAIL') {
     failures.push('price feed stale or unavailable');
   }
+  const activityOk = chain.activityLog.available;
+  if (!activityOk) {
+    failures.push('no activity log range of at least 1,000 blocks');
+  }
 
   const decision =
     failures.length > 0
@@ -602,6 +609,7 @@ async function checkRoute(
     factory: factoryOk ? 'ok' : 'FAIL',
     token: tokenOk ? 'ok' : 'FAIL',
     feed: feedStatus,
+    activity: activityOk ? 'ok' : 'FAIL',
     decision,
   };
 }
@@ -619,6 +627,7 @@ function printRoutes(results: readonly RoutePreflightResult[]): void {
     'Factory'.padEnd(8),
     'Token'.padEnd(6),
     'Feed'.padEnd(9),
+    'Activity'.padEnd(9),
     'Decision',
   ].join(' ');
   console.log('Route preflight');
@@ -634,6 +643,7 @@ function printRoutes(results: readonly RoutePreflightResult[]): void {
         result.factory.padEnd(8),
         result.token.padEnd(6),
         result.feed.padEnd(9),
+        result.activity.padEnd(9),
         result.decision,
       ].join(' '),
     );
@@ -831,6 +841,12 @@ function printNextActions(
       console.log(`- ${route.key}: SKIP (${route.reasons.join('; ')})`);
       continue;
     }
+    if (!chain.activityLog.available) {
+      console.log(
+        `- ${route.key}: FIX (add an RPC with at least ${chain.activityLog.minRange} blocks per eth_getLogs for activity reads)`,
+      );
+      continue;
+    }
     if (!route.enabled) {
       if (result?.htlc === 'not deployed') {
         console.log(
@@ -907,7 +923,7 @@ export async function runPreflight(
   const overrides = parseRpcOverrides(env);
   const overrideUrls = Object.values(overrides).flatMap((urls) => urls ?? []);
   const secrets = overrideUrls;
-  const rpc = makeJsonRpc(secrets);
+  const rpc = makeJsonRpc(secrets, { attempts: 3, baseDelayMs: 250 });
   const rpcCaps: Record<string, number> = {};
 
   console.log(`Preflight (${network}, read-only)`);

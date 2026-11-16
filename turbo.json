@@ -4,15 +4,18 @@
   "tasks": {
     "typecheck": {
       "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!**/*.tsbuildinfo"],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": ["*.tsbuildinfo"],
+      "dependsOn": ["^typecheck"]
     },
     "lint": {
       "inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
-      "outputs": [".eslintcache"]
+      "outputs": [".eslintcache"],
+      "dependsOn": ["^lint"]
     },
     "test": {
       "inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
-      "outputs": ["coverage/**"]
+      "outputs": ["coverage/**"],
+      "dependsOn": ["^test"]
     }
   }
 }

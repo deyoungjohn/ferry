@@ -49,6 +49,58 @@ export interface ChainDeploymentFactView {
   status: FactStatus;
 }
 
+export interface ActivityLogCapability {
+  minRange: number;
+  available: boolean;
+  endpoints: RpcEndpointView[];
+}
+
+export const MIN_ACTIVITY_LOG_RANGE = 1_000;
+
+export class ActivityReadUnavailableError extends Error {
+  readonly chain: ChainId;
+  readonly endpoints: RpcEndpointView[];
+
+  constructor(chain: ChainId, endpoints: RpcEndpointView[]) {
+    super(
+      `Activity reads are unavailable for ${chain}: no endpoint can serve at least ${MIN_ACTIVITY_LOG_RANGE} blocks per eth_getLogs (${endpoints.map((endpoint) => `${endpoint.host}:${endpoint.maxLogRange ?? 'unknown'}`).join(', ') || 'none'}).`,
+    );
+    this.name = 'ActivityReadUnavailableError';
+    this.chain = chain;
+    this.endpoints = endpoints;
+  }
+}
+
+export function activityLogCapability(
+  endpoints: readonly RpcEndpointView[],
+  minRange = MIN_ACTIVITY_LOG_RANGE,
+): ActivityLogCapability {
+  const capable = endpoints.filter(
+    (endpoint) =>
+      endpoint.maxLogRange !== null && endpoint.maxLogRange >= minRange,
+  );
+  return {
+    minRange,
+    available: capable.length > 0,
+    endpoints: [...capable],
+  };
+}
+
+export function selectActivityLogEndpoint(
+  chain: ChainFactView,
+  minRange = MIN_ACTIVITY_LOG_RANGE,
+): RpcEndpointView {
+  const capable = chain.rpcEndpoints.filter(
+    (endpoint) =>
+      endpoint.maxLogRange !== null && endpoint.maxLogRange >= minRange,
+  );
+  const first = capable[0];
+  if (!first) {
+    throw new ActivityReadUnavailableError(chain.id, chain.rpcEndpoints);
+  }
+  return first;
+}
+
 export interface ChainFactView {
   id: ChainId;
   name: string;
@@ -56,6 +108,7 @@ export interface ChainFactView {
   chainId: number;
   rpcUrls: string[];
   rpcEndpoints: RpcEndpointView[];
+  activityLog: ActivityLogCapability;
   explorerUrl: string;
   nativeGas: NetworkFacts['nativeGas'];
   finality: {
@@ -264,6 +317,7 @@ function toChainFactView(
     chainId: chain.chainId,
     rpcUrls: rpcEndpoints.map((endpoint) => endpoint.url),
     rpcEndpoints,
+    activityLog: activityLogCapability(rpcEndpoints),
     explorerUrl: chain.explorerUrl,
     nativeGas: chain.nativeGas,
     finality: {
