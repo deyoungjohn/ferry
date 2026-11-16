@@ -1,4 +1,5 @@
 import { BANNER_CONFIG } from '../lib/config';
+import { FOOTER_COPY } from '../lib/copy';
 
 export function Footer() {
   return (
@@ -9,16 +10,16 @@ export function Footer() {
             Ferry<span className="text-lime">.</span>
           </p>
           <p className="mt-1 text-text-dim text-[11px]">
-            Trust-minimised atomic swaps between Bitcoin Cash and EVM networks.
+            {FOOTER_COPY.tagline}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-6 text-[11px]">
           <a href="#how-it-works" className="hover:text-text transition-colors">
-            How it works
+            {FOOTER_COPY.howItWorks}
           </a>
           <a href="#faq" className="hover:text-text transition-colors">
-            FAQ
+            {FOOTER_COPY.faq}
           </a>
           {BANNER_CONFIG.repoUrl && (
             <a
@@ -27,7 +28,17 @@ export function Footer() {
               rel="noreferrer noopener"
               className="hover:text-text transition-colors"
             >
-              GitHub
+              {FOOTER_COPY.github}
+            </a>
+          )}
+          {BANNER_CONFIG.licenseUrl && (
+            <a
+              href={BANNER_CONFIG.licenseUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="hover:text-text transition-colors"
+            >
+              {FOOTER_COPY.license}
             </a>
           )}
         </div>

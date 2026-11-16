@@ -1,31 +1,7 @@
+import { HOW_IT_WORKS_STEPS } from '../lib/copy';
 import { LockIcon, KeyIcon, ArrowRightIcon } from './icons';
 
-const STEPS = [
-  {
-    number: '01',
-    title: 'Lock',
-    subtitle: 'User initiates the swap',
-    description:
-      'You deposit your source stablecoins into a trustless HTLC contract with a 32-byte secret hash lock and a refund deadline.',
-    icon: LockIcon,
-  },
-  {
-    number: '02',
-    title: 'Counter-lock',
-    subtitle: 'Solver matches the terms',
-    description:
-      'The automated solver detects your deposit and locks the target stablecoins into a CashTokens covenant on Bitcoin Cash using the exact same hash lock.',
-    icon: LockIcon,
-  },
-  {
-    number: '03',
-    title: 'Claim',
-    subtitle: 'One secret unlocks both sides',
-    description:
-      'You reveal the secret preimage to claim your Bitcoin Cash tokens. The solver reads the revealed preimage from the blockchain to claim the counter-deposit.',
-    icon: KeyIcon,
-  },
-] as const;
+const STEP_ICONS = [LockIcon, LockIcon, KeyIcon] as const;
 
 export function HowItWorks() {
   return (
@@ -42,14 +18,14 @@ export function HowItWorks() {
           How Ferry Swaps Work
         </h2>
         <p className="mt-2 text-xs sm:text-sm text-text-muted max-w-lg mx-auto">
-          Cryptographically atomic. No wrapped assets. Neither party can take
-          funds without fulfilling their half of the swap.
+          Trust-minimised atomic swaps. No wrapped assets. Neither party can
+          take funds without fulfilling their half of the swap.
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3 relative">
-        {STEPS.map((step, idx) => {
-          const Icon = step.icon;
+        {HOW_IT_WORKS_STEPS.map((step, idx) => {
+          const Icon = STEP_ICONS[idx] ?? LockIcon;
           return (
             <div
               key={step.number}
@@ -72,7 +48,7 @@ export function HowItWorks() {
               <p className="text-xs leading-relaxed text-text-muted">
                 {step.description}
               </p>
-              {idx < STEPS.length - 1 && (
+              {idx < HOW_IT_WORKS_STEPS.length - 1 && (
                 <div
                   className="hidden md:flex absolute -right-3 top-1/2 -translate-y-1/2 z-10 size-6 items-center justify-center rounded-full bg-surface-3 text-text-muted"
                   aria-hidden="true"

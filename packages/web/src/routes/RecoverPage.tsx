@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { useState, useContext, type ChangeEvent, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import {
   parseRecoveryFileJson,
@@ -14,10 +14,12 @@ import {
   inspectEvmWalletRecovery,
   type EvmWalletRecoveryPlan,
 } from '@ferry/chain-evm';
-import { createPublicClient, http, type Address } from 'viem';
+import { createPublicClient, http, type Address, type Hex } from 'viem';
 import { baseSepolia } from 'viem/chains';
+import { WalletContext } from '../lib/wallet/context';
 
 export function RecoverPage() {
+  const walletContext = useContext(WalletContext);
   const [fileContent, setFileContent] = useState('');
   const [recoveryFile, setRecoveryFile] = useState<RecoveryFile | null>(null);
   const [plan, setPlan] = useState<RecoveryPlan | null>(null);
@@ -143,14 +145,28 @@ export function RecoverPage() {
     processJson(fileContent);
   }
 
-  function handleClaim() {
+  async function handleClaim() {
     if (!recoveryFile) return;
     setBusy(true);
     setError(null);
     try {
-      setActionResult(
-        `Claim ready! Secret preimage: ${recoveryFile.secret ?? 'Preimage unavailable in this file'}`,
-      );
+      if (
+        walletContext?.evm?.status === 'connected' &&
+        recoveryFile.secret &&
+        recoveryFile.orderId
+      ) {
+        const txHash = await walletContext.evm.claimLock(
+          recoveryFile.orderId as Hex,
+          recoveryFile.secret as Hex,
+        );
+        setActionResult(
+          `EVM claim submitted via connected wallet! Tx hash: ${txHash}. Secret preimage: ${recoveryFile.secret}`,
+        );
+      } else {
+        setActionResult(
+          `Claim ready! Secret preimage: ${recoveryFile.secret ?? 'Preimage unavailable in this file'}`,
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Claim failed');
     } finally {
@@ -158,14 +174,23 @@ export function RecoverPage() {
     }
   }
 
-  function handleRefund() {
+  async function handleRefund() {
     if (!recoveryFile) return;
     setBusy(true);
     setError(null);
     try {
-      setActionResult(
-        `Refund ready! Target: ${recoveryFile.terms.direction === 'EVM_TO_BCH' ? recoveryFile.terms.userEvmAddress : 'BCH locking bytecode'}`,
-      );
+      if (walletContext?.evm?.status === 'connected' && recoveryFile.orderId) {
+        const txHash = await walletContext.evm.refundLock(
+          recoveryFile.orderId as Hex,
+        );
+        setActionResult(
+          `EVM refund submitted via connected wallet! Tx hash: ${txHash}. Target: ${recoveryFile.terms.direction === 'EVM_TO_BCH' ? recoveryFile.terms.userEvmAddress : 'BCH locking bytecode'}`,
+        );
+      } else {
+        setActionResult(
+          `Refund ready! Target: ${recoveryFile.terms.direction === 'EVM_TO_BCH' ? recoveryFile.terms.userEvmAddress : 'BCH locking bytecode'}`,
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Refund failed');
     } finally {
