@@ -26,6 +26,8 @@ jobs:
       - run: pnpm format:check
       - run: pnpm typecheck
       - run: pnpm lint
+      - name: Build contracts (unit tests read the artifacts)
+        run: pnpm --filter @ferry/htlc-evm build
       - run: pnpm test:unit
       - name: Package tests
         run: pnpm test
