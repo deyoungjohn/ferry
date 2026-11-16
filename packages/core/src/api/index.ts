@@ -1,13 +1,18 @@
 import { isAddress } from 'viem';
 import { z } from 'zod';
 import {
-  PricingEvidenceSchema,
+  OrderTermsJsonSchema,
+  PricingEvidenceJsonSchema,
   unixTimestampSeconds,
   type Hex,
   type Hex32,
 } from '../terms.js';
 
-export { unixTimestampSeconds };
+export {
+  OrderTermsJsonSchema,
+  PricingEvidenceJsonSchema,
+  unixTimestampSeconds,
+};
 
 const hexSchema = z
   .string()
@@ -49,17 +54,6 @@ const nonNegUint256Json = z
   .transform((value) => BigInt(value))
   .refine((value) => value >= 0n && value <= (1n << 256n) - 1n, {
     message: 'Expected non-negative uint256',
-  });
-
-const uint64Json = z
-  .union([
-    z.bigint(),
-    z.string().regex(/^\d+$/),
-    z.number().int().nonnegative(),
-  ])
-  .transform((value) => BigInt(value))
-  .refine((value) => value > 0n && value <= (1n << 64n) - 1n, {
-    message: 'Expected positive uint64',
   });
 
 export const API_ERROR_CODES = [
@@ -254,44 +248,6 @@ export const LiquidityResponseSchema = z.strictObject({
 });
 
 export type LiquidityResponse = z.infer<typeof LiquidityResponseSchema>;
-
-export const PricingEvidenceJsonSchema = PricingEvidenceSchema.extend({
-  fixedFeeBase: nonNegUint256Json,
-});
-
-export const OrderTermsJsonSchema = z
-  .strictObject({
-    version: z.literal(1),
-    direction: z.enum(['EVM_TO_BCH', 'BCH_TO_EVM']),
-    bchToken: z.enum(['PUSD', 'MUSD']),
-    bchTokenCategory: hex32Schema,
-    bchTokenAmount: uint256Json,
-    evmAmount: uint256Json,
-    evmToken: evmAddressSchema,
-    evmChainId: positiveUint,
-    evmHtlc: evmAddressSchema,
-    userEvmAddress: evmAddressSchema,
-    userBchLockingBytecode: hexSchema,
-    solverEvmAddress: evmAddressSchema,
-    solverBchLockingBytecode: hexSchema,
-    hashLock: hex32Schema,
-    evmDeadline: unixTimestampSeconds,
-    bchRefundHeight: positiveUint.max(499_999_999),
-    bchCarrySats: uint64Json,
-    bchMaxFee: nonNegUint256Json,
-    quoteId: textSchema,
-    quoteExpiry: unixTimestampSeconds,
-    pricing: PricingEvidenceJsonSchema.optional(),
-  })
-  .superRefine((terms, ctx) => {
-    if (terms.bchMaxFee > terms.bchCarrySats) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'bchMaxFee exceeds bchCarrySats',
-        path: ['bchMaxFee'],
-      });
-    }
-  });
 
 export const QuoteRequestSchema = z.strictObject({
   direction: z.enum(['EVM_TO_BCH', 'BCH_TO_EVM']),

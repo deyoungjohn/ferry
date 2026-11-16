@@ -5,6 +5,8 @@ import { isValidSecret } from './secret.js';
 import {
   OrderTermsSchema,
   PricingEvidenceSchema,
+  orderTermsFromJson,
+  orderTermsToJson,
   unixTimestampSeconds,
   type Direction,
   type Hex,
@@ -110,18 +112,13 @@ export function recoveryFileName(id: Hex32): string {
 export function serializeRecoveryFile(file: RecoveryFile): string {
   const validated = RecoveryFileSchema.parse(file);
   return JSON.stringify(
-    validated,
-    (_key, value) => (typeof value === 'bigint' ? value.toString() : value),
+    {
+      ...validated,
+      terms: orderTermsToJson(validated.terms),
+    },
+    null,
     2,
   );
-}
-
-function toBigIntIfDecimal(value: unknown): unknown {
-  if (typeof value === 'bigint') return value;
-  if (typeof value === 'string' && /^\d+$/.test(value)) {
-    return BigInt(value);
-  }
-  return value;
 }
 
 export function parseRecoveryFile(input: unknown): RecoveryFile {
@@ -136,15 +133,10 @@ export function parseRecoveryFileJson(json: string): RecoveryFile {
     raw.terms &&
     typeof raw.terms === 'object'
   ) {
-    const terms = raw.terms as Record<string, unknown>;
-    terms.bchTokenAmount = toBigIntIfDecimal(terms.bchTokenAmount);
-    terms.evmAmount = toBigIntIfDecimal(terms.evmAmount);
-    terms.bchCarrySats = toBigIntIfDecimal(terms.bchCarrySats);
-    terms.bchMaxFee = toBigIntIfDecimal(terms.bchMaxFee);
-    if (terms.pricing && typeof terms.pricing === 'object') {
-      const pricing = terms.pricing as Record<string, unknown>;
-      pricing.fixedFeeBase = toBigIntIfDecimal(pricing.fixedFeeBase);
-    }
+    return RecoveryFileSchema.parse({
+      ...raw,
+      terms: orderTermsFromJson(raw.terms),
+    });
   }
   return RecoveryFileSchema.parse(raw);
 }

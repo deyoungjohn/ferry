@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
   DEFAULT_TIMING_CONFIG,
+  SEND_LINK_WINDOWS_SECONDS,
   erlangQuantile,
   invariantF,
   invariantR,
+  planSendLinkWindow,
 } from '../src/index.js';
 
 describe('timing invariants F and R', () => {
@@ -131,5 +133,31 @@ describe('timing invariants F and R', () => {
         { ...DEFAULT_TIMING_CONFIG, blockMeanSeconds: 0 },
       ),
     ).toThrow(RangeError);
+  });
+
+  it('completes 1,000 invariantR and planSendLinkWindow calls well within 2 seconds', () => {
+    const startMs = performance.now();
+    for (let i = 0; i < 1000; i++) {
+      const blocks = 108 + (i % 50);
+      const decision = invariantR(
+        { evmDeadlineSeconds: t0 + 6 * 3600, bchRefundHeight: tip + blocks },
+        { unixSeconds: t0, bchTipHeight: tip },
+      );
+      expect(decision.remainingBlocks).toBe(blocks);
+
+      const window =
+        i % 3 === 0
+          ? SEND_LINK_WINDOWS_SECONDS['24h']
+          : i % 3 === 1
+            ? SEND_LINK_WINDOWS_SECONDS['3d']
+            : SEND_LINK_WINDOWS_SECONDS['7d'];
+      const plan = planSendLinkWindow({
+        windowSeconds: window,
+        start: { unixSeconds: t0, bchTipHeight: tip + (i % 10) },
+      });
+      expect(plan.ok).toBe(true);
+    }
+    const elapsedMs = performance.now() - startMs;
+    expect(elapsedMs).toBeLessThan(2000);
   });
 });
