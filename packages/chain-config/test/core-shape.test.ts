@@ -14,13 +14,13 @@ function data(): ChainConfigData {
 
 describe('core EvmChainConfig shape', () => {
   it('returns chain objects that parse with core EvmChainConfigSchema', () => {
-    for (const chain of loadChainConfig({ env: {} }).chains) {
+    for (const chain of loadChainConfig({ env: {} }).coreChains) {
       expect(EvmChainConfigSchema.safeParse(chain).success).toBe(true);
     }
   });
 
   it('keeps deployBlock out of the output until a deployment sets it', () => {
-    const base = loadChainConfig({ env: {} }).chains.find(
+    const base = loadChainConfig({ env: {} }).coreChains.find(
       (chain) => chain.id === 'base',
     );
     expect(base).toBeDefined();
@@ -32,7 +32,7 @@ describe('core EvmChainConfig shape', () => {
     const facts = data();
     facts.chains.base.mainnet.deployment.deployBlock = 57937206;
     const loaded = loadChainConfig({ data: facts, env: {} });
-    const base = loaded.chains.find((chain) => chain.id === 'base');
+    const base = loaded.coreChains.find((chain) => chain.id === 'base');
     expect(base?.deployBlock).toBe(57937206);
     expect(EvmChainConfigSchema.safeParse(base).success).toBe(true);
   });
@@ -49,7 +49,7 @@ describe('core EvmChainConfig shape', () => {
       PREDICTED_FERRY_HTLC_ADDRESS;
     const loaded = loadChainConfig({ data: facts, env: {} });
     expect(
-      loaded.chains.find((chain) => chain.id === 'base')?.htlcAddress,
+      loaded.coreChains.find((chain) => chain.id === 'base')?.htlcAddress,
     ).toBe(PREDICTED_FERRY_HTLC_ADDRESS);
   });
 

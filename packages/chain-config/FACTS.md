@@ -379,12 +379,14 @@ but the asset gate is not met.
 | Mainnet and testnet `deployBlock`  | `null` until a reviewed deployment                                                       | No deployment of the current bytecode                                                                     | 2026-11-16 | ✗      |
 | Mainnet and testnet `relayCostUsd` | `null` until measured after deployment                                                   | No mainnet deployment                                                                                     | 2026-11-16 | ✗      |
 
-`loadChainConfig()` resolves the predicted address for its core-shaped chain
-objects and exposes the configured value separately in `facts[].deployment`.
-A configured address that does not match the prediction is rejected. The core
-shape is strict and accepts `deployBlock` only when it is a positive integer.
-The core output uses `0` for `relayCostUsd` while the deployment fact is null;
-treat `0` as unmeasured, not as a real cost.
+`loadChainConfig().chains` keeps both networks so the deploy scripts can look up
+a mainnet or testnet entry by `id` and `network`. `loadChainConfig().facts` and
+`loadChainConfig().coreChains` follow `FERRY_NETWORK` (mainnet by default).
+`coreChains` is the strict core shape; `facts` keeps the evidence, price feeds
+and deployment fields. A configured address that does not match the prediction
+is rejected. The core shape is strict and accepts `deployBlock` only when it is
+a positive integer. The core output uses `0` for `relayCostUsd` while the
+deployment fact is null; treat `0` as unmeasured, not as a real cost.
 
 ## S-17 price feeds
 
@@ -454,9 +456,10 @@ the verified log sources. The script sends no transaction.
   estimate.
 - Testnet price feeds are not recorded. The display view uses the fallback
   source on testnets, and the solver must use the fallback price path there.
-- The core-shaped `chains` omit reported or unverified assets; those remain
-  visible in `facts` with their evidence. This keeps a reported token such as BNB
-  USDC out of an adapter's asset list even though it is documented in the facts.
+- The core-shaped `coreChains` omit reported or unverified assets; those remain
+  visible in `facts` and `chains` with their evidence. This keeps a reported
+  token such as BNB USDC out of an adapter's asset list even though it is
+  documented in the facts.
 - Block times are typical measured values, not guarantees. Re-run `verify`
   before mainnet.
 - Public RPC limits change. Re-probe `eth_getLogs` before relying on a wide scan.

@@ -6,6 +6,7 @@ import {
 import { getAddress } from 'viem';
 import {
   CHAIN_IDS,
+  NETWORKS,
   type AssetSymbol,
   type ChainConfigData,
   type ChainId,
@@ -44,6 +45,7 @@ export interface ChainFactView {
   name: string;
   network: Network;
   chainId: number;
+  rpcUrls: string[];
   explorerUrl: string;
   nativeGas: NetworkFacts['nativeGas'];
   finality: {
@@ -55,6 +57,8 @@ export interface ChainFactView {
     address: string;
     hasCode: boolean;
   };
+  htlcAddress: string | null;
+  relayCostUsd: number | null;
   deployment: ChainDeploymentFactView;
   assets: EvmAssetFact[];
   priceFeeds: PriceFeedFacts[];
@@ -72,8 +76,9 @@ export interface RouteConfig {
 export interface ChainConfig {
   generatedAt: string;
   network: Network;
-  chains: CoreEvmChainConfig[];
+  chains: ChainFactView[];
   facts: ChainFactView[];
+  coreChains: CoreEvmChainConfig[];
   routes: RouteConfig[];
   enabledRoutes: string[];
 }
@@ -242,6 +247,7 @@ function toChainFactView(
     name,
     network,
     chainId: chain.chainId,
+    rpcUrls: chain.rpcUrls.map((rpc) => rpc.url),
     explorerUrl: chain.explorerUrl,
     nativeGas: chain.nativeGas,
     finality: {
@@ -253,6 +259,11 @@ function toChainFactView(
       address: chain.create2Factory.address,
       hasCode: chain.create2Factory.hasCode,
     },
+    htlcAddress:
+      chain.deployment.htlcAddress === null
+        ? null
+        : getAddress(chain.deployment.htlcAddress),
+    relayCostUsd: chain.deployment.relayCostUsd,
     deployment: {
       htlcAddress:
         chain.deployment.htlcAddress === null
@@ -381,14 +392,12 @@ export function loadChainConfig(
   );
   const requested = parseEnabledRoutes(environment.ENABLED_ROUTES);
 
-  const facts = CHAIN_IDS.map((id) =>
-    toChainFactView(
-      id,
-      data.chains[id].name,
-      network,
-      data.chains[id][network],
+  const chains = CHAIN_IDS.flatMap((id) =>
+    NETWORKS.map((item) =>
+      toChainFactView(id, data.chains[id].name, item, data.chains[id][item]),
     ),
   );
+  const facts = chains.filter((chain) => chain.network === network);
   const routes = buildRoutes(network, data);
   const routesByKey = new Map(routes.map((route) => [route.key, route]));
   const enabledKeys = requestedRouteKeys(requested, routesByKey);
@@ -397,7 +406,7 @@ export function loadChainConfig(
     route.enabled = enabledKeys.has(route.key);
   }
 
-  const chains = CHAIN_IDS.flatMap((id) => {
+  const coreChains = CHAIN_IDS.flatMap((id) => {
     const chain = toCoreChainConfig(id, network, data.chains[id][network]);
     return chain === null ? [] : [chain];
   });
@@ -407,6 +416,7 @@ export function loadChainConfig(
     network,
     chains,
     facts,
+    coreChains,
     routes,
     enabledRoutes: requested
       .filter((route) => enabledKeys.has(route.key))

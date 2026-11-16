@@ -17,15 +17,26 @@ describe('loadChainConfig', () => {
   it('loads route-capable chains and the full fact set with no routes enabled by default', () => {
     const loaded = config();
     expect(loaded.network).toBe('mainnet');
-    expect(loaded.chains).toHaveLength(5);
+    expect(loaded.chains).toHaveLength(12);
     expect(loaded.facts).toHaveLength(6);
+    expect(loaded.coreChains).toHaveLength(5);
     expect(loaded.routes).toHaveLength(8);
     expect(loaded.enabledRoutes).toEqual([]);
     expect(loaded.routes.every((route) => !route.enabled)).toBe(true);
   });
 
+  it('keeps the rich chain view compatible with the deploy scripts', () => {
+    const base = config().chains.find(
+      (chain) => chain.id === 'base' && chain.network === 'mainnet',
+    );
+    expect(base?.create2Factory.address).toBe(
+      '0x4e59b44847b379578588920cA78FbF26c0B4956C',
+    );
+    expect(base?.rpcUrls).toHaveLength(3);
+  });
+
   it('returns core-shaped chain configs with the predicted HTLC address', () => {
-    const base = config().chains.find((chain) => chain.id === 'base');
+    const base = config().coreChains.find((chain) => chain.id === 'base');
     expect(base).toMatchObject({
       chainId: 8453,
       explorerUrl: 'https://basescan.org',
@@ -89,17 +100,17 @@ describe('loadChainConfig', () => {
   });
 
   it('omits unverified assets from the core-shaped chain configs', () => {
-    const bnb = config().chains.find((chain) => chain.id === 'bnb');
+    const bnb = config().coreChains.find((chain) => chain.id === 'bnb');
     expect(bnb?.assets.map((asset) => asset.symbol)).toEqual(['USDT']);
     const testnet = loadChainConfig({ env: { FERRY_NETWORK: 'testnet' } });
-    expect(testnet.chains.some((chain) => chain.id === 'bnb')).toBe(false);
+    expect(testnet.coreChains.some((chain) => chain.id === 'bnb')).toBe(false);
   });
 
   it('enables the 18-decimal USDT route on BNB Chain', () => {
     const loaded = loadChainConfig({ env: { ENABLED_ROUTES: 'usdt:bnb' } });
     const route = loaded.routes.find((item) => item.key === 'usdt:bnb');
     expect(route?.enabled).toBe(true);
-    const bnb = loaded.chains.find((chain) => chain.id === 'bnb');
+    const bnb = loaded.coreChains.find((chain) => chain.id === 'bnb');
     expect(bnb?.assets.find((asset) => asset.symbol === 'USDT')).toMatchObject({
       decimals: 18,
       permit: false,
@@ -144,9 +155,9 @@ describe('loadChainConfig', () => {
     });
     expect(loaded.network).toBe('testnet');
     expect(loaded.enabledRoutes).toEqual(['usdc:base']);
-    expect(loaded.chains.find((chain) => chain.id === 'base')?.chainId).toBe(
-      84532,
-    );
+    expect(
+      loaded.coreChains.find((chain) => chain.id === 'base')?.chainId,
+    ).toBe(84532);
     expect(
       loaded.facts.find((chain) => chain.id === 'base')?.priceFeeds,
     ).toEqual([]);
