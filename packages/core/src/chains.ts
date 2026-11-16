@@ -50,6 +50,7 @@ export const EvmChainConfigSchema = z.strictObject({
   rpcUrls: z.array(z.string().url()).min(1),
   explorerUrl: z.string().url(),
   htlcAddress: nonZeroEvmAddress,
+  deployBlock: z.number().int().positive().optional(),
   nativeGas: z.enum(['ETH', 'BNB', 'USDC']),
   finality: EvmFinalityPolicySchema,
   assets: z.array(EvmAssetConfigSchema).min(1),
