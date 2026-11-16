@@ -29,6 +29,18 @@ export type {
   EstimateDeployFundingInput,
 } from './gas.js';
 export {
+  ARBITRUM_NODE_INTERFACE_ADDRESS,
+  BASE_GAS_PRICE_ORACLE_ADDRESS,
+  estimateArbitrumGasComponents,
+  estimateBaseL1FeeWei,
+  estimateRelayCostUsd,
+} from './l2-cost.js';
+export type {
+  ArbitrumGasComponents,
+  EstimateRelayCostUsdParams,
+  RelayCostEstimate,
+} from './l2-cost.js';
+export {
   getEvmWalletRecoveryActions,
   inspectEvmWalletRecovery,
 } from './recovery.js';

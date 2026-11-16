@@ -311,4 +311,107 @@ describe('FerryHTLC event log completeness', () => {
       'refunded',
     ]);
   });
+
+  it('handles reorged-out locks (evm_revert) and locks appearing after first scan', async () => {
+    const baseBlock = await publicClient.getBlockNumber();
+    const amount = 1_000_000n;
+
+    await publicClient.waitForTransactionReceipt({
+      hash: await deployerClient.writeContract({
+        address: tokenAddress,
+        abi: tokenAbi,
+        functionName: 'mint',
+        args: [user.address, amount * 2n],
+        account: deployer,
+        chain: foundry,
+      }),
+    });
+    await publicClient.waitForTransactionReceipt({
+      hash: await userClient.writeContract({
+        address: tokenAddress,
+        abi: tokenAbi,
+        functionName: 'approve',
+        args: [htlcAddress, amount * 2n],
+        account: user,
+        chain: foundry,
+      }),
+    });
+
+    const snap = (await publicClient.request({
+      method: 'evm_snapshot' as never,
+      params: [] as never,
+    })) as Hex;
+
+    const latest = await publicClient.getBlock({ blockTag: 'latest' });
+    const deadline = latest.timestamp + 300n;
+    const hashLockReorg = sha256(stringToHex('reorged-lock'));
+    const reorgLockId = evmLockId(user.address, hashLockReorg);
+
+    await publicClient.waitForTransactionReceipt({
+      hash: await userClient.writeContract({
+        address: htlcAddress,
+        abi: ferryHtlcAbi,
+        functionName: 'lock',
+        args: [
+          tokenAddress,
+          recipient.address,
+          amount,
+          hashLockReorg,
+          deadline,
+        ],
+        account: user,
+        chain: foundry,
+      }),
+    });
+
+    const beforeReorg = await fetchChainLocks({
+      client: publicClient,
+      htlc: htlcAddress,
+      user: user.address,
+      fromBlock: baseBlock + 1n,
+      deployBlock: baseBlock,
+    });
+    expect(beforeReorg.locks.some((l) => l.lockId === reorgLockId)).toBe(true);
+
+    // Simulate reorg reverting the lock block
+    await publicClient.request({
+      method: 'evm_revert' as never,
+      params: [snap] as never,
+    });
+
+    const afterReorg = await fetchChainLocks({
+      client: publicClient,
+      htlc: htlcAddress,
+      user: user.address,
+      fromBlock: baseBlock + 1n,
+      deployBlock: baseBlock,
+    });
+    expect(afterReorg.locks.some((l) => l.lockId === reorgLockId)).toBe(false);
+
+    // Lock appearing after the first scan is discovered on subsequent scan
+    const hashLockLate = sha256(stringToHex('late-lock'));
+    const lateLockId = evmLockId(user.address, hashLockLate);
+    await publicClient.waitForTransactionReceipt({
+      hash: await userClient.writeContract({
+        address: htlcAddress,
+        abi: ferryHtlcAbi,
+        functionName: 'lock',
+        args: [tokenAddress, recipient.address, amount, hashLockLate, deadline],
+        account: user,
+        chain: foundry,
+      }),
+    });
+
+    const afterLateLock = await fetchChainLocks({
+      client: publicClient,
+      htlc: htlcAddress,
+      user: user.address,
+      fromBlock: baseBlock + 1n,
+      deployBlock: baseBlock,
+    });
+    expect(afterLateLock.locks.some((l) => l.lockId === lateLockId)).toBe(true);
+    expect(afterLateLock.locks.some((l) => l.lockId === reorgLockId)).toBe(
+      false,
+    );
+  });
 });
