@@ -390,4 +390,27 @@ describe('Blueprint route schemas in @ferry/core/api', () => {
       }).status,
     ).toBe('locked');
   });
+
+  it('validates ListPayLinksQuerySchema and maps every ApiErrorCode to a message', async () => {
+    const {
+      API_ERROR_MESSAGES,
+      ListPayLinksQuerySchema,
+      formatApiErrorMessage,
+    } = await import('../src/api/index.js');
+
+    expect(
+      ListPayLinksQuerySchema.parse({
+        owner: 'bchtest:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq00000000',
+        sig: 'sig-abc',
+      }).owner,
+    ).toContain('bchtest:');
+
+    for (const code of API_ERROR_CODES) {
+      expect(API_ERROR_MESSAGES[code].length).toBeGreaterThan(0);
+      expect(formatApiErrorMessage(code)).toBe(API_ERROR_MESSAGES[code]);
+      expect(formatApiErrorMessage(code, 'extra detail')).toContain(
+        'extra detail',
+      );
+    }
+  });
 });
