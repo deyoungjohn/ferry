@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import * as fs from 'node:fs';
 import {
   EvmChainConfigSchema,
   type EvmChainConfig as CoreEvmChainConfig,
@@ -200,7 +200,7 @@ export class DeploymentAddressError extends Error {
 
 export function loadChainData(): unknown {
   const dataUrl = new URL('./data/chains.json', import.meta.url);
-  return JSON.parse(readFileSync(dataUrl, 'utf8')) as unknown;
+  return JSON.parse(fs.readFileSync(dataUrl, 'utf8')) as unknown;
 }
 
 export function parseFerryNetwork(raw: string | null | undefined): Network {
@@ -456,7 +456,8 @@ export interface LoadChainConfigOptions {
 export function loadChainConfig(
   options: LoadChainConfigOptions = {},
 ): ChainConfig {
-  const environment = options.env ?? process.env;
+  const environment =
+    options.env ?? (typeof process !== 'undefined' ? process.env : {});
   const network =
     options.network ?? parseFerryNetwork(environment.FERRY_NETWORK);
   const data: ChainConfigData = parseChainConfigData(

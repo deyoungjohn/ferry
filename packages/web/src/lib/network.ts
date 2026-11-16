@@ -10,7 +10,7 @@ import {
   type AssetSymbol,
   type ChainDisplayResult,
   type ChainId,
-} from '@ferry/chain-config';
+} from '@ferry/chain-config/browser';
 import chainsData from '../../../chain-config/src/data/chains.json';
 
 export interface SupportedTokenDisplay {
