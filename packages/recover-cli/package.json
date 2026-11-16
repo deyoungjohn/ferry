@@ -1,0 +1,38 @@
+{
+  "name": "@ferry/recover-cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent CLI recovery tool for Ferry swaps (EVM and BCH)",
+  "exports": {
+    ".": {
+      "ferry-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "ferry-recover": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@ferry/core": "workspace:*",
+    "@ferry/htlc-bch": "workspace:*",
+    "@ferry/htlc-evm": "workspace:*",
+    "viem": "2.57.10"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}
