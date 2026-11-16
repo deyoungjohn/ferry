@@ -9,6 +9,8 @@
   "include": ["src/**/*.ts"],
   "exclude": [
     "src/bch-servers.ts",
+    "src/key-file.ts",
+    "src/key-material.ts",
     "src/record-deployment.ts",
     "src/preflight.ts",
     "src/watch-chains.ts",

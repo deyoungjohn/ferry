@@ -8,6 +8,7 @@ import {
   ShieldIcon,
   LockIcon,
 } from '../components/icons';
+import { CopyDiagnosticsButton } from '../components/CopyDiagnosticsButton';
 import type {
   LiquidityResponse,
   SolverHealthResponse,
@@ -538,14 +539,25 @@ export function RouteStatusPage() {
               {/* Plain Reason Line (Requirement 2) */}
               <div className="mb-3 rounded-lg bg-surface-2 p-2.5 text-xs flex items-center justify-between">
                 <span className="text-text-muted">Status Diagnosis:</span>
-                <span
-                  data-testid="route-reason"
-                  className={`font-semibold ${
-                    isGreen ? 'text-ok' : 'text-danger'
-                  }`}
-                >
-                  {reason}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    data-testid="route-reason"
+                    className={`font-semibold ${
+                      isGreen ? 'text-ok' : 'text-danger'
+                    }`}
+                  >
+                    {reason}
+                  </span>
+                  {!isGreen && (
+                    <CopyDiagnosticsButton
+                      data={{
+                        route: route.id,
+                        errorCode: 'ROUTE_DEGRADED',
+                        errorMessage: reason,
+                      }}
+                    />
+                  )}
+                </div>
               </div>
 
               {/* Route Telemetry Grid */}

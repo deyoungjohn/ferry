@@ -14,7 +14,7 @@ describe('Mock labelling and explorer link safety', () => {
       </SolverProvider>,
     );
 
-    const label = screen.getByTestId('mock-label');
+    const label = screen.getByTestId('solver-label');
     expect(label).toHaveTextContent('Mock interface, no funds move');
     expect(client.isLive()).toBe(false);
   });

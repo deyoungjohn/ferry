@@ -26,13 +26,15 @@ export function RecentSwapsTable() {
         <div>
           <h2 className="text-lg font-semibold text-text">Recent Swaps</h2>
           <p className="text-xs text-text-muted">
-            Live order settlements. Mock transactions do not link to explorers.
+            Live order settlements across supported routes.
           </p>
         </div>
-        <div className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 py-1 text-xs text-text-muted">
-          <span className="size-1.5 rounded-full bg-warn" />
-          <span>Mock Hashes (Unlinked)</span>
-        </div>
+        {data?.items && data.items.some((s) => s.isMock) && (
+          <div className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 py-1 text-xs text-text-muted">
+            <span className="size-1.5 rounded-full bg-warn" />
+            <span>Simulated Hashes</span>
+          </div>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-card border border-hairline bg-surface-1">

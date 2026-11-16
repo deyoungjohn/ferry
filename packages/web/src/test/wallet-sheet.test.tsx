@@ -15,9 +15,7 @@ describe('WalletSheet component', () => {
 
     expect(screen.getByText('Connect Wallets')).toBeInTheDocument();
     expect(screen.getByText(/Mock wallet mode active/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/EVM Wallet \(Base Sepolia & Testnets\)/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/^EVM Wallet/i)).toBeInTheDocument();
     expect(
       screen.getByText(/Bitcoin Cash \(Bitcoin Cash Chipnet\)/i),
     ).toBeInTheDocument();

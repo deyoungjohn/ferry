@@ -1,0 +1,11 @@
+{
+  "name": "@ferry/keys",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "keys:generate": "node --conditions=ferry-source --import tsx generate.ts",
+    "keys:check": "node --conditions=ferry-source --import tsx check.ts",
+    "history": "node --conditions=ferry-source --import tsx history.ts",
+    "typecheck": "pnpm --dir ../.. exec tsc --noEmit -p scripts/keys/tsconfig.json"
+  }
+}

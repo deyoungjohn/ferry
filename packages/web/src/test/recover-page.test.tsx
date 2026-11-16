@@ -151,7 +151,7 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
     });
   });
 
-  it('loads valid recovery file, shows mock solver notice and reveals secret', async () => {
+  it('loads valid recovery file, shows simulation notice and reveals secret', async () => {
     render(
       <MemoryRouter>
         <RecoverPage />
@@ -170,7 +170,7 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
       expect(screen.getByRole('status')).toBeInTheDocument();
       expect(
         screen.getByText(
-          /This file was issued by the mock solver and cannot be claimed on chain/i,
+          /This file was issued by an offline simulation and cannot be claimed on chain/i,
         ),
       ).toBeInTheDocument();
     });

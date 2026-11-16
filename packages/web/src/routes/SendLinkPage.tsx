@@ -9,7 +9,7 @@ export function SendLinkPage() {
 
   const [amount] = useState(50.0);
   const [token] = useState('USDC');
-  const [chain] = useState('Base Sepolia');
+  const [chain] = useState('Base');
   const [recipientEvmAddress] = useState(
     '0x1111222233334444555566667777888899990000',
   );

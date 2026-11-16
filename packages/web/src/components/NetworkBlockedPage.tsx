@@ -31,8 +31,7 @@ export function NetworkBlockedPage() {
       )}
 
       <p className="mt-6 text-xs text-text-dim">
-        To test the application, run with{' '}
-        <code className="text-lime">VITE_NETWORK=testnet</code>.
+        Review deployment settings in your environment configuration.
       </p>
     </main>
   );

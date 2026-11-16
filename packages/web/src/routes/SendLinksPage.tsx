@@ -7,9 +7,7 @@ import { NETWORK_PROFILE } from '../lib/config';
 
 export function SendLinksPage() {
   const farChains = NETWORK_PROFILE.farChains;
-  const [destChain, setDestChain] = useState(
-    farChains[0]?.name ?? 'Base Sepolia',
-  );
+  const [destChain, setDestChain] = useState(farChains[0]?.name ?? 'Base');
   const [destToken, setDestToken] = useState('USDC');
   const [recipientEvm, setRecipientEvm] = useState('');
   const [amount, setAmount] = useState('20.00');
@@ -17,7 +15,7 @@ export function SendLinksPage() {
   const [createdLinks, setCreatedLinks] = useState<SendLinkData[]>([
     {
       id: 'sl-sample-01',
-      destinationChain: 'Base Sepolia',
+      destinationChain: 'Base',
       destinationToken: 'USDC',
       recipientEvmAddress: '0x1111222233334444555566667777888899990000',
       amount: 50.0,

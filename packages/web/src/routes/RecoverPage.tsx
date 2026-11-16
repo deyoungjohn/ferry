@@ -15,8 +15,9 @@ import {
   type EvmWalletRecoveryPlan,
 } from '@ferry/chain-evm';
 import { createPublicClient, http, type Address, type Hex } from 'viem';
-import { baseSepolia } from 'viem/chains';
+import { base } from 'viem/chains';
 import { WalletContext } from '../lib/wallet/context';
+import { CopyDiagnosticsButton } from '../components/CopyDiagnosticsButton';
 
 export function RecoverPage() {
   const walletContext = useContext(WalletContext);
@@ -48,14 +49,13 @@ export function RecoverPage() {
       return;
     }
 
-    const isMock =
-      rawObj.solverKind === 'mock' ||
-      (rawObj.contracts as Record<string, unknown> | undefined)?.bch ===
-        'chipnet' ||
-      (
-        (rawObj.contracts as Record<string, unknown> | undefined)?.bch as
-          Record<string, unknown> | undefined
-      )?.network === 'chipnet';
+    const isSimulation =
+      rawObj.isSimulation === true ||
+      rawObj.solverKind === 'simulation' ||
+      (rawObj.solverKind != null &&
+        rawObj.solverKind !== 'real' &&
+        rawObj.solverKind !== 'live') ||
+      Boolean(rawObj.isSimulation);
 
     // Strip optional legacy metadata not part of strict RecoveryFile schema
     if ('solverKind' in rawObj) {
@@ -117,9 +117,9 @@ export function RecoverPage() {
     });
     setEvmPlan(evmRecovery);
 
-    if (isMock) {
+    if (isSimulation) {
       setNotice(
-        'Recovery file loaded. This file was issued by the mock solver and cannot be claimed on chain.',
+        'Recovery file loaded. This file was issued by an offline simulation and cannot be claimed on chain.',
       );
     } else {
       setNotice(
@@ -224,7 +224,7 @@ export function RecoverPage() {
     setError(null);
     try {
       const client = createPublicClient({
-        chain: baseSepolia,
+        chain: base,
         transport: http(),
       });
       const onChainPlan = await inspectEvmWalletRecovery({
@@ -322,10 +322,17 @@ export function RecoverPage() {
         {/* Status Alerts */}
         {error && (
           <div
-            className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger"
+            className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger flex items-center justify-between gap-3"
             role="alert"
           >
-            {error}
+            <span>{error}</span>
+            <CopyDiagnosticsButton
+              data={{
+                route: '/recover',
+                errorCode: 'RECOVERY_ERROR',
+                errorMessage: error,
+              }}
+            />
           </div>
         )}
         {notice && (
