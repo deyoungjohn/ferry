@@ -77,6 +77,7 @@ export interface AnvilInstance {
   chain: Chain;
   stop: () => Promise<void>;
   increaseTimeAndMine: (seconds: number) => Promise<void>;
+  setNextBlockTimestamp: (unixSeconds: number) => Promise<void>;
   snapshot: () => Promise<string>;
   revert: (id: string) => Promise<void>;
 }
@@ -146,6 +147,9 @@ export async function startAnvil(options?: {
     increaseTimeAndMine: async (seconds: number) => {
       await rpc('evm_increaseTime', [seconds]);
       await rpc('evm_mine', []);
+    },
+    setNextBlockTimestamp: async (unixSeconds: number) => {
+      await rpc('evm_setNextBlockTimestamp', [unixSeconds]);
     },
     snapshot: async () => rpc<string>('evm_snapshot', []),
     revert: async (id: string) => {

@@ -842,16 +842,12 @@ describe('Adversarial Security Suite (Blueprint §9)', () => {
       });
 
       const lockId = solver.evmAdapter.lockId(userAccount.address, hashLock);
-      // Anvil increments block.timestamp by +1 on the next mined tx, so advance to deadline - 2
-      // so the refund tx itself executes at block.timestamp === deadline - 1 and reverts.
-      const deltaToMinusTwo = deadline - Number(lockBlock.timestamp) - 2;
-      if (deltaToMinusTwo > 0) {
-        await anvil.increaseTimeAndMine(deltaToMinusTwo);
-      }
+      // Pin the exact block timestamps so the boundary does not depend on the wall clock.
+      await anvil.setNextBlockTimestamp(deadline - 1);
       await expect(solver.evmAdapter.refund(lockId)).rejects.toThrow();
 
-      // At/after deadline: claim still succeeds (Blueprint §4.2)
-      await anvil.increaseTimeAndMine(2);
+      // At/after the deadline: claim still succeeds (Blueprint §4.2)
+      await anvil.setNextBlockTimestamp(deadline + 1);
       const claimTx = await solver.evmAdapter.claim(lockId, secret);
       expect(claimTx.txId).toMatch(/^0x[0-9a-f]{64}$/);
     });
