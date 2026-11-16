@@ -117,7 +117,7 @@ export async function probeRpcLogMaxRange(
 
   const head = latest - 1;
   let best = 0;
-  for (const range of [1_000, 10_000, 50_000, 100_000, 500_000]) {
+  for (const range of [10, 100, 1_000, 10_000, 50_000, 100_000, 500_000]) {
     if (head < range) break;
     const fromBlock = head - range + 1;
     try {

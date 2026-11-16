@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "preflight": "pnpm --dir ../.. --filter @ferry/chain-config preflight",
-    "watch-chains": "pnpm --dir ../.. --filter @ferry/chain-config watch-chains"
+    "watch-chains": "pnpm --dir ../.. --filter @ferry/chain-config watch-chains",
+    "measure-rpc": "pnpm --dir ../.. --filter @ferry/chain-config measure-rpc",
+    "deploy-funding": "pnpm --dir ../.. --filter @ferry/chain-config deploy-funding"
   }
 }
