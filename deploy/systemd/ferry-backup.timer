@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the Ferry SQLite backup every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=15min
+AccuracySec=1min
+RandomizedDelaySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
