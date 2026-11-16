@@ -34,12 +34,28 @@ Where:
 - `nativeTokenPriceUsd`: USD price of the chain's native gas token (`ETH`, `BNB`, or `USDC` = `1.0` on Arc), supplied by the solver's price feed/config.
 - `l1DataFeeUsd`: L1 calldata/blob posting fee in USD for OP-Stack / Arbitrum rollups (Base, Arbitrum), `0` on L1s/sidechains.
 
+## L2 Data Fees (Measured 2026-11-16)
+
+Measured read-only for `claim(bytes32,bytes32)` calldata against live public RPCs via `estimateRelayCostUsd` / `estimateArbitrumGasComponents`:
+
+| Chain                | Predeploy / Precompile                                                               | RPC Used                       | Gas Price / Base Fee | L1 Data Fee (wei) | Notes                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------ | ------------------------------ | -------------------- | ----------------: | ----------------------------------------------------------------------------- |
+| Base                 | `0x420000000000000000000000000000000000000F` (`GasPriceOracle.getL1Fee`)             | `https://mainnet.base.org`     | `6,000,000` wei      |   `2,322,278,835` | At \$3,000/ETH & 78,808 gas: L2 `\$0.001419` + L1 `\$0.000007` = `\$0.001426` |
+| Arbitrum             | `0x00000000000000000000000000000000000000C8` (`NodeInterface.gasEstimateComponents`) | `https://arb1.arbitrum.io/rpc` | `20,144,000` wei     |  `29,712,400,000` | `gasEstimateForL1 = 1,475`, `l1BaseFeeEstimate = 7,869,482` wei               |
+| Ethereum / BNB / Arc | None                                                                                 | —                              | —                    |               `0` | No separate L1 data fee component                                             |
+
 ## Reproducing
 
 Run the opt-in fork suite (requires outbound RPC access):
 
 ```bash
 FERRY_FORK_TESTS=1 pnpm --filter @ferry/htlc-evm exec vitest run test/fork.test.ts
+```
+
+Run the opt-in L2 data-fee live RPC check:
+
+```bash
+FERRY_L2_COST_LIVE=1 pnpm --filter @ferry/chain-evm exec vitest run test/l2-cost.test.ts
 ```
 
 Print `forge verify-contract` commands per chain (does not execute them):
