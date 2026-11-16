@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Hex, Hex32 } from '@ferry/core';
-import { QuoteVerificationError, verifyQuote } from '../src/index.js';
+import { verifyQuote } from '../src/index.js';
 import {
   BCH_TIP_HEIGHT,
   NOW_SECONDS,
@@ -128,15 +128,17 @@ describe('verifyQuote', () => {
   it('rejects missing pricing, stale per-source refs, and manipulated receive amounts', async () => {
     const request = makeQuoteRequest('EVM_TO_BCH');
 
-    const missingPricing = await makeSignedQuote({
-      overrideTerms: { pricing: undefined },
-    });
+    const validQuote = await makeSignedQuote();
     await expect(
-      verifyQuote(missingPricing, request, baseContext),
-    ).rejects.toBeInstanceOf(QuoteVerificationError);
-    await expect(
-      verifyQuote(missingPricing, request, baseContext),
-    ).rejects.toMatchObject({ field: 'pricing' });
+      verifyQuote(
+        {
+          ...validQuote,
+          terms: { ...validQuote.terms, pricing: undefined },
+        } as unknown as typeof validQuote,
+        request,
+        baseContext,
+      ),
+    ).rejects.toThrow(/pricing/i);
 
     // pyth max age is 60s in baseContext; 61s old should fail
     const staleRef = await makeSignedQuote({ refAsOf: NOW_SECONDS - 61 });

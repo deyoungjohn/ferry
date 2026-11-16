@@ -41,6 +41,19 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
     bchMaxFee: 1500n,
     quoteId: 'test-quote-fwd',
     quoteExpiry: Math.floor(Date.now() / 1000) + 300,
+    pricing: {
+      refs: [
+        {
+          asset: 'PUSD',
+          usdPrice: '1.000',
+          source: 'cauldron',
+          asOf: Math.floor(Date.now() / 1000) - 10,
+        },
+      ],
+      spreadBps: 50,
+      fixedFeeBase: 0n,
+      rounding: 'floor',
+    },
   });
 
   const dummyReverseTerms = parseOrderTerms({

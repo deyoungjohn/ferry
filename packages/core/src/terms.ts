@@ -105,7 +105,7 @@ export const OrderTermsSchema = z
     bchMaxFee: z.bigint().nonnegative(),
     quoteId: text,
     quoteExpiry: unixTimestampSeconds,
-    pricing: PricingEvidenceSchema.optional(),
+    pricing: PricingEvidenceSchema,
   })
   .superRefine((terms, ctx) => {
     if (terms.bchMaxFee > terms.bchCarrySats) {
@@ -152,7 +152,7 @@ export function canonicalCBOR(input: unknown): Uint8Array {
     bchTokenCategory: hexToBytes(rest.bchTokenCategory),
     userBchLockingBytecode: hexToBytes(rest.userBchLockingBytecode),
     solverBchLockingBytecode: hexToBytes(rest.solverBchLockingBytecode),
-    ...(pricing !== undefined ? { pricing } : {}),
+    pricing,
   };
   return encode(payload, { typeEncoders: { bigint: encodeBigIntTag2 } });
 }
@@ -194,8 +194,11 @@ const uint64Json = z
     message: 'Expected positive uint64',
   });
 
-export const PricingEvidenceJsonSchema = PricingEvidenceSchema.extend({
+export const PricingEvidenceJsonSchema = z.strictObject({
+  refs: z.array(PricingRefSchema).min(1).max(16),
+  spreadBps: z.number().int().min(0).max(9999),
   fixedFeeBase: nonNegUint256Json,
+  rounding: z.literal('floor'),
 });
 
 export const OrderTermsJsonSchema = z
@@ -220,7 +223,7 @@ export const OrderTermsJsonSchema = z
     bchMaxFee: nonNegUint256Json,
     quoteId: text,
     quoteExpiry: unixTimestampSeconds,
-    pricing: PricingEvidenceJsonSchema.optional(),
+    pricing: PricingEvidenceJsonSchema,
   })
   .superRefine((terms, ctx) => {
     if (terms.bchMaxFee > terms.bchCarrySats) {
@@ -260,7 +263,7 @@ export interface OrderTermsJson {
   readonly bchMaxFee: string;
   readonly quoteId: string;
   readonly quoteExpiry: number;
-  readonly pricing?: PricingEvidenceJson;
+  readonly pricing: PricingEvidenceJson;
 }
 
 /**
@@ -275,14 +278,10 @@ export function orderTermsToJson(input: OrderTerms): OrderTermsJson {
     evmAmount: rest.evmAmount.toString(),
     bchCarrySats: rest.bchCarrySats.toString(),
     bchMaxFee: rest.bchMaxFee.toString(),
-    ...(pricing !== undefined
-      ? {
-          pricing: {
-            ...pricing,
-            fixedFeeBase: pricing.fixedFeeBase.toString(),
-          },
-        }
-      : {}),
+    pricing: {
+      ...pricing,
+      fixedFeeBase: pricing.fixedFeeBase.toString(),
+    },
   };
 }
 

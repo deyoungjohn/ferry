@@ -241,7 +241,7 @@ describe('PricingEvidence quoteOut, quoteInForExactOut, and verifyPricing', () =
     expect(warnRes.difference).toBe('0.012');
 
     const missingRes = verifyPricing(
-      { ...baseTerms, pricing: undefined },
+      { ...baseTerms, pricing: { ...evidence, refs: [] } },
       '1.000',
       '0.005',
     );

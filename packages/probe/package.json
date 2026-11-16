@@ -1,0 +1,43 @@
+{
+  "name": "@ferry/probe",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless Ferry user for end-to-end swap and refund probes with strict safety rails.",
+  "exports": {
+    ".": {
+      "ferry-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "ferry-probe": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test",
+    "test": "vitest run --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage"
+  },
+  "dependencies": {
+    "@bitauth/libauth": "3.0.0",
+    "@ferry/chain-config": "workspace:*",
+    "@ferry/chain-evm": "workspace:*",
+    "@ferry/core": "workspace:*",
+    "@ferry/htlc-bch": "workspace:*",
+    "@ferry/htlc-evm": "workspace:*",
+    "@ferry/solver-client": "workspace:*",
+    "viem": "2.57.10"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@vitest/coverage-v8": "5.0.5",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}
