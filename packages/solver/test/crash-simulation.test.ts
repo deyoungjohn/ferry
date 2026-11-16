@@ -52,6 +52,11 @@ describe('Crash-simulation test (SIGKILL between intent and broadcast)', () => {
     const child = spawn(process.execPath, [tsxCli, workerScript, ...args], {
       cwd: path.resolve(__dirname, '..'),
       detached: true,
+      env: {
+        ...process.env,
+        NODE_OPTIONS:
+          `${process.env.NODE_OPTIONS ?? ''} --conditions=ferry-source`.trim(),
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
