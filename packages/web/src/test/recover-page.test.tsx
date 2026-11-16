@@ -1,11 +1,16 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import { MemoryRouter } from 'react-router';
-import { orderId as computeOrderId, type OrderTerms } from '@ferry/core';
+import { orderId as computeOrderId, type RecoveryTerms } from '@ferry/core';
 import { RecoverPage } from '../routes/RecoverPage';
 
 describe('RecoverPage (/recover) - Swap Recovery Port', () => {
-  const sampleTerms: OrderTerms = {
+  const secret =
+    '0x1111111111111111111111111111111111111111111111111111111111111111';
+  const hashLock =
+    '0x02d449a31fbb267c8f352e9968a79e3e5fc95c1bbeaa502fd6454ebde5a4bedc';
+
+  const sampleTerms: RecoveryTerms = {
     version: 1,
     direction: 'EVM_TO_BCH',
     bchToken: 'PUSD',
@@ -22,8 +27,7 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
     solverEvmAddress: '0xc9ec91859bdb598dc2eee715934d8231478f7a70',
     solverBchLockingBytecode:
       '0x76a914222222222222222222222222222222222222222288ac',
-    hashLock:
-      '0x72cd6e8422c407fb6d098690f1130b7ded7ec2f7f5e1d30bd9d521f015363793',
+    hashLock,
     evmDeadline: 1794850000,
     bchRefundHeight: 974380,
     bchCarrySats: 3000n,
@@ -34,12 +38,12 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
       refs: [
         {
           asset: 'PUSD',
-          usdPrice: '1.000',
+          usdPrice: '0.998',
           source: 'cauldron',
-          asOf: 1794763900,
+          asOf: 1794764140,
         },
       ],
-      spreadBps: 50,
+      spreadBps: 40,
       fixedFeeBase: 0n,
       rounding: 'floor',
     },
@@ -47,28 +51,40 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
 
   const canonicalId = computeOrderId(sampleTerms);
 
-  const jsonTerms = {
-    ...sampleTerms,
-    bchTokenAmount: '10000',
-    evmAmount: '100500000',
-    bchCarrySats: '3000',
-    bchMaxFee: '1500',
-    pricing: {
-      ...sampleTerms.pricing,
-      fixedFeeBase: '0',
-    },
-  };
-
   const validRecoveryFile = {
     version: 1,
     orderId: canonicalId,
-    terms: jsonTerms,
-    secret:
-      '0xmocksecret01010101010101010101010101010101010101010101010101010101',
+    terms: {
+      ...sampleTerms,
+      bchTokenAmount: '10000',
+      evmAmount: '100500000',
+      bchCarrySats: '3000',
+      bchMaxFee: '1500',
+      pricing: {
+        ...sampleTerms.pricing,
+        fixedFeeBase: '0',
+      },
+    },
+    solverSignature:
+      '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1b',
+    hashLock,
+    secret,
     solverKind: 'mock',
+    createdAt: 1794764200,
     contracts: {
-      bchHtlcAddress: 'bchtest:pr3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy',
-      evmContractAddress: '0x1234567890123456789012345678901234567890',
+      evm: {
+        chainId: 8453,
+        htlcAddress: '0x5a0c062f4b7b8ff2263530e12bc15de9c836a641',
+        tokenAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+      },
+      bch: {
+        network: 'chipnet',
+        htlcAddress: 'bchtest:pr3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy',
+        tokenAddress:
+          '0xec335fd3ffa45f80cef7217cf98e8adf562df5a3e33f354f69df2951703586ac',
+        redeemScript: '0x04000000',
+        lockingBytecode: '0x76a914111111111111111111111111111111111111111188ac',
+      },
     },
   };
 
@@ -117,7 +133,11 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
     const textarea = screen.getByLabelText(/Or paste recovery file JSON:/i);
     const loadBtn = screen.getByRole('button', { name: /Load File/i });
 
-    const tampered = { ...validRecoveryFile, orderId: '0xinvalidorderid' };
+    const tampered = {
+      ...validRecoveryFile,
+      orderId:
+        '0x0000000000000000000000000000000000000000000000000000000000000000',
+    };
     fireEvent.change(textarea, { target: { value: JSON.stringify(tampered) } });
     fireEvent.click(loadBtn);
 
@@ -160,6 +180,9 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
     expect(
       screen.getByText(/EVM Stablecoin → Bitcoin Cash/i),
     ).toBeInTheDocument();
+
+    // Verify plan summary from recoveryActions is shown
+    expect(screen.getByTestId('recovery-plan-summary')).toBeInTheDocument();
 
     // Verify secret is masked initially
     expect(

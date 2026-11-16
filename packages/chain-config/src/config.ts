@@ -19,13 +19,22 @@ import {
   parseChainConfigData,
 } from './schema.js';
 import { predictHtlcAddress } from './htlc.js';
+import {
+  buildRpcEndpoints,
+  parseRpcOverrides,
+  type RpcEndpointView,
+} from './rpc-overrides.js';
 import { parseEnabledRoutes, type RouteKey } from './routes.js';
 
 export interface EvmAssetFact {
   symbol: AssetSymbol;
   decimals: number | null;
   address: string | null;
+  name: string | null;
+  version: string | null;
+  domainSeparator: string | null;
   permit: boolean;
+  nonces: boolean;
   issuer: string;
   nativeOrBridged: TokenFacts['nativeOrBridged'];
   verified: boolean;
@@ -46,6 +55,7 @@ export interface ChainFactView {
   network: Network;
   chainId: number;
   rpcUrls: string[];
+  rpcEndpoints: RpcEndpointView[];
   explorerUrl: string;
   nativeGas: NetworkFacts['nativeGas'];
   finality: {
@@ -228,7 +238,11 @@ function toAssetFact(token: TokenFacts): EvmAssetFact {
     symbol: token.symbol,
     decimals: token.decimals,
     address: token.address,
+    name: token.name,
+    version: token.version,
+    domainSeparator: token.domainSeparator,
     permit: token.permit,
+    nonces: token.nonces,
     issuer: token.issuer,
     nativeOrBridged: token.nativeOrBridged,
     verified: tokenIneligibilityReasons(token).length === 0,
@@ -241,13 +255,15 @@ function toChainFactView(
   name: string,
   network: Network,
   chain: NetworkFacts,
+  rpcEndpoints: RpcEndpointView[],
 ): ChainFactView {
   return {
     id,
     name,
     network,
     chainId: chain.chainId,
-    rpcUrls: chain.rpcUrls.map((rpc) => rpc.url),
+    rpcUrls: rpcEndpoints.map((endpoint) => endpoint.url),
+    rpcEndpoints,
     explorerUrl: chain.explorerUrl,
     nativeGas: chain.nativeGas,
     finality: {
@@ -284,6 +300,7 @@ function toCoreChainConfig(
   id: ChainId,
   network: Network,
   chain: NetworkFacts,
+  rpcUrls: string[],
 ): CoreEvmChainConfig | null {
   const assets = chain.tokens.flatMap((token) => {
     if (token.address === null || token.decimals === null) return [];
@@ -309,7 +326,7 @@ function toCoreChainConfig(
   const candidate: Record<string, unknown> = {
     id,
     chainId: chain.chainId,
-    rpcUrls: chain.rpcUrls.map((rpc) => rpc.url),
+    rpcUrls,
     explorerUrl: chain.explorerUrl,
     htlcAddress: configured ?? predicted,
     nativeGas: chain.nativeGas,
@@ -379,6 +396,7 @@ export interface LoadChainConfigOptions {
   env?: Record<string, string | undefined>;
   data?: unknown;
   network?: Network;
+  rpcCaps?: Record<string, number>;
 }
 
 export function loadChainConfig(
@@ -391,11 +409,24 @@ export function loadChainConfig(
     options.data ?? loadChainData(),
   );
   const requested = parseEnabledRoutes(environment.ENABLED_ROUTES);
+  const overrides = parseRpcOverrides(environment);
 
   const chains = CHAIN_IDS.flatMap((id) =>
-    NETWORKS.map((item) =>
-      toChainFactView(id, data.chains[id].name, item, data.chains[id][item]),
-    ),
+    NETWORKS.map((item) => {
+      const overrideUrls = item === network ? (overrides[id] ?? []) : [];
+      const rpcEndpoints = buildRpcEndpoints(
+        data.chains[id][item].rpcUrls,
+        overrideUrls,
+        options.rpcCaps,
+      );
+      return toChainFactView(
+        id,
+        data.chains[id].name,
+        item,
+        data.chains[id][item],
+        rpcEndpoints,
+      );
+    }),
   );
   const facts = chains.filter((chain) => chain.network === network);
   const routes = buildRoutes(network, data);
@@ -407,7 +438,14 @@ export function loadChainConfig(
   }
 
   const coreChains = CHAIN_IDS.flatMap((id) => {
-    const chain = toCoreChainConfig(id, network, data.chains[id][network]);
+    const fact = facts.find((item) => item.id === id);
+    if (!fact) return [];
+    const chain = toCoreChainConfig(
+      id,
+      network,
+      data.chains[id][network],
+      fact.rpcUrls,
+    );
     return chain === null ? [] : [chain];
   });
 

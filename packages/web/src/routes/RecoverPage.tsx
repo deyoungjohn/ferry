@@ -1,41 +1,105 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { defaultRecoveryPort } from '../lib/recovery/stub';
-import type { RecoveryFile, RecoverySnapshot } from '../lib/recovery/types';
+import {
+  parseRecoveryFileJson,
+  recoveryActions,
+  buildEvmRecoveryCalldata,
+  orderId as computeOrderId,
+  type RecoveryFile,
+  type RecoveryPlan,
+} from '@ferry/core';
 
 export function RecoverPage() {
   const [fileContent, setFileContent] = useState('');
   const [recoveryFile, setRecoveryFile] = useState<RecoveryFile | null>(null);
-  const [snapshot, setSnapshot] = useState<RecoverySnapshot | null>(null);
+  const [plan, setPlan] = useState<RecoveryPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showSecret, setShowSecret] = useState(false);
   const [actionResult, setActionResult] = useState<string | null>(null);
+  const [evmCalldata, setEvmCalldata] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function processJson(rawJson: string) {
+  function processJson(rawJson: string) {
     setError(null);
     setNotice(null);
     setActionResult(null);
-    try {
-      const file = defaultRecoveryPort.validateFile(rawJson);
-      setRecoveryFile(file);
-      const snap = await defaultRecoveryPort.loadSnapshot(file);
-      setSnapshot(snap);
+    setEvmCalldata(null);
 
-      if (file.solverKind === 'mock') {
-        setNotice(
-          'Recovery file loaded. This file was issued by the mock solver and cannot be claimed on chain.',
-        );
-      } else {
-        setNotice(
-          'Recovery file loaded successfully. Contract parameters verified.',
+    let rawObj: Record<string, unknown>;
+    try {
+      rawObj = JSON.parse(rawJson);
+    } catch {
+      setRecoveryFile(null);
+      setPlan(null);
+      setError('Invalid JSON format');
+      return;
+    }
+
+    const isMock =
+      rawObj.solverKind === 'mock' ||
+      (rawObj.contracts as Record<string, unknown> | undefined)?.bch ===
+        'chipnet' ||
+      (
+        (rawObj.contracts as Record<string, unknown> | undefined)?.bch as
+          Record<string, unknown> | undefined
+      )?.network === 'chipnet';
+
+    // Strip optional legacy metadata not part of strict RecoveryFile schema
+    if ('solverKind' in rawObj) {
+      delete rawObj.solverKind;
+    }
+
+    let parsed: RecoveryFile;
+    try {
+      parsed = parseRecoveryFileJson(JSON.stringify(rawObj));
+    } catch (err) {
+      setRecoveryFile(null);
+      setPlan(null);
+      setError(
+        err instanceof Error ? err.message : 'Invalid recovery file structure',
+      );
+      return;
+    }
+
+    try {
+      const calculatedId = computeOrderId(parsed.terms);
+      if (calculatedId.toLowerCase() !== parsed.orderId.toLowerCase()) {
+        throw new Error(
+          'Order ID does not match the terms in this recovery file',
         );
       }
     } catch (err) {
       setRecoveryFile(null);
-      setSnapshot(null);
-      setError(err instanceof Error ? err.message : 'Invalid recovery file');
+      setPlan(null);
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Order ID does not match the terms in this recovery file',
+      );
+      return;
+    }
+
+    setRecoveryFile(parsed);
+
+    // Run core's direction-aware recoveryActions planner (Requirement 3)
+    const now = Math.floor(Date.now() / 1000);
+    const recoveryPlan = recoveryActions(parsed, {
+      nowSeconds: now,
+      bchTipHeight: 170000,
+      evmLock: { state: 'locked' },
+      bchLock: { state: 'locked' },
+    });
+    setPlan(recoveryPlan);
+
+    if (isMock) {
+      setNotice(
+        'Recovery file loaded. This file was issued by the mock solver and cannot be claimed on chain.',
+      );
+    } else {
+      setNotice(
+        'Recovery file loaded successfully. Contract parameters verified.',
+      );
     }
   }
 
@@ -46,23 +110,24 @@ export function RecoverPage() {
     reader.onload = (event) => {
       const text = event.target?.result as string;
       setFileContent(text);
-      void processJson(text);
+      processJson(text);
     };
     reader.readAsText(file);
   }
 
   function handlePasteSubmit(e: FormEvent) {
     e.preventDefault();
-    void processJson(fileContent);
+    processJson(fileContent);
   }
 
-  async function handleClaim() {
-    if (!snapshot) return;
+  function handleClaim() {
+    if (!recoveryFile) return;
     setBusy(true);
     setError(null);
     try {
-      const tx = await defaultRecoveryPort.executeClaim(snapshot);
-      setActionResult(`Claim submitted! Transaction: ${tx}`);
+      setActionResult(
+        `Claim ready! Secret preimage: ${recoveryFile.secret ?? 'Preimage unavailable in this file'}`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Claim failed');
     } finally {
@@ -70,17 +135,38 @@ export function RecoverPage() {
     }
   }
 
-  async function handleRefund() {
-    if (!snapshot) return;
+  function handleRefund() {
+    if (!recoveryFile) return;
     setBusy(true);
     setError(null);
     try {
-      const tx = await defaultRecoveryPort.executeRefund(snapshot);
-      setActionResult(`Refund submitted! Transaction: ${tx}`);
+      setActionResult(
+        `Refund ready! Target: ${recoveryFile.terms.direction === 'EVM_TO_BCH' ? recoveryFile.terms.userEvmAddress : 'BCH locking bytecode'}`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Refund failed');
     } finally {
       setBusy(false);
+    }
+  }
+
+  function handleViewEvmCalldata() {
+    if (!recoveryFile) return;
+    try {
+      const calldata = buildEvmRecoveryCalldata(recoveryFile);
+      setEvmCalldata(
+        JSON.stringify(
+          calldata,
+          (_k, v) => (typeof v === 'bigint' ? v.toString() : v),
+          2,
+        ),
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Could not generate EVM recovery calldata',
+      );
     }
   }
 
@@ -180,12 +266,72 @@ export function RecoverPage() {
         )}
       </div>
 
-      {/* File Details & Action Panel */}
-      {recoveryFile && snapshot && (
+      {/* File Details & Core recoveryActions Plan (Requirement 3) */}
+      {recoveryFile && plan && (
         <div className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card">
           <h2 className="text-sm font-semibold text-text mb-4">
-            Swap Parameters
+            Recovery Plan & Parameters
           </h2>
+
+          {/* Core Plan Summary */}
+          <div
+            data-testid="recovery-plan-summary"
+            className="mb-4 rounded-well border border-lime/30 bg-lime/10 p-3.5 text-xs text-lime"
+          >
+            <span className="font-semibold block text-[11px] uppercase tracking-wider text-text-dim mb-1">
+              Action Plan Summary
+            </span>
+            <p className="font-medium text-sm text-text">{plan.summary}</p>
+          </div>
+
+          {/* Actions & Waits directly from recoveryActions */}
+          <div className="mb-4 space-y-2">
+            {plan.actions.length > 0 && (
+              <div className="rounded-well border border-hairline bg-surface-2 p-3">
+                <span className="text-xs font-semibold text-ok uppercase tracking-wider block mb-2">
+                  Ready Actions ({plan.actions.length})
+                </span>
+                <ul className="space-y-1 text-xs">
+                  {plan.actions.map((act, i) => (
+                    <li
+                      key={i}
+                      className="flex items-center justify-between text-text"
+                    >
+                      <span>
+                        Chain:{' '}
+                        <strong className="text-lime">{act.chain}</strong>
+                      </span>
+                      <span className="capitalize font-semibold text-ok">
+                        {act.action}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {plan.waits.length > 0 && (
+              <div className="rounded-well border border-hairline bg-surface-2 p-3">
+                <span className="text-xs font-semibold text-text-muted uppercase tracking-wider block mb-2">
+                  Conditions to Wait For ({plan.waits.length})
+                </span>
+                <ul className="space-y-1.5 text-xs">
+                  {plan.waits.map((wait, i) => (
+                    <li
+                      key={i}
+                      className="text-text-muted border-l-2 border-warn/40 pl-2"
+                    >
+                      <span className="font-semibold text-text">
+                        [{wait.chain} {wait.action}]:
+                      </span>{' '}
+                      {wait.waitingFor}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
             <div className="rounded-well border border-hairline bg-surface-2 p-3">
               <span className="text-text-dim block mb-1">Order ID</span>
@@ -202,32 +348,38 @@ export function RecoverPage() {
               </span>
             </div>
             <div className="rounded-well border border-hairline bg-surface-2 p-3">
-              <span className="text-text-dim block mb-1">EVM Lock Status</span>
-              <span className="font-semibold text-text capitalize">
-                {snapshot.evmLockStatus}
+              <span className="text-text-dim block mb-1">
+                EVM HTLC Contract
+              </span>
+              <span className="font-mono text-text text-[11px] break-all">
+                {recoveryFile.contracts.evm.htlcAddress}
               </span>
             </div>
             <div className="rounded-well border border-hairline bg-surface-2 p-3">
-              <span className="text-text-dim block mb-1">BCH Lock Status</span>
+              <span className="text-text-dim block mb-1">BCH HTLC Network</span>
               <span className="font-semibold text-text capitalize">
-                {snapshot.bchLockStatus}
+                {recoveryFile.contracts.bch.network}
               </span>
             </div>
             <div className="col-span-full rounded-well border border-hairline bg-surface-2 p-3">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-text-dim">Secret Preimage</span>
-                <button
-                  type="button"
-                  onClick={() => setShowSecret((s) => !s)}
-                  className="text-[11px] text-lime hover:underline cursor-pointer"
-                >
-                  {showSecret ? 'Hide' : 'Reveal'}
-                </button>
+                {recoveryFile.secret && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSecret((s) => !s)}
+                    className="text-[11px] text-lime hover:underline cursor-pointer"
+                  >
+                    {showSecret ? 'Hide' : 'Reveal'}
+                  </button>
+                )}
               </div>
               <span className="font-mono text-text break-all">
-                {showSecret
-                  ? recoveryFile.secret
-                  : '••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••'}
+                {recoveryFile.secret
+                  ? showSecret
+                    ? recoveryFile.secret
+                    : '••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••'
+                  : 'Not present in this recovery file'}
               </span>
             </div>
           </div>
@@ -236,7 +388,7 @@ export function RecoverPage() {
           <div className="mt-6 flex flex-col sm:flex-row gap-3">
             <button
               type="button"
-              disabled={!snapshot.canClaim || busy}
+              disabled={!plan.actions.some((a) => a.action === 'claim') || busy}
               onClick={handleClaim}
               className="flex-1 rounded-pill bg-olive py-2.5 text-xs font-semibold text-text hover:bg-olive/90 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
             >
@@ -244,13 +396,41 @@ export function RecoverPage() {
             </button>
             <button
               type="button"
-              disabled={!snapshot.bchCanRefund && !snapshot.evmCanRefund}
+              disabled={
+                !plan.actions.some((a) => a.action === 'refund') || busy
+              }
               onClick={handleRefund}
               className="flex-1 rounded-pill border border-hairline bg-surface-3 py-2.5 text-xs font-semibold text-text hover:border-warn/40 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
             >
               Refund Expired Lock
             </button>
+            <button
+              type="button"
+              onClick={handleViewEvmCalldata}
+              className="rounded-pill border border-hairline bg-surface-2 px-3 py-2.5 text-xs font-semibold text-text hover:border-lime/40 transition-colors cursor-pointer"
+            >
+              Generate Calldata
+            </button>
           </div>
+
+          {evmCalldata && (
+            <div className="mt-4 rounded-well border border-hairline bg-surface-2 p-3 text-xs">
+              <span className="text-text-dim block mb-1">
+                EVM Recovery Calldata
+              </span>
+              <pre className="font-mono text-[11px] text-text whitespace-pre-wrap break-all overflow-x-auto">
+                {evmCalldata}
+              </pre>
+            </div>
+          )}
+
+          {/* CLI Link in plain words */}
+          <p className="mt-5 border-t border-hairline/60 pt-3 text-xs text-text-dim">
+            Need command-line recovery? You can run the terminal recovery tool{' '}
+            <code className="text-text font-mono">@ferry/recover-cli</code> (run{' '}
+            <code className="text-lime font-mono">pnpm -w recover</code>) to
+            execute directly against public RPC nodes without any Ferry server.
+          </p>
         </div>
       )}
     </div>

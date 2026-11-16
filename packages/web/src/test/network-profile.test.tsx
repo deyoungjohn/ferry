@@ -5,6 +5,8 @@ import {
   MAINNET_PROFILE,
   readNetworkSetting,
   networkConfigErrors,
+  isMainnetProfileConfigured,
+  loadFarChainsFromFacts,
 } from '../lib/network';
 import { NetworkBlockedPage } from '../components/NetworkBlockedPage';
 
@@ -16,15 +18,21 @@ describe('Network Profile', () => {
   });
 
   it('selects mainnet and returns configuration requirement when set to mainnet', () => {
-    const setting = readNetworkSetting('mainnet');
+    const setting = readNetworkSetting('mainnet', false);
     expect(setting.kind).toBe('mainnet');
     expect(setting.error).toBeDefined();
   });
 
-  it('verifies testnet profile has 4 EVM chains and BCH chipnet configured', () => {
-    expect(TESTNET_PROFILE.farChains).toHaveLength(4);
+  it('verifies testnet profile has EVM chains from facts with disabled reasons and BCH chipnet configured', () => {
+    expect(TESTNET_PROFILE.farChains).toHaveLength(6);
     expect(TESTNET_PROFILE.bch.network).toBe('chipnet');
     expect(TESTNET_PROFILE.isConfigured).toBe(true);
+
+    const bnbChain = TESTNET_PROFILE.farChains.find(
+      (c) => c.chainKey === 'bnb',
+    );
+    expect(bnbChain?.enabled).toBe(false);
+    expect(bnbChain?.disabledReason).toContain('token address is reported');
   });
 
   it('verifies mainnet profile is empty-by-default and unconfigured', () => {
@@ -33,6 +41,26 @@ describe('Network Profile', () => {
     const errors = networkConfigErrors(MAINNET_PROFILE);
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0]).toContain('Mainnet deployment contracts');
+  });
+
+  it('allows mainnet profile to be configured when facts, solver URLs, and banner values are provided', () => {
+    const enabledMainnetChains = loadFarChainsFromFacts('mainnet').map((c) =>
+      c.chainKey === 'base' ? { ...c, enabled: true, disabledReason: null } : c,
+    );
+    const configured = isMainnetProfileConfigured(
+      enabledMainnetChains,
+      'https://solver.mainnet.ferry.cash',
+      {
+        deckUrl: 'https://deck.ferry.cash',
+        repoUrl: 'https://github.com/deyoungjohn/ferry',
+        emberAddress: 'bitcoincash:qp3wjpa3tjlj042z2wv7hahsldgwhwy0rq9sywjpyy',
+        priorRepoUrl: 'https://github.com/prior/repo',
+        priorDemoUrl: 'https://demo.prior.cash',
+      },
+    );
+    expect(configured).toBe(true);
+    const setting = readNetworkSetting('mainnet', configured);
+    expect(setting.error).toBeUndefined();
   });
 
   it('renders NetworkBlockedPage with a clear explanation', () => {

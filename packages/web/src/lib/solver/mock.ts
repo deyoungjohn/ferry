@@ -1,6 +1,7 @@
-import { privateKeyToAccount } from 'viem/accounts';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import {
   orderId as computeOrderId,
+  quoteOut,
   signOrderId,
   type Hex,
   type Hex32,
@@ -10,7 +11,7 @@ import {
   type QuoteRefusal,
 } from '@ferry/core';
 import { SPREAD_BPS, FIXED_FEE_USD } from '../config';
-import { formatPricingEvidence } from './verify';
+import { formatPricingEvidence } from './pricing-display';
 import type {
   SolverClient,
   QuoteRequest,
@@ -26,9 +27,8 @@ import type {
   OrderTransaction,
 } from './types';
 
-// Standard deterministic mock test key for local mock signing (never used for real funds)
-const MOCK_SOLVER_KEY =
-  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80' as const;
+// Ephemeral mock signing key generated dynamically at startup - zero hardcoded key material in repo
+const MOCK_SOLVER_KEY = generatePrivateKey();
 const mockSolverAccount = privateKeyToAccount(MOCK_SOLVER_KEY);
 
 // 25 realistic mock swaps for testing pagination (10 per page => 3 pages)
@@ -450,7 +450,7 @@ export class MockSolverClient implements SolverClient {
     const spreadMultiplier = 1 - SPREAD_BPS / 10_000;
     const gross = req.fromAmount * spreadMultiplier;
     const net = Math.max(0, gross - FIXED_FEE_USD);
-    const toAmount = Number(net.toFixed(2));
+    let toAmount = Number(net.toFixed(2));
     const exchangeRate =
       req.fromAmount > 0 ? Number((toAmount / req.fromAmount).toFixed(4)) : 1;
     const estimatedSeconds = req.lane === 'fast' ? 45 : 600;
@@ -510,22 +510,25 @@ export class MockSolverClient implements SolverClient {
       rounding: 'floor',
     };
 
-    const bchAmount = BigInt(
-      Math.max(
-        1,
-        Math.round(
-          (direction === 'EVM_TO_BCH' ? toAmount : req.fromAmount) * 100,
-        ),
-      ),
-    );
-    const evmAmount = BigInt(
-      Math.max(
-        1,
-        Math.round(
-          (direction === 'EVM_TO_BCH' ? req.fromAmount : toAmount) * 1_000_000,
-        ),
-      ),
-    );
+    const evmAmount =
+      direction === 'EVM_TO_BCH'
+        ? BigInt(Math.max(1, Math.round(req.fromAmount * 1_000_000)))
+        : quoteOut(
+            BigInt(Math.max(1, Math.round(req.fromAmount * 100))),
+            2,
+            6,
+            pricing,
+          );
+
+    const bchAmount =
+      direction === 'EVM_TO_BCH'
+        ? quoteOut(evmAmount, 6, 2, pricing)
+        : BigInt(Math.max(1, Math.round(req.fromAmount * 100)));
+
+    toAmount =
+      direction === 'EVM_TO_BCH'
+        ? Number(bchAmount) / 100
+        : Number(evmAmount) / 1_000_000;
 
     const userEvm =
       req.userAddress && /^0x[0-9a-fA-F]{40}$/.test(req.userAddress)
@@ -551,12 +554,13 @@ export class MockSolverClient implements SolverClient {
         '0x76a914222222222222222222222222222222222222222288ac' as Hex,
       hashLock:
         '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef' as Hex32,
-      evmDeadline: now + 3600,
-      bchRefundHeight: 120100,
-      bchCarrySats: 1000n,
-      bchMaxFee: 500n,
+      evmDeadline:
+        direction === 'EVM_TO_BCH' ? now + 24 * 3600 : now + 6 * 3600,
+      bchRefundHeight: direction === 'EVM_TO_BCH' ? 170000 + 36 : 170000 + 108,
+      bchCarrySats: 2000n,
+      bchMaxFee: 1000n,
       quoteId: `quote-${now}`,
-      quoteExpiry: now + 60,
+      quoteExpiry: now + 300,
       pricing,
     };
 
