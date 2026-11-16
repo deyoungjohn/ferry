@@ -253,6 +253,7 @@ export async function startInProcessSolver(params: {
   tokenAddress: Address;
   solverKey?: Hex;
   nowSeconds?: number;
+  rateLimitMax?: number;
 }): Promise<InProcessSolverHarness> {
   const solverAccount = privateKeyToAccount(params.solverKey ?? SOLVER_KEY);
   const publicClient = createPublicClient({
@@ -345,8 +346,8 @@ export async function startInProcessSolver(params: {
     BASE_RPC_URL: params.rpcUrl,
     BASE_FERRY_HTLC_ADDRESS: params.htlcAddress,
     BASE_USDC_ADDRESS: params.tokenAddress,
-    RATE_LIMIT_MAX_PER_ADDRESS: '100',
-    RATE_LIMIT_MAX_PER_IP: '100',
+    RATE_LIMIT_MAX_PER_ADDRESS: String(params.rateLimitMax ?? 100),
+    RATE_LIMIT_MAX_PER_IP: String(params.rateLimitMax ?? 100),
   });
 
   const db = new SolverDatabase(':memory:');

@@ -2,7 +2,7 @@
 
 - Slither `0.11.6`
 - Solidity `0.8.28`, Foundry `1.9.0`
-- Command: `slither . --filter-paths 'node_modules|lib|test|script'` — 7 results, all in `src/FerryHTLC.sol`.
+- Command: `slither . --filter-paths 'node_modules|lib|test|script'` — 7 results, all in `src/FerryHTLC.sol` (re-verified 2026-11-16: 16 contracts, 102 detectors, 0 new findings).
 
 ## Contract findings
 
