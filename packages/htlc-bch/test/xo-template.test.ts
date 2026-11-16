@@ -130,6 +130,19 @@ describe('XO Template: ferry-htlc (BCH-E-01)', () => {
       bchMaxFee: 1500n,
       quoteId: 'q-xo-001',
       quoteExpiry: 1794764200,
+      pricing: {
+        refs: [
+          {
+            asset: 'PUSD',
+            usdPrice: '1.000',
+            source: 'cauldron',
+            asOf: 1794763900,
+          },
+        ],
+        spreadBps: 50,
+        fixedFeeBase: 0n,
+        rounding: 'floor' as const,
+      },
     };
 
     for (const direction of ['EVM_TO_BCH', 'BCH_TO_EVM'] as const) {

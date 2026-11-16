@@ -54,6 +54,22 @@ export class StubRecoveryPort implements RecoveryPort {
       ...(rawTerms.bchMaxFee !== undefined
         ? { bchMaxFee: BigInt(rawTerms.bchMaxFee as string | number | bigint) }
         : {}),
+      ...(rawTerms.pricing && typeof rawTerms.pricing === 'object'
+        ? {
+            pricing: {
+              ...(rawTerms.pricing as Record<string, unknown>),
+              ...((rawTerms.pricing as Record<string, unknown>).fixedFeeBase !==
+              undefined
+                ? {
+                    fixedFeeBase: BigInt(
+                      (rawTerms.pricing as Record<string, unknown>)
+                        .fixedFeeBase as string | number | bigint,
+                    ),
+                  }
+                : {}),
+            },
+          }
+        : {}),
     };
 
     let calculatedId: string;

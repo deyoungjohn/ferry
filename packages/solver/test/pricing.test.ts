@@ -33,6 +33,19 @@ describe('Checkable quotes, price sources, and liquidity reservations (blueprint
     bchMaxFee: 1500n,
     quoteId: 'template-quote',
     quoteExpiry: 1700000120,
+    pricing: {
+      refs: [
+        {
+          asset: 'PUSD',
+          usdPrice: '1.000',
+          source: 'cauldron',
+          asOf: 1700000000,
+        },
+      ],
+      spreadBps: 50,
+      fixedFeeBase: 0n,
+      rounding: 'floor',
+    },
   });
 
   describe('Price sources and freshness enforcement (PRICE_MAX_AGE_S = 30s)', () => {

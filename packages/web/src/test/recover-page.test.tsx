@@ -30,6 +30,19 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
     bchMaxFee: 1500n,
     quoteId: 'q-golden-001',
     quoteExpiry: 1794764200,
+    pricing: {
+      refs: [
+        {
+          asset: 'PUSD',
+          usdPrice: '1.000',
+          source: 'cauldron',
+          asOf: 1794763900,
+        },
+      ],
+      spreadBps: 50,
+      fixedFeeBase: 0n,
+      rounding: 'floor',
+    },
   };
 
   const canonicalId = computeOrderId(sampleTerms);
@@ -40,6 +53,10 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
     evmAmount: '100500000',
     bchCarrySats: '3000',
     bchMaxFee: '1500',
+    pricing: {
+      ...sampleTerms.pricing,
+      fixedFeeBase: '0',
+    },
   };
 
   const validRecoveryFile = {

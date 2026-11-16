@@ -44,6 +44,19 @@ describe('Solver pure state machine transitions', () => {
     bchMaxFee: 1500n,
     quoteId: 'test-quote-1',
     quoteExpiry: 1700000120,
+    pricing: {
+      refs: [
+        {
+          asset: 'PUSD',
+          usdPrice: '1.000',
+          source: 'cauldron',
+          asOf: 1700000000,
+        },
+      ],
+      spreadBps: 50,
+      fixedFeeBase: 0n,
+      rounding: 'floor',
+    },
   });
 
   const dummyReverseTerms = parseOrderTerms({
