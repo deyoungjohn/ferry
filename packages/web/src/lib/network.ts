@@ -134,7 +134,7 @@ export function isMainnetProfileConfigured(
   solverUrls?: string,
   banner?: BannerCheckValues,
 ): boolean {
-  const hasChains = chains.some((c) => c.enabled);
+  const hasChains = chains.length > 0;
 
   const urls =
     solverUrls ??

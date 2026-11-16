@@ -6,6 +6,8 @@ import type {
   QuoteRefusal,
 } from '@ferry/core';
 
+export type { LiquidityResponse };
+
 export type SwapLane = 'fast' | 'safe';
 
 export type OrderStatus =
@@ -91,6 +93,8 @@ export interface PegPrice {
   readonly priceUsd: number;
   readonly change24hPercent: number;
   readonly sparkline: readonly number[];
+  readonly source?: string;
+  readonly asOf?: number;
 }
 
 export interface OrderTransaction {
@@ -129,6 +133,20 @@ export interface SwapOrder {
   readonly signedQuote?: SignedQuote | undefined;
 }
 
+export interface SolverHealthResponse {
+  readonly ok: boolean;
+  readonly quotingEnabled: boolean;
+  readonly timestamp: number;
+}
+
+export interface OperatorRouteInfo {
+  readonly route: string;
+  readonly enabled: boolean;
+  readonly availableUsd: number;
+  readonly skewBps?: number;
+  readonly lastError?: string | null;
+}
+
 export interface SolverClient {
   isLive(): boolean;
   getLabel(): string;
@@ -141,4 +159,6 @@ export interface SolverClient {
   getOrder(orderId: string): Promise<SwapOrder | null>;
   createOrder?(quote: SignedQuote, userAddress?: string): Promise<SwapOrder>;
   submitLock?(orderId: string, txHash: string): Promise<SwapOrder>;
+  getHealth?(): Promise<SolverHealthResponse>;
+  getOperatorRoutes?(token: string): Promise<readonly OperatorRouteInfo[]>;
 }

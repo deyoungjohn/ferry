@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSolver } from '../lib/solver/useSolver';
-import { PEG_SOURCES } from '../lib/copy';
+import { PEG_SOURCES, formatPegSources } from '../lib/copy';
 import type { PegPrice } from '../lib/solver/types';
 
 function Sparkline({ points }: { points: readonly number[] }) {
@@ -58,6 +58,8 @@ export function PegCards() {
 
   if (pegPrices.length === 0) return null;
 
+  const sourcesLabel = formatPegSources(pegPrices);
+
   return (
     <section
       aria-label="Peg Health"
@@ -67,7 +69,9 @@ export function PegCards() {
         <h2 className="text-lg font-semibold text-text">{PEG_SOURCES.title}</h2>
         <p className="text-xs text-text-muted">
           {PEG_SOURCES.description}{' '}
-          <span className="text-text-dim">({PEG_SOURCES.sourcesLabel})</span>
+          <span data-testid="peg-sources-label" className="text-text-dim">
+            ({sourcesLabel})
+          </span>
         </p>
       </div>
 
@@ -94,7 +98,20 @@ export function PegCards() {
               <p className="mt-1 font-mono text-2xl font-bold text-text">
                 ${peg.priceUsd.toFixed(4)}
               </p>
-              <p className="mt-1 text-[11px] text-text-dim">Target $1.00 USD</p>
+              <div className="mt-1 flex items-center gap-2 text-[11px] text-text-dim">
+                <span>Target $1.00 USD</span>
+                {peg.source && (
+                  <>
+                    <span>·</span>
+                    <span
+                      data-testid="peg-source-tag"
+                      className="font-mono text-[10px] text-text-muted"
+                    >
+                      {peg.source}
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
             <div className="flex flex-col items-end">
               <Sparkline points={peg.sparkline} />

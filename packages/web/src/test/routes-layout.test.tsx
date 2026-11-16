@@ -7,6 +7,7 @@ import { PayLinksPage } from '../routes/PayLinksPage';
 import { PayLinkPage } from '../routes/PayLinkPage';
 import { SendLinksPage } from '../routes/SendLinksPage';
 import { SendLinkPage } from '../routes/SendLinkPage';
+import { RouteStatusPage } from '../routes/RouteStatusPage';
 import { SolverProvider } from '../lib/solver/SolverProvider';
 import { MockSolverClient } from '../lib/solver/mock';
 import { MockWalletProvider } from '../lib/wallet/mock';
@@ -65,6 +66,17 @@ describe('New Routes Layout & Responsive Viewports (FR-13, FR-17, FR-18)', () =>
         screen.getByRole('heading', { level: 1, name: /^Send Links/i }),
       ).toBeInTheDocument();
     });
+
+    it('renders RouteStatusPage with global badges and dry-run test suite', () => {
+      renderPage(<RouteStatusPage />);
+      expect(
+        screen.getByRole('heading', {
+          level: 1,
+          name: /Route Status & Network Health/i,
+        }),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('test-all-routes-button')).toBeInTheDocument();
+    });
   });
 
   describe('Mobile viewport (390x844)', () => {
@@ -113,6 +125,17 @@ describe('New Routes Layout & Responsive Viewports (FR-13, FR-17, FR-18)', () =>
       expect(
         screen.getByRole('button', { name: /Send link ›/i }),
       ).toBeInTheDocument();
+    });
+
+    it('renders RouteStatusPage on mobile viewport with accessible touch targets', () => {
+      renderPage(<RouteStatusPage />);
+      expect(
+        screen.getByRole('heading', {
+          level: 1,
+          name: /Route Status & Network Health/i,
+        }),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('test-all-routes-button')).toBeInTheDocument();
     });
   });
 });

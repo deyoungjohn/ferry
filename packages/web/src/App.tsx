@@ -43,6 +43,11 @@ const SendLinkPage = lazy(async () => {
   return { default: m.SendLinkPage };
 });
 
+const RouteStatusPage = lazy(async () => {
+  const m = await import('./routes/RouteStatusPage');
+  return { default: m.RouteStatusPage };
+});
+
 export function App() {
   return (
     <Routes>
@@ -110,6 +115,14 @@ export function App() {
           element={
             <Suspense fallback={null}>
               <SendLinkPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/status"
+          element={
+            <Suspense fallback={null}>
+              <RouteStatusPage />
             </Suspense>
           }
         />

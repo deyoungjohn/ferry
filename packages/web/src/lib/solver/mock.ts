@@ -26,6 +26,8 @@ import type {
   SwapOrder,
   OrderStatus,
   OrderTransaction,
+  SolverHealthResponse,
+  OperatorRouteInfo,
 } from './types';
 
 // Ephemeral mock signing key generated dynamically at startup - zero hardcoded key material in repo
@@ -426,6 +428,59 @@ export class MockSolverClient implements SolverClient {
 
   getLabel(): string {
     return 'Mock interface, no funds move';
+  }
+
+  async getHealth(): Promise<SolverHealthResponse> {
+    try {
+      const solverUrl = this.getPrimarySolverUrl();
+      const res = await this.fetchFn(`${solverUrl}/v1/health`);
+      if (res.ok) {
+        const data = await res.json();
+        return data as SolverHealthResponse;
+      }
+    } catch {
+      // Fallback to local mock state
+    }
+    return {
+      ok: true,
+      quotingEnabled: true,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+  }
+
+  async getOperatorRoutes(
+    token: string,
+  ): Promise<readonly OperatorRouteInfo[]> {
+    try {
+      const solverUrl = this.getPrimarySolverUrl();
+      const res = await this.fetchFn(`${solverUrl}/v1/operator/routes`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return Array.isArray(data.routes) ? data.routes : [];
+      }
+    } catch {
+      // Fallback
+    }
+    return [
+      {
+        route: 'base:USDC->bch:PUSD',
+        enabled: true,
+        availableUsd: 5000,
+        skewBps: 20,
+        lastError: null,
+      },
+      {
+        route: 'bch:PUSD->base:USDC',
+        enabled: true,
+        availableUsd: 5000,
+        skewBps: -20,
+        lastError: null,
+      },
+    ];
   }
 
   async getLiquidity(): Promise<LiquidityResponse> {
@@ -864,18 +919,23 @@ export class MockSolverClient implements SolverClient {
       // Fallback
     }
 
+    const now = Math.floor(Date.now() / 1000);
     return [
       {
         symbol: 'tPUSD',
         priceUsd: 1.0,
         change24hPercent: 0.02,
         sparkline: [1.001, 0.999, 1.0, 1.002, 1.0, 0.998, 1.0],
+        source: 'Cauldron DEX spot',
+        asOf: now,
       },
       {
         symbol: 'tMUSD',
         priceUsd: 1.0,
         change24hPercent: -0.01,
         sparkline: [0.999, 1.0, 1.001, 1.0, 0.999, 1.0, 1.0],
+        source: 'Cauldron DEX spot',
+        asOf: now,
       },
     ];
   }
