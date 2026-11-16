@@ -199,3 +199,163 @@ export function effectiveSendLinkSpreadBps(
   const feeBps = holdFeeBps(windowSeconds, holdFeeBpsPerDay);
   return Math.min(9999, baseSpreadBps + feeBps);
 }
+
+import type { OrderTerms, PricingEvidence } from './terms.js';
+
+function validateEvidence(evidence: PricingEvidence): void {
+  assertValidSpread(evidence.spreadBps);
+  assertNonNegative(evidence.fixedFeeBase);
+  if (evidence.rounding !== 'floor') {
+    throw new RangeError('Only floor rounding is supported');
+  }
+}
+
+/**
+ * Compute receive base units from PricingEvidence (spreadBps + fixedFeeBase
+ * in receive token base units), rounded down in the solver's favour.
+ */
+export function quoteOut(
+  amountIn: bigint,
+  fromDecimals: number,
+  toDecimals: number,
+  evidence: PricingEvidence,
+): bigint {
+  assertNonNegative(amountIn);
+  validateEvidence(evidence);
+  const fromUnit = units(fromDecimals);
+  const toUnit = units(toDecimals);
+  const grossOut =
+    (amountIn * (BPS - BigInt(evidence.spreadBps)) * toUnit) / (BPS * fromUnit);
+  return grossOut > evidence.fixedFeeBase
+    ? grossOut - evidence.fixedFeeBase
+    : 0n;
+}
+
+/**
+ * Minimal payer base units whose quoteOut covers amountOut (for pay links).
+ */
+export function quoteInForExactOut(
+  amountOut: bigint,
+  fromDecimals: number,
+  toDecimals: number,
+  evidence: PricingEvidence,
+): bigint {
+  assertNonNegative(amountOut);
+  validateEvidence(evidence);
+  if (amountOut === 0n) return 0n;
+  const fromUnit = units(fromDecimals);
+  const toUnit = units(toDecimals);
+  const neededGross = amountOut + evidence.fixedFeeBase;
+  return divCeil(
+    neededGross * BPS * fromUnit,
+    (BPS - BigInt(evidence.spreadBps)) * toUnit,
+  );
+}
+
+const PRICE_SCALE = 12;
+const PRICE_FACTOR = 10n ** BigInt(PRICE_SCALE);
+
+function parseScaledDecimal(input: string | number): bigint | null {
+  const raw = typeof input === 'number' ? input.toString() : input.trim();
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(raw);
+  if (!match) return null;
+  const whole = match[1]!;
+  const frac = (match[2] ?? '').slice(0, PRICE_SCALE).padEnd(PRICE_SCALE, '0');
+  return BigInt(whole) * PRICE_FACTOR + BigInt(frac);
+}
+
+function formatScaledDecimal(value: bigint): string {
+  const whole = value / PRICE_FACTOR;
+  const frac = (value % PRICE_FACTOR).toString().padStart(PRICE_SCALE, '0');
+  const trimmedFrac = frac.replace(/0+$/, '');
+  return trimmedFrac.length > 0 ? `${whole}.${trimmedFrac}` : `${whole}`;
+}
+
+export interface VerifyPricingResult {
+  status: 'ok' | 'warn';
+  difference: string | null;
+  quotedPrice: string | null;
+  ownPrice: string | null;
+  reason?: string;
+}
+
+/**
+ * Cross-check the quote's BCH token reference price against the caller's own
+ * live Cauldron read within tolerance.
+ */
+export function verifyPricing(
+  terms: OrderTerms,
+  ownPusdPrice: string | number,
+  tolerance: string | number,
+): VerifyPricingResult {
+  const ownScaled = parseScaledDecimal(ownPusdPrice);
+  const tolScaled = parseScaledDecimal(tolerance);
+  const ownStr =
+    typeof ownPusdPrice === 'number' ? ownPusdPrice.toString() : ownPusdPrice;
+
+  if (ownScaled === null || ownScaled <= 0n) {
+    return {
+      status: 'warn',
+      difference: null,
+      quotedPrice: null,
+      ownPrice: ownStr,
+      reason: 'Invalid live reference price',
+    };
+  }
+  if (tolScaled === null || tolScaled < 0n) {
+    return {
+      status: 'warn',
+      difference: null,
+      quotedPrice: null,
+      ownPrice: ownStr,
+      reason: 'Invalid tolerance',
+    };
+  }
+
+  const ref = terms.pricing?.refs.find(
+    (entry) => entry.asset.toUpperCase() === terms.bchToken,
+  );
+  if (!ref) {
+    return {
+      status: 'warn',
+      difference: null,
+      quotedPrice: null,
+      ownPrice: ownStr,
+      reason: `Missing ${terms.bchToken} pricing reference in terms`,
+    };
+  }
+
+  const quotedScaled = parseScaledDecimal(ref.usdPrice);
+  if (quotedScaled === null || quotedScaled <= 0n) {
+    return {
+      status: 'warn',
+      difference: null,
+      quotedPrice: ref.usdPrice,
+      ownPrice: ownStr,
+      reason: `Malformed ${terms.bchToken} reference price`,
+    };
+  }
+
+  const diffScaled =
+    quotedScaled >= ownScaled
+      ? quotedScaled - ownScaled
+      : ownScaled - quotedScaled;
+  const difference = formatScaledDecimal(diffScaled);
+
+  if (diffScaled > tolScaled) {
+    return {
+      status: 'warn',
+      difference,
+      quotedPrice: ref.usdPrice,
+      ownPrice: ownStr,
+      reason: `${terms.bchToken} quote price differs from live reference by ${difference}`,
+    };
+  }
+
+  return {
+    status: 'ok',
+    difference,
+    quotedPrice: ref.usdPrice,
+    ownPrice: ownStr,
+  };
+}

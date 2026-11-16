@@ -37,4 +37,53 @@ export const CROSS_CHECK_VECTORS = {
     internalHex:
       '0xac8635705129df694f353fe3a3f52d56df8a8ef97c21f7ce805fa4ffd35f33ec',
   },
+  goldenOrder: {
+    terms: {
+      version: 1,
+      direction: 'EVM_TO_BCH',
+      bchToken: 'PUSD',
+      bchTokenCategory:
+        '0xec335fd3ffa45f80cef7217cf98e8adf562df5a3e33f354f69df2951703586ac',
+      bchTokenAmount: 10000n,
+      evmAmount: 100500000n,
+      evmToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+      evmChainId: 8453,
+      evmHtlc: '0x5a0c062f4b7b8ff2263530e12bc15de9c836a641',
+      userEvmAddress: '0x87ea46fe296c1810ef234a8e8d782a2122defadd',
+      userBchLockingBytecode:
+        '0x76a914111111111111111111111111111111111111111188ac',
+      solverEvmAddress: '0xc9ec91859bdb598dc2eee715934d8231478f7a70',
+      solverBchLockingBytecode:
+        '0x76a914222222222222222222222222222222222222222288ac',
+      hashLock:
+        '0x72cd6e8422c407fb6d098690f1130b7ded7ec2f7f5e1d30bd9d521f015363793',
+      evmDeadline: 1794850000,
+      bchRefundHeight: 974380,
+      bchCarrySats: 3000n,
+      bchMaxFee: 1500n,
+      quoteId: 'q-golden-001',
+      quoteExpiry: 1794764200,
+      pricing: {
+        refs: [
+          {
+            asset: 'PUSD',
+            usdPrice: '0.998',
+            source: 'cauldron',
+            asOf: 1794764140,
+          },
+          {
+            asset: 'USDC',
+            usdPrice: '1.000',
+            source: 'chainlink:base:usdc-usd',
+            asOf: 1794764140,
+          },
+        ],
+        spreadBps: 40,
+        fixedFeeBase: 50n,
+        rounding: 'floor',
+      },
+    },
+    expectedOrderId:
+      '0x232563e8cf27ec40c60f3b1586f86240bc803b7157edd18e990e44c44d6312d4',
+  },
 } as const;

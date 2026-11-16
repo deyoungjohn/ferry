@@ -3,6 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { bytesToHex, hexToBytes } from 'viem';
 import {
   OrderTermsSchema,
+  PricingEvidenceSchema,
   canonicalCBOR,
   orderId,
   parseOrderTerms,
@@ -11,6 +12,7 @@ import {
   verifyOrderSignature,
   type OrderTerms,
 } from '../src/index.js';
+import { CROSS_CHECK_VECTORS } from '../src/vectors.js';
 
 const BASE_TERMS: OrderTerms = {
   version: 1,
@@ -37,6 +39,25 @@ const BASE_TERMS: OrderTerms = {
   bchMaxFee: 1500n,
   quoteId: 'q-golden-001',
   quoteExpiry: 1794764200,
+  pricing: {
+    refs: [
+      {
+        asset: 'PUSD',
+        usdPrice: '0.998',
+        source: 'cauldron',
+        asOf: 1794764140,
+      },
+      {
+        asset: 'USDC',
+        usdPrice: '1.000',
+        source: 'chainlink:base:usdc-usd',
+        asOf: 1794764140,
+      },
+    ],
+    spreadBps: 40,
+    fixedFeeBase: 50n,
+    rounding: 'floor',
+  },
 };
 
 describe('unixTimestampSeconds', () => {
@@ -102,9 +123,9 @@ describe('OrderTerms and canonicalCBOR', () => {
     // hashLock is 32 bytes -> CBOR major type 2 (0x58 0x20) + 32 bytes
     const hashBytesHex = BASE_TERMS.hashLock.slice(2);
     expect(hex).toContain(`5820${hashBytesHex}`);
-    // Golden orderId for BASE_TERMS
+    // Golden orderId for BASE_TERMS (with PricingEvidence)
     expect(orderId(BASE_TERMS)).toBe(
-      '0x6c723232d582a23273ee2f7547ab51a02baf80f346586bdc956fd48b2b574823',
+      '0x232563e8cf27ec40c60f3b1586f86240bc803b7157edd18e990e44c44d6312d4',
     );
   });
 
@@ -146,5 +167,47 @@ describe('order signing and verification', () => {
       false,
     );
     expect(hexToBytes(id).length).toBe(32);
+  });
+
+  it('validates PricingEvidenceSchema and includes pricing in canonicalCBOR and orderId', () => {
+    expect(() =>
+      PricingEvidenceSchema.parse({
+        ...BASE_TERMS.pricing,
+        refs: [
+          {
+            asset: 'PUSD',
+            usdPrice: 'not-a-decimal',
+            source: 'cauldron',
+            asOf: 1794764140,
+          },
+        ],
+      }),
+    ).toThrow();
+
+    expect(() =>
+      PricingEvidenceSchema.parse({
+        ...BASE_TERMS.pricing,
+        refs: [
+          {
+            asset: 'PUSD',
+            usdPrice: '1.00',
+            source: 'cauldron',
+            asOf: 1794764140000, // ms rejected
+          },
+        ],
+      }),
+    ).toThrow();
+
+    const altered = {
+      ...BASE_TERMS,
+      pricing: {
+        ...BASE_TERMS.pricing!,
+        spreadBps: 45,
+      },
+    };
+    expect(orderId(altered)).not.toBe(orderId(BASE_TERMS));
+    expect(orderId(BASE_TERMS)).toBe(
+      CROSS_CHECK_VECTORS.goldenOrder.expectedOrderId,
+    );
   });
 });

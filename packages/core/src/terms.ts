@@ -56,6 +56,32 @@ export const unixTimestampSeconds = z
   )
   .describe('Unix timestamp in seconds');
 
+const decimalString = z
+  .string()
+  .regex(/^\d+(?:\.\d+)?$/, 'Expected non-negative decimal string')
+  .refine((value) => Number(value) > 0, 'Expected positive decimal price');
+
+export const PricingRefSchema = z.strictObject({
+  asset: text,
+  usdPrice: decimalString,
+  source: text,
+  asOf: unixTimestampSeconds,
+});
+
+export type PricingRef = z.infer<typeof PricingRefSchema>;
+
+export const PricingEvidenceSchema = z.strictObject({
+  refs: z.array(PricingRefSchema).min(1).max(16),
+  spreadBps: z.number().int().min(0).max(9999),
+  fixedFeeBase: z
+    .bigint()
+    .nonnegative()
+    .max((1n << 256n) - 1n),
+  rounding: z.literal('floor'),
+});
+
+export type PricingEvidence = z.infer<typeof PricingEvidenceSchema>;
+
 /** Strict canonical OrderTerms schema matching blueprint §3.1. */
 export const OrderTermsSchema = z
   .strictObject({
@@ -79,6 +105,7 @@ export const OrderTermsSchema = z
     bchMaxFee: z.bigint().nonnegative(),
     quoteId: text,
     quoteExpiry: unixTimestampSeconds,
+    pricing: PricingEvidenceSchema.optional(),
   })
   .superRefine((terms, ctx) => {
     if (terms.bchMaxFee > terms.bchCarrySats) {
@@ -118,17 +145,16 @@ function encodeBigIntTag2(value: bigint): Token[] | null {
  * are sorted canonically independent of insertion order.
  */
 export function canonicalCBOR(input: unknown): Uint8Array {
-  const terms = parseOrderTerms(input);
-  return encode(
-    {
-      ...terms,
-      hashLock: hexToBytes(terms.hashLock),
-      bchTokenCategory: hexToBytes(terms.bchTokenCategory),
-      userBchLockingBytecode: hexToBytes(terms.userBchLockingBytecode),
-      solverBchLockingBytecode: hexToBytes(terms.solverBchLockingBytecode),
-    },
-    { typeEncoders: { bigint: encodeBigIntTag2 } },
-  );
+  const { pricing, ...rest } = parseOrderTerms(input);
+  const payload = {
+    ...rest,
+    hashLock: hexToBytes(rest.hashLock),
+    bchTokenCategory: hexToBytes(rest.bchTokenCategory),
+    userBchLockingBytecode: hexToBytes(rest.userBchLockingBytecode),
+    solverBchLockingBytecode: hexToBytes(rest.solverBchLockingBytecode),
+    ...(pricing !== undefined ? { pricing } : {}),
+  };
+  return encode(payload, { typeEncoders: { bigint: encodeBigIntTag2 } });
 }
 
 export function orderId(input: unknown): Hex32 {

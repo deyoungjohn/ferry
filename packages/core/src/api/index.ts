@@ -90,3 +90,95 @@ export const HealthResponseSchema = z.strictObject({
 });
 
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
+
+export const QUOTE_REFUSAL_REASONS = [
+  'INSUFFICIENT_LIQUIDITY',
+  'PEG_GUARD',
+  'PRICE_UNAVAILABLE',
+  'ROUTE_DISABLED',
+  'OVER_MAX_SWAP',
+  'QUOTING_PAUSED',
+] as const;
+
+export type QuoteRefusalReason = (typeof QUOTE_REFUSAL_REASONS)[number];
+
+const decimalAmountString = z.string().regex(/^\d+(?:\.\d+)?$/);
+const assetSymbol = z.string().min(1).max(32);
+const optionalMessage = z.string().min(1).max(256).optional();
+
+export const QuoteRefusalSchema = z.discriminatedUnion('reason', [
+  z.strictObject({
+    reason: z.literal('INSUFFICIENT_LIQUIDITY'),
+    maxAmount: decimalAmountString,
+    asset: assetSymbol,
+    message: optionalMessage,
+  }),
+  z.strictObject({
+    reason: z.literal('OVER_MAX_SWAP'),
+    maxAmount: decimalAmountString,
+    asset: assetSymbol,
+    message: optionalMessage,
+  }),
+  z.strictObject({
+    reason: z.literal('PEG_GUARD'),
+    asset: assetSymbol,
+    maxAmount: decimalAmountString.optional(),
+    message: optionalMessage,
+  }),
+  z.strictObject({
+    reason: z.literal('PRICE_UNAVAILABLE'),
+    asset: assetSymbol,
+    maxAmount: decimalAmountString.optional(),
+    message: optionalMessage,
+  }),
+  z.strictObject({
+    reason: z.literal('ROUTE_DISABLED'),
+    asset: assetSymbol,
+    maxAmount: decimalAmountString.optional(),
+    message: optionalMessage,
+  }),
+  z.strictObject({
+    reason: z.literal('QUOTING_PAUSED'),
+    asset: assetSymbol,
+    maxAmount: decimalAmountString.optional(),
+    message: optionalMessage,
+  }),
+]);
+
+export type QuoteRefusal = z.infer<typeof QuoteRefusalSchema>;
+
+export function formatQuoteRefusalMessage(refusal: QuoteRefusal): string {
+  switch (refusal.reason) {
+    case 'INSUFFICIENT_LIQUIDITY':
+      return `Only ${refusal.maxAmount} ${refusal.asset} available; try ${refusal.maxAmount} or less`;
+    case 'OVER_MAX_SWAP':
+      return `Swap exceeds the ${refusal.maxAmount} ${refusal.asset} maximum; try ${refusal.maxAmount} or less`;
+    case 'PEG_GUARD':
+      return `Quoting paused for ${refusal.asset} because the peg guard is active`;
+    case 'PRICE_UNAVAILABLE':
+      return `Live reference price for ${refusal.asset} is temporarily unavailable`;
+    case 'ROUTE_DISABLED':
+      return `This swap route (${refusal.asset}) is currently disabled`;
+    case 'QUOTING_PAUSED':
+      return `Quoting for ${refusal.asset} is temporarily paused`;
+  }
+}
+
+export const RouteLiquiditySchema = z.strictObject({
+  route: z.string().min(1).max(64),
+  asset: assetSymbol,
+  decimals: z.number().int().min(0).max(36),
+  available: z.string().regex(/^\d+$/),
+  inventory: z.string().regex(/^\d+$/),
+  exposure: z.string().regex(/^\d+$/),
+  reserved: z.string().regex(/^\d+$/),
+});
+
+export type RouteLiquidity = z.infer<typeof RouteLiquiditySchema>;
+
+export const LiquidityResponseSchema = z.strictObject({
+  routes: z.array(RouteLiquiditySchema),
+  asOf: unixTimestampSeconds,
+});
+
+export type LiquidityResponse = z.infer<typeof LiquidityResponseSchema>;
