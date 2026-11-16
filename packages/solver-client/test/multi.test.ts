@@ -80,7 +80,7 @@ describe('bestQuote (multi-solver)', () => {
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(serializeQuoteForJson(slowQuote));
         }
-      }, 200);
+      }, 1500);
     });
 
     // 4. Refuses for insufficient liquidity (HTTP 422)
@@ -122,7 +122,7 @@ describe('bestQuote (multi-solver)', () => {
         bchTipHeight: BCH_TIP_HEIGHT,
         evmTokenDecimals: 6,
         nowSeconds: NOW_SECONDS,
-        timeoutMs: 60,
+        timeoutMs: 600,
       },
     );
 
