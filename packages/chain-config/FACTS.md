@@ -21,27 +21,33 @@ permit facts, at least two RPC URLs and finality policy are all verified.
 
 ## Source and command keys
 
-| Key | Source                                                                                                                 |
-| --- | ---------------------------------------------------------------------------------------------------------------------- |
-| C1  | Circle, USDC contract addresses: https://developers.circle.com/stablecoins/usdc-contract-addresses                     |
-| T1  | Tether, supported protocols and integration guidelines: https://tether.to/en/supported-protocols/                      |
-| A1  | Arc, contract addresses: https://docs.arc.io/arc/references/contract-addresses                                         |
-| A2  | Arc, RPC endpoints and network parameters: https://docs.arc.io/arc/references/rpc-endpoints                            |
-| U1  | USDT0, contract deployments: https://docs.usdt0.to/technical-documentation/deployments                                 |
-| B1  | Binance, Proof of Collateral for B-tokens: https://www.binance.com/en/collateral-btokens                               |
-| B2  | BscScan, verified Binance-Peg BSC-USD contract: https://bscscan.com/token/0x55d398326f99059fF775485246999027B3197955   |
-| R1  | Robinhood Chain, token contracts: https://docs.robinhood.com/chain/contracts/                                          |
-| R2  | Robinhood Chain, connecting and network parameters: https://docs.robinhood.com/chain/connecting/                       |
-| O1  | Base network documentation: https://docs.base.org/get-started/connect-to-base                                          |
-| O2  | Arbitrum documentation: https://docs.arbitrum.io/                                                                      |
-| O3  | BNB Chain wallet and network documentation: https://docs.bnbchain.org/bnb-smart-chain/developers/wallet-configuration/ |
-| O4  | Ethereum networks: https://ethereum.org/en/developers/docs/networks/                                                   |
-| L1  | Chainlink reference data, Base: https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-base-1.json         |
-| L2  | Chainlink reference data, Ethereum: https://reference-data-directory.vercel.app/feeds-mainnet.json                     |
-| L3  | Chainlink reference data, Arbitrum: https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-arbitrum-1.json |
-| L4  | Chainlink reference data, Arc: https://reference-data-directory.vercel.app/feeds-arc-mainnet.json                      |
-| L5  | Chainlink reference data, BNB Chain: https://reference-data-directory.vercel.app/feeds-bsc-mainnet.json                |
-| L6  | Chainlink reference data, Robinhood Chain: https://reference-data-directory.vercel.app/feeds-robinhood-mainnet.json    |
+| Key | Source                                                                                                                      |
+| --- | --------------------------------------------------------------------------------------------------------------------------- |
+| C1  | Circle, USDC contract addresses: https://developers.circle.com/stablecoins/usdc-contract-addresses                          |
+| T1  | Tether, supported protocols and integration guidelines: https://tether.to/en/supported-protocols/                           |
+| A1  | Arc, contract addresses: https://docs.arc.io/arc/references/contract-addresses                                              |
+| A2  | Arc, RPC endpoints and network parameters: https://docs.arc.io/arc/references/rpc-endpoints                                 |
+| U1  | USDT0, contract deployments: https://docs.usdt0.to/technical-documentation/deployments                                      |
+| B1  | Binance, Proof of Collateral for B-tokens: https://www.binance.com/en/collateral-btokens                                    |
+| B2  | BscScan, verified Binance-Peg BSC-USD contract: https://bscscan.com/token/0x55d398326f99059fF775485246999027B3197955        |
+| R1  | Robinhood Chain, token contracts: https://docs.robinhood.com/chain/contracts/                                               |
+| R2  | Robinhood Chain, connecting and network parameters: https://docs.robinhood.com/chain/connecting/                            |
+| O1  | Base network documentation: https://docs.base.org/get-started/connect-to-base                                               |
+| O2  | Arbitrum documentation: https://docs.arbitrum.io/                                                                           |
+| O3  | BNB Chain wallet and network documentation: https://docs.bnbchain.org/bnb-smart-chain/developers/wallet-configuration/      |
+| O4  | Ethereum networks: https://ethereum.org/en/developers/docs/networks/                                                        |
+| L1  | Chainlink reference data, Base: https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-base-1.json              |
+| L2  | Chainlink reference data, Ethereum: https://reference-data-directory.vercel.app/feeds-mainnet.json                          |
+| L3  | Chainlink reference data, Arbitrum: https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-arbitrum-1.json      |
+| L4  | Chainlink reference data, Arc: https://reference-data-directory.vercel.app/feeds-arc-mainnet.json                           |
+| L5  | Chainlink reference data, BNB Chain: https://reference-data-directory.vercel.app/feeds-bsc-mainnet.json                     |
+| L6  | Chainlink reference data, Robinhood Chain: https://reference-data-directory.vercel.app/feeds-robinhood-mainnet.json         |
+| B1b | Solver configuration: `packages/solver/src/config.ts`                                                                       |
+| B2b | Imaginary.cash server wiki: https://wiki.electroncash.de/wiki/Imaginary.cash                                                |
+| B3b | BCH Ninja public server page: https://bch.ninja/                                                                            |
+| B4b | Public BCH Electrum server list: https://gitlab.com/electrum-cash/servers                                                   |
+| B5b | Public BCH server configuration list: https://github.com/00-Protocol/BCH-Stealth-Protocol/blob/main/landing/views/config.ts |
+| B6b | IP/organisation lookup: https://ipwho.is/                                                                                   |
 
 On-chain commands use these forms:
 
@@ -400,6 +406,17 @@ but the asset gate is not met.
 | Mainnet and testnet `deployBlock`  | `null` until a reviewed deployment                                                       | No deployment of the current bytecode                                                                     | 2026-11-16 | ✗      |
 | Mainnet and testnet `relayCostUsd` | `null` until measured after deployment                                                   | No mainnet deployment                                                                                     | 2026-11-16 | ✗      |
 
+Record a mainnet deployment after the reviewed deploy:
+
+```bash
+pnpm --filter @ferry/chain-config record-deployment \
+  --chain base --address 0x... --block 123456
+```
+
+The recorder refuses testnets and writes only `htlcAddress` and `deployBlock`
+after checking the CREATE2 prediction, the runtime code hash against the
+build artifact, and that code first appears at the given block.
+
 `loadChainConfig().chains` keeps both networks so the deploy scripts can look up
 a mainnet or testnet entry by `id` and `network`. `loadChainConfig().facts` and
 `loadChainConfig().coreChains` follow `FERRY_NETWORK` (mainnet by default).
@@ -441,7 +458,13 @@ Run the preflight with:
 pnpm --dir scripts/preflight preflight
 # or
 pnpm --filter @ferry/chain-config preflight
+# strict launch gate
+pnpm --filter @ferry/chain-config preflight --strict
 ```
+
+`--strict` exits non-zero and prints `NO-GO for mainnet launch` unless every
+enabled route has HTLC code, a fresh feed, an activity-capable RPC and the
+solver's funded addresses at or above the Minimum-tier floors.
 
 A root `pnpm preflight` alias needs a one-line change in the root
 `package.json`, which this package does not own.
@@ -512,6 +535,42 @@ block and is not cheaper than a 10,000-block `eth_getLogs` scan.
 `eth_getLogs` and throws `ActivityReadUnavailableError` instead of silently
 scanning a 10-block endpoint forever. The preflight table shows an `Activity`
 column and the next actions point at the fix when no endpoint is capable.
+
+## BCH data servers (Fulcrum)
+
+Surveyed read-only on 2026-11-16 over `wss`. Tips and latency are a snapshot;
+the tip moved during the survey. Mainnet genesis hash expected:
+`000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f`.
+No transaction was broadcast. `broadcast` is recorded as `not invoked`; the
+server protocol is Electrum 1.4+, which includes the method, but it was never
+called. `dsproof.get` was called with a zero txid only; a null result means the
+method exists and no proof was found. `listunspent` used a public PUSD holder
+probe and `include_tokens`; all reachable servers returned token data.
+
+| Host                                   | Source   | Reachable | Genesis | Tip    | Median   | `dsproof.get` | Broadcast   | Token UTXOs | Operator / country                         | Use                                   |
+| -------------------------------------- | -------- | --------- | ------- | ------ | -------- | ------------- | ----------- | ----------- | ------------------------------------------ | ------------------------------------- |
+| `electron.jochen-hoenicke.de:51004`    | B5b      | yes       | ok      | 977642 | 145.0 ms | yes           | not invoked | yes         | Jochen Hoenicke / Germany (Hetzner)        | **preferred**                         |
+| `electroncash.dk:50004`                | B5b      | yes       | ok      | 977642 | 148.6 ms | yes           | not invoked | yes         | electroncash.dk / Denmark (TDC)            | **preferred**                         |
+| `bch.imaginary.cash:50004`             | B1b, B2b | yes       | ok      | 977642 | 315.5 ms | yes           | not invoked | yes         | imaginary.cash / United States (Namecheap) | **preferred**                         |
+| `cashnode.bch.ninja:443`               | B3b      | yes       | ok      | 977642 | 202.5 ms | yes           | not invoked | yes         | BCH Ninja / United States (OVH)            | backup                                |
+| `bch.soul-dev.com:50004`               | B5b      | yes       | ok      | 977642 | 217.8 ms | yes           | not invoked | yes         | soul-dev / United States (US Internet)     | backup                                |
+| `blackie.c3-soft.com:50004`            | B1b      | yes       | ok      | 977642 | 231.0 ms | yes           | not invoked | yes         | c3-soft / United States (Google Fiber)     | alternate                             |
+| `electrum.imaginary.cash:50004`        | B2b      | yes       | ok      | 977642 | 269.6 ms | yes           | not invoked | yes         | imaginary.cash / United States (OVH)       | same operator as `bch.imaginary.cash` |
+| `bch.loping.net:50004`                 | B5b      | no        | -       | -      | -        | -             | not invoked | -           | loping.net / Thailand (AIS)                | do not use; WebSocket error           |
+| `electrumx-bch.cryptonermal.net:50004` | B5b      | no        | -       | -      | -        | -             | not invoked | -           | cryptonermal / United States               | do not use; WebSocket error           |
+
+Tip spread was 977642 to 977642 across the seven reachable servers. Operator and
+country are the public host identity plus the IP organisation lookup (B6b); the
+IP organisation is the hosting provider, not necessarily the operator. The two
+`imaginary.cash` hosts share an operator and are not independent endpoints.
+
+**Recommendation:** configure `electron.jochen-hoenicke.de:51004`,
+`electroncash.dk:50004` and `bch.imaginary.cash:50004` for country and operator
+diversity, with `cashnode.bch.ninja:443` as a fourth backup. The current solver
+default is `blackie.c3-soft.com:50004` plus `bch.imaginary.cash:50004`; both are
+in the United States, so replacing one with the German or Danish host improves
+independence. Do not configure `bch.loping.net` or
+`electrumx-bch.cryptonermal.net` at this baseline.
 
 ## S-17 price feeds
 

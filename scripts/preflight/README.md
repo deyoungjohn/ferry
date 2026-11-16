@@ -7,6 +7,8 @@ transaction.
 pnpm --dir scripts/preflight preflight
 # or
 pnpm --filter @ferry/chain-config preflight
+# strict launch gate
+pnpm --filter @ferry/chain-config preflight --strict
 ```
 
 The root `pnpm preflight` alias is not added because the root workspace files are
@@ -53,6 +55,16 @@ pnpm --dir scripts/preflight deploy-funding
 `measure-rpc` prints host-only cap, latency, burst and block-tag results.
 `deploy-funding` prints the native gas for the deployment and Minimum-tier
 relays at the current paid-endpoint gas price.
+
+## BCH servers
+
+```bash
+pnpm --dir scripts/preflight bch-servers
+```
+
+Read-only survey of public BCH mainnet Fulcrum servers: reachability, genesis,
+tip, latency, `dsproof.get`, token UTXOs, and operator/country notes. It never
+broadcasts.
 
 ## Watch
 

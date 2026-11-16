@@ -67,6 +67,18 @@ export type {
   RpcOverrides,
 } from './rpc-overrides.js';
 export {
+  DeploymentRecordError,
+  loadDeploymentArtifact,
+  recordDeployment,
+  runRecordDeployment,
+} from './record-deployment.js';
+export type {
+  DeploymentArtifact,
+  DeploymentClient,
+  RecordDeploymentOptions,
+  RecordDeploymentResult,
+} from './record-deployment.js';
+export {
   ActivityReadUnavailableError,
   MIN_ACTIVITY_LOG_RANGE,
   activityLogCapability,
