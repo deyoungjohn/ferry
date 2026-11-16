@@ -19,7 +19,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src test",
     "test": "vitest run --config vitest.config.ts",
-    "verify": "node --conditions=ferry-source --import tsx src/verify.ts"
+    "verify": "node --env-file-if-exists=../../.env.local --conditions=ferry-source --import tsx src/verify.ts",
+    "preflight": "node --env-file-if-exists=../../.env.local --conditions=ferry-source --import tsx src/preflight.ts",
+    "watch-chains": "node --env-file-if-exists=../../.env.local --conditions=ferry-source --import tsx src/watch-chains.ts"
   },
   "dependencies": {
     "@ferry/core": "workspace:*",
@@ -30,6 +32,7 @@
     "@types/node": "22.20.5",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "@ferry/htlc-bch": "workspace:*"
   }
 }

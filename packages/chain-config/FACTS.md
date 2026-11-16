@@ -388,6 +388,32 @@ is rejected. The core shape is strict and accepts `deployBlock` only when it is
 a positive integer. The core output uses `0` for `relayCostUsd` while the
 deployment fact is null; treat `0` as unmeasured, not as a real cost.
 
+## RPC overrides and preflight
+
+Paid RPC endpoints are optional and live only in `.env.local`. The names are
+`RPC_URL_BASE`, `RPC_URL_ETHEREUM`, `RPC_URL_ARBITRUM`, `RPC_URL_ARC`,
+`RPC_URL_BNB` and `RPC_URL_ROBINHOOD`; each is a comma list. They are placed
+before the public URLs for the selected `FERRY_NETWORK`. The value is never
+written to a file and never printed: errors name the variable, and logs print
+only the host name with the path and query removed.
+
+`loadChainConfig()` exposes `rpcEndpoints` with `host`, `source` and the measured
+`maxLogRange` for an override. `verify` probes the override cap and reports the
+host only. The preflight script uses the same data to print a go/no-go table,
+read solver balances and print the Minimum-tier funding gaps. The funding
+template is `preparation/PREFLIGHT_FUNDING_CHECKLIST.md`.
+
+Run the preflight with:
+
+```bash
+pnpm --dir scripts/preflight preflight
+# or
+pnpm --filter @ferry/chain-config preflight
+```
+
+A root `pnpm preflight` alias needs a one-line change in the root
+`package.json`, which this package does not own.
+
 ## S-17 price feeds
 
 For each enabled mainnet chain, the table records a documented Chainlink
