@@ -1,0 +1,9 @@
+{
+  "name": "@ferry/soak",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "soak:data": "node --conditions=ferry-source --import tsx run.ts",
+    "typecheck": "pnpm --dir ../.. exec tsc --noEmit -p scripts/soak/tsconfig.json"
+  }
+}

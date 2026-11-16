@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint --cache test",
     "test": "vitest run --config vitest.config.ts",
-    "rehearse": "FERRY_RUN_REHEARSE=1 vitest run --config vitest.config.ts test/rehearse.test.ts"
+    "rehearse": "FERRY_RUN_REHEARSE=1 vitest run --config vitest.config.ts test/rehearse.test.ts",
+    "soak:data": "node --conditions=ferry-source --import tsx ../../scripts/soak/run.ts"
   },
   "dependencies": {
     "@ferry/chain-config": "workspace:*",
