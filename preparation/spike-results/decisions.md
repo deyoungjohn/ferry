@@ -749,3 +749,15 @@ Phase L6 probes EVM routes across four distinct ecosystems: Ethereum Sepolia, Ar
 - **Revisit if:** Paytaca documents and ships a page-injected provider, verified again with the same probe.
 - **Source:** Human console output, 2026-10-28.
 
+### 2026-11-16 · BCH-side Cauldron spot, BCH/USD, and Paryon stats sources
+- **Decision:** Read PUSD/BCH and MUSD/BCH spot prices from Cauldron micro-pool reserves (either directly from on-chain UTXOs via Fulcrum Electrum `blockchain.scripthash.listunspent` / `blockchain.transaction.get` or discovered via Riften Labs Indexer `GET https://indexer.cauldron.quest/cauldron/pool/active?token=<categoryHex>`), convert BCH to USD using an independent public spot feed (Coinbase `https://api.coinbase.com/v2/prices/BCH-USD/spot` or Kraken `https://api.kraken.com/0/public/Ticker?pair=BCHUSD`), and read the PUSD peg reference from `https://mainnet-v1.paryonusd.com`.
+- **Evidence:**
+  1. `npm view @cashlab/cauldron` confirms `1.0.3` (depending on `@cashlab/common@1.0.5`), and Riften Labs Cauldron docs (`https://docs.riftenlabs.com/cauldron/whitepaper/`, `https://docs.riftenlabs.com/cauldron/API/cauldron/`, `https://docs.riftenlabs.com/cauldron/knowledge-base/summon/`) document that each Cauldron micro-pool is a P2SH32 UTXO holding both BCH (`sats`, 8 decimals) and the CashToken (`tokens`, 2 decimals for PUSD/MUSD) governed by constant product `k = x * y`.
+  2. Live `GET https://indexer.cauldron.quest/cauldron/pool/active?token=2469acc5afa4b10cb5b5c04afb89c3a3ffd61c5da9c01e26d00951cae2a02544` (PUSD) and `...b38a33f750f84c5c169a6f23cb873e6e79605021585d4f3408789689ed87f366` (MUSD) returned active pools with `{ pool_id, txid, tx_pos, sats, tokens, owner_pkh, token_id }`. Spot BCH per 1 display token = `(sats / 1e8) / (tokens / 10^decimals)`.
+  3. Live `GET https://mainnet-v1.paryonusd.com` returned JSON containing `pusdUsdPrice` (`"0.99801856"`), `bchUsdPrice` (`"204.05"`), `oracleBchUsdPrice` (`"203.67"`), `timeSnapshot` (`"2026-11-16T13:00:09.268Z"`), `cauldronPusdLiquidity`, and `cauldronBchLiquidity`.
+  4. Live `GET https://api.coinbase.com/v2/prices/BCH-USD/spot` returned `{"data":{"amount":"205.755","base":"BCH","currency":"USD"}}` and `GET https://api.kraken.com/0/public/Ticker?pair=BCHUSD` returned last trade `"205.660000"`.
+- **Could not verify:** Direct WebSocket Fulcrum query against mainnet `wss://bch.imaginary.cash:50004` was not run during this HTTP probe; Chipnet test token pools are not indexed on `indexer.cauldron.quest` (mainnet indexer).
+- **Consequence for rebuild:** `@ferry/bch-prices` computes spot prices purely from `(sats, tokens)` reserves using integer micro-USD math, supports both Electrum UTXO reads (`readCauldronSpot(electrumClient)`) and Cauldron indexer discovery, fetches BCH/USD from an independent source, and reads Paryon stats for the PUSD peg guard.
+- **Revisit if:** `indexer.cauldron.quest` or `mainnet-v1.paryonusd.com` changes its JSON schema, or if a dedicated Chipnet Cauldron pool is deployed for testing.
+
+
