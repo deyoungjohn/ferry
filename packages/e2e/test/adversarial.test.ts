@@ -834,12 +834,7 @@ describe('Adversarial Security Suite (Blueprint §9)', () => {
         account: userAccount,
         chain: anvil.chain,
       });
-      const lockReceipt = await publicClient.waitForTransactionReceipt({
-        hash: lockTx,
-      });
-      const lockBlock = await publicClient.getBlock({
-        blockNumber: lockReceipt.blockNumber,
-      });
+      await publicClient.waitForTransactionReceipt({ hash: lockTx });
 
       const lockId = solver.evmAdapter.lockId(userAccount.address, hashLock);
       // Pin the exact block timestamps so the boundary does not depend on the wall clock.
