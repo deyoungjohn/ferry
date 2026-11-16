@@ -44,3 +44,7 @@ test-results/
 .idea/
 .vscode/
 .eslintcache
+
+# generated soak output
+scripts/soak/REPORT.md
+scripts/soak/report.json
