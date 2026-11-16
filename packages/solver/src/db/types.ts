@@ -18,7 +18,7 @@ export interface ActionRecord {
 
 export interface OrderRecord {
   id: string;
-  direction: 'BCH_TO_COUNTER' | 'COUNTER_TO_BCH';
+  direction: 'BCH_TO_COUNTER' | 'COUNTER_TO_BCH' | 'EVM_TO_BCH' | 'BCH_TO_EVM';
   status: string;
   userCounterAddress: string;
   lockId: string;
@@ -36,6 +36,25 @@ export interface OrderRecord {
   firstSeenAtMs?: number | undefined;
   needsAttention?: boolean | undefined;
   rejectionReason?: string | undefined;
+  payLinkId?: string | undefined;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PayLinkRecord {
+  id: string;
+  kind: 'invoice' | 'open';
+  recipientCashaddr: string;
+  recipientLockingBytecode: string;
+  token: 'PUSD' | 'MUSD';
+  amountOut?: bigint | undefined;
+  minAmountOut?: bigint | undefined;
+  memo?: string | undefined;
+  reference?: string | undefined;
+  expiresAt?: number | undefined;
+  verified: boolean;
+  status: 'open' | 'reserved' | 'paid' | 'expired' | 'cancelled';
+  orderId?: string | undefined;
   createdAt: number;
   updatedAt: number;
 }

@@ -1,8 +1,11 @@
 import {
   pegGuard,
-  quoteExactIn,
+  quoteOut,
   type Direction,
   type OrderTerms,
+  type PricingEvidence,
+  type PricingRef,
+  type QuoteRefusal,
   type PricingPolicy,
 } from '@ferry/core';
 import {
@@ -18,35 +21,6 @@ import {
   QUOTE_TTL_S,
 } from './liquidity.js';
 
-/**
- * Replaceable local PricingEvidence type until @ferry/core B1-04 is merged.
- * Matches blueprint §3.5 and FR-17 checkable pricing.
- */
-export interface PricingEvidence {
-  sources: AssetPriceReading[];
-  spreadBps: number;
-  fixedFeeUsdMicros: bigint;
-  calculatedAt: number;
-}
-
-export type QuoteRefusalReason =
-  | 'INSUFFICIENT_LIQUIDITY'
-  | 'PEG_GUARD'
-  | 'PRICE_UNAVAILABLE'
-  | 'ROUTE_DISABLED'
-  | 'OVER_MAX_SWAP'
-  | 'UNDER_MIN_SWAP'
-  | 'QUOTING_PAUSED'
-  | 'RESERVATION_LIMIT_EXCEEDED';
-
-export interface QuoteRefusal {
-  ok: false;
-  reason: QuoteRefusalReason;
-  maxAmount?: bigint | undefined;
-  asset?: string | undefined;
-  message: string;
-}
-
 export interface BuiltQuote {
   ok: true;
   quoteId: string;
@@ -55,7 +29,7 @@ export interface BuiltQuote {
   expiresAt: number;
 }
 
-export type QuoteResult = BuiltQuote | QuoteRefusal;
+export type QuoteResult = BuiltQuote | ({ ok: false } & QuoteRefusal);
 
 export interface BuildQuoteParams {
   quoteId: string;
@@ -71,8 +45,19 @@ export interface BuildQuoteParams {
   quotingEnabled?: boolean;
   termsTemplate: Omit<
     OrderTerms,
-    'direction' | 'bchTokenAmount' | 'evmAmount' | 'quoteId' | 'quoteExpiry'
+    | 'direction'
+    | 'bchTokenAmount'
+    | 'evmAmount'
+    | 'quoteId'
+    | 'quoteExpiry'
+    | 'pricing'
   >;
+}
+
+export function formatUsdMicrosToDecimal(micros: bigint): string {
+  const whole = micros / 1_000_000n;
+  const frac = (micros % 1_000_000n).toString().padStart(6, '0');
+  return `${whole}.${frac}`;
 }
 
 export class QuoteBuilder {
@@ -92,6 +77,7 @@ export class QuoteBuilder {
       return {
         ok: false,
         reason: 'QUOTING_PAUSED',
+        asset: params.receiveAsset,
         message: 'Quoting is temporarily disabled',
       };
     }
@@ -105,7 +91,8 @@ export class QuoteBuilder {
     if (amountInMicros < MIN_SWAP_USD_MICROS) {
       return {
         ok: false,
-        reason: 'UNDER_MIN_SWAP',
+        reason: 'ROUTE_DISABLED',
+        asset: params.payAsset,
         message: 'Amount is below minimum swap of $1.00',
       };
     }
@@ -113,7 +100,7 @@ export class QuoteBuilder {
       return {
         ok: false,
         reason: 'OVER_MAX_SWAP',
-        maxAmount: MAX_SWAP_USD_MICROS,
+        maxAmount: (MAX_SWAP_USD_MICROS / 1_000_000n).toString(),
         asset: params.payAsset,
         message: 'Amount exceeds maximum swap of $50.00',
       };
@@ -131,6 +118,7 @@ export class QuoteBuilder {
       return {
         ok: false,
         reason: 'PRICE_UNAVAILABLE',
+        asset: params.payAsset,
         message: `Reference price unavailable: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
@@ -141,21 +129,45 @@ export class QuoteBuilder {
       return {
         ok: false,
         reason: 'PEG_GUARD',
+        asset: params.receiveAsset,
         message: 'Stablecoin reference price deviated beyond peg tolerance',
       };
     }
 
-    // 5. Calculate receive amount with floor rounding in solver's favour
+    // 5. Build PricingEvidence
+    const refs: PricingRef[] = [
+      {
+        asset: params.payAsset,
+        usdPrice: formatUsdMicrosToDecimal(payReading.usdPrice),
+        source: payReading.source,
+        asOf: payReading.asOf,
+      },
+      {
+        asset: params.receiveAsset,
+        usdPrice: formatUsdMicrosToDecimal(receiveReading.usdPrice),
+        source: receiveReading.source,
+        asOf: receiveReading.asOf,
+      },
+    ];
+
+    const pricingEvidence: PricingEvidence = {
+      refs,
+      spreadBps: this.policy.spreadBps,
+      fixedFeeBase: 0n,
+      rounding: 'floor',
+    };
+
+    // 6. Calculate receive amount with floor rounding using @ferry/core quoteOut
     const fromDecimals = params.direction === 'EVM_TO_BCH' ? 6 : 2;
     const toDecimals = params.direction === 'EVM_TO_BCH' ? 2 : 6;
-    const receiveAmount = quoteExactIn(
+    const receiveAmount = quoteOut(
       params.amountIn,
       fromDecimals,
       toDecimals,
-      this.policy,
+      pricingEvidence,
     );
 
-    // 6. Liquidity reservation check
+    // 7. Liquidity reservation check
     const reserveResult = this.liquidityManager.reserveQuote({
       quoteId: params.quoteId,
       userAddress: params.userAddress,
@@ -174,14 +186,16 @@ export class QuoteBuilder {
         ok: false,
         reason: isLiquidity
           ? 'INSUFFICIENT_LIQUIDITY'
-          : 'RESERVATION_LIMIT_EXCEEDED',
-        maxAmount: reserveResult.maxAmount,
+          : 'INSUFFICIENT_LIQUIDITY',
+        maxAmount: reserveResult.maxAmount.toString(),
         asset: params.receiveAsset,
-        message: reserveResult.reason,
+        message: isLiquidity
+          ? `Only ${reserveResult.maxAmount} ${params.receiveAsset} available`
+          : 'Reservation limit exceeded for address/IP',
       };
     }
 
-    // 7. Assemble terms and PricingEvidence
+    // 8. Assemble terms
     const expiresAt = params.nowSeconds + QUOTE_TTL_S;
     const terms: OrderTerms = {
       ...params.termsTemplate,
@@ -192,13 +206,7 @@ export class QuoteBuilder {
         params.direction === 'EVM_TO_BCH' ? params.amountIn : receiveAmount,
       quoteId: params.quoteId,
       quoteExpiry: expiresAt,
-    };
-
-    const pricingEvidence: PricingEvidence = {
-      sources: [payReading, receiveReading],
-      spreadBps: this.policy.spreadBps,
-      fixedFeeUsdMicros: this.policy.fixedFeeUsdMicros,
-      calculatedAt: params.nowSeconds,
+      pricing: pricingEvidence,
     };
 
     return {

@@ -9,12 +9,21 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src test",
+    "start": "node dist/main.js",
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "@bitauth/libauth": "3.0.0",
+    "@fastify/cors": "11.3.1",
+    "@ferry/chain-config": "workspace:*",
+    "@ferry/chain-evm": "workspace:*",
     "@ferry/core": "workspace:*",
+    "@ferry/htlc-bch": "workspace:*",
     "better-sqlite3": "13.0.3",
+    "cashscript": "0.14.0",
+    "fastify": "5.12.7",
     "pino": "10.4.0",
+    "viem": "2.57.10",
     "ws": "8.22.0",
     "zod": "4.6.7"
   },
