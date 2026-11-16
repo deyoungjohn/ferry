@@ -160,3 +160,135 @@ export function canonicalCBOR(input: unknown): Uint8Array {
 export function orderId(input: unknown): Hex32 {
   return sha256(bytesToHex(canonicalCBOR(input)));
 }
+
+const uint256Json = z
+  .union([
+    z.bigint(),
+    z.string().regex(/^\d+$/),
+    z.number().int().nonnegative(),
+  ])
+  .transform((value) => BigInt(value))
+  .refine((value) => value > 0n && value <= (1n << 256n) - 1n, {
+    message: 'Expected positive uint256',
+  });
+
+const nonNegUint256Json = z
+  .union([
+    z.bigint(),
+    z.string().regex(/^\d+$/),
+    z.number().int().nonnegative(),
+  ])
+  .transform((value) => BigInt(value))
+  .refine((value) => value >= 0n && value <= (1n << 256n) - 1n, {
+    message: 'Expected non-negative uint256',
+  });
+
+const uint64Json = z
+  .union([
+    z.bigint(),
+    z.string().regex(/^\d+$/),
+    z.number().int().nonnegative(),
+  ])
+  .transform((value) => BigInt(value))
+  .refine((value) => value > 0n && value <= (1n << 64n) - 1n, {
+    message: 'Expected positive uint64',
+  });
+
+export const PricingEvidenceJsonSchema = PricingEvidenceSchema.extend({
+  fixedFeeBase: nonNegUint256Json,
+});
+
+export const OrderTermsJsonSchema = z
+  .strictObject({
+    version: z.literal(1),
+    direction: z.enum(['EVM_TO_BCH', 'BCH_TO_EVM']),
+    bchToken: z.enum(['PUSD', 'MUSD']),
+    bchTokenCategory: hex32,
+    bchTokenAmount: uint256Json,
+    evmAmount: uint256Json,
+    evmToken: evmAddress,
+    evmChainId: positiveUint,
+    evmHtlc: evmAddress,
+    userEvmAddress: evmAddress,
+    userBchLockingBytecode: hex,
+    solverEvmAddress: evmAddress,
+    solverBchLockingBytecode: hex,
+    hashLock: hex32,
+    evmDeadline: unixTimestampSeconds,
+    bchRefundHeight: positiveUint.max(499_999_999),
+    bchCarrySats: uint64Json,
+    bchMaxFee: nonNegUint256Json,
+    quoteId: text,
+    quoteExpiry: unixTimestampSeconds,
+    pricing: PricingEvidenceJsonSchema.optional(),
+  })
+  .superRefine((terms, ctx) => {
+    if (terms.bchMaxFee > terms.bchCarrySats) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'bchMaxFee exceeds bchCarrySats',
+        path: ['bchMaxFee'],
+      });
+    }
+  });
+
+export interface PricingEvidenceJson {
+  readonly refs: readonly PricingRef[];
+  readonly spreadBps: number;
+  readonly fixedFeeBase: string;
+  readonly rounding: 'floor';
+}
+
+export interface OrderTermsJson {
+  readonly version: 1;
+  readonly direction: Direction;
+  readonly bchToken: 'PUSD' | 'MUSD';
+  readonly bchTokenCategory: Hex32;
+  readonly bchTokenAmount: string;
+  readonly evmAmount: string;
+  readonly evmToken: Hex;
+  readonly evmChainId: number;
+  readonly evmHtlc: Hex;
+  readonly userEvmAddress: Hex;
+  readonly userBchLockingBytecode: Hex;
+  readonly solverEvmAddress: Hex;
+  readonly solverBchLockingBytecode: Hex;
+  readonly hashLock: Hex32;
+  readonly evmDeadline: number;
+  readonly bchRefundHeight: number;
+  readonly bchCarrySats: string;
+  readonly bchMaxFee: string;
+  readonly quoteId: string;
+  readonly quoteExpiry: number;
+  readonly pricing?: PricingEvidenceJson;
+}
+
+/**
+ * Convert validated OrderTerms to a JSON-safe object (BigInt as decimal
+ * strings, bytes as 0x-prefixed hex).
+ */
+export function orderTermsToJson(input: OrderTerms): OrderTermsJson {
+  const { pricing, ...rest } = parseOrderTerms(input);
+  return {
+    ...rest,
+    bchTokenAmount: rest.bchTokenAmount.toString(),
+    evmAmount: rest.evmAmount.toString(),
+    bchCarrySats: rest.bchCarrySats.toString(),
+    bchMaxFee: rest.bchMaxFee.toString(),
+    ...(pricing !== undefined
+      ? {
+          pricing: {
+            ...pricing,
+            fixedFeeBase: pricing.fixedFeeBase.toString(),
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * Hydrate and validate a JSON-safe OrderTerms object back into OrderTerms.
+ */
+export function orderTermsFromJson(input: unknown): OrderTerms {
+  return OrderTermsJsonSchema.parse(input);
+}

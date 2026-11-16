@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import fc from 'fast-check';
 import { privateKeyToAccount } from 'viem/accounts';
 import { bytesToHex, hexToBytes } from 'viem';
 import {
@@ -6,6 +7,8 @@ import {
   PricingEvidenceSchema,
   canonicalCBOR,
   orderId,
+  orderTermsFromJson,
+  orderTermsToJson,
   parseOrderTerms,
   signOrderId,
   unixTimestampSeconds,
@@ -208,6 +211,56 @@ describe('order signing and verification', () => {
     expect(orderId(altered)).not.toBe(orderId(BASE_TERMS));
     expect(orderId(BASE_TERMS)).toBe(
       CROSS_CHECK_VECTORS.goldenOrder.expectedOrderId,
+    );
+  });
+
+  it('property: orderTermsToJson / orderTermsFromJson round-trips over JSON with identical orderId', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom<'EVM_TO_BCH' | 'BCH_TO_EVM'>(
+          'EVM_TO_BCH',
+          'BCH_TO_EVM',
+        ),
+        fc.constantFrom<'PUSD' | 'MUSD'>('PUSD', 'MUSD'),
+        fc.bigInt({ min: 1n, max: 10n ** 18n }),
+        fc.bigInt({ min: 1n, max: 10n ** 18n }),
+        fc.bigInt({ min: 1000n, max: 100_000n }),
+        fc.bigInt({ min: 0n, max: 1000n }),
+        fc.integer({ min: 0, max: 500 }),
+        fc.bigInt({ min: 0n, max: 1_000_000n }),
+        (
+          direction,
+          bchToken,
+          bchTokenAmount,
+          evmAmount,
+          bchCarrySats,
+          bchMaxFee,
+          spreadBps,
+          fixedFeeBase,
+        ) => {
+          const terms: OrderTerms = {
+            ...BASE_TERMS,
+            direction,
+            bchToken,
+            bchTokenAmount,
+            evmAmount,
+            bchCarrySats,
+            bchMaxFee,
+            pricing: {
+              ...BASE_TERMS.pricing!,
+              spreadBps,
+              fixedFeeBase,
+            },
+          };
+          const json = orderTermsToJson(terms);
+          const roundTripped = orderTermsFromJson(
+            JSON.parse(JSON.stringify(json)),
+          );
+          expect(roundTripped).toEqual(parseOrderTerms(terms));
+          expect(orderId(roundTripped)).toBe(orderId(terms));
+        },
+      ),
+      { numRuns: 50 },
     );
   });
 });

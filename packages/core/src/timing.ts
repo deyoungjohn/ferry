@@ -34,6 +34,51 @@ export interface TimingDecision {
   reason: TimingFailureReason;
 }
 
+const MAX_ERLANG_BLOCKS = 10_000;
+const MAX_ERLANG_CACHE = 16_384;
+const LOG_K = new Float64Array(MAX_ERLANG_BLOCKS + 1);
+for (let k = 1; k <= MAX_ERLANG_BLOCKS; k++) {
+  LOG_K[k] = Math.log(k);
+}
+const unitQuantileCache = new Map<string, number>();
+
+function unitErlangQuantile(blocks: number, probability: number): number {
+  const key = `${blocks}:${probability}`;
+  const cached = unitQuantileCache.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const cdf = (x: number): number => {
+    if (x === 0) return 0;
+    const logX = Math.log(x);
+    let term = 0;
+    let sum = 0;
+    for (let k = 1; k < blocks; k++) {
+      term += logX - LOG_K[k]!;
+      const largest = Math.max(sum, term);
+      sum = largest + Math.log1p(Math.exp(Math.min(sum, term) - largest));
+    }
+    return -Math.expm1(Math.min(0, sum - x));
+  };
+
+  let low = 0;
+  let high = blocks;
+  while (cdf(high) < probability) high *= 2;
+  for (let i = 0; i < 100; i++) {
+    const mid = (low + high) / 2;
+    if (mid === low || mid === high) break;
+    if (cdf(mid) < probability) low = mid;
+    else high = mid;
+  }
+  const result = (low + high) / 2;
+  if (unitQuantileCache.size >= MAX_ERLANG_CACHE) {
+    unitQuantileCache.clear();
+  }
+  unitQuantileCache.set(key, result);
+  return result;
+}
+
 /**
  * Invert the integer-shape Erlang (Gamma) CDF via bracketing and bisection.
  * Models wall-clock time for `blocks` Poisson block arrivals with mean `meanSeconds`.
@@ -46,7 +91,7 @@ export function erlangQuantile(
   if (
     !Number.isInteger(blocks) ||
     blocks < 0 ||
-    blocks > 10_000 ||
+    blocks > MAX_ERLANG_BLOCKS ||
     !(probability > 0 && probability < 1) ||
     !Number.isFinite(meanSeconds) ||
     meanSeconds <= 0
@@ -54,28 +99,7 @@ export function erlangQuantile(
     throw new RangeError('Invalid Erlang parameters');
   }
   if (blocks === 0) return 0;
-
-  const cdf = (x: number): number => {
-    if (x === 0) return 0;
-    let term = 0;
-    let sum = 0;
-    for (let k = 1; k < blocks; k++) {
-      term += Math.log(x) - Math.log(k);
-      const largest = Math.max(sum, term);
-      sum = largest + Math.log1p(Math.exp(Math.min(sum, term) - largest));
-    }
-    return -Math.expm1(Math.min(0, sum - x));
-  };
-
-  let low = 0;
-  let high = blocks;
-  while (cdf(high) < probability) high *= 2;
-  for (let i = 0; i < 100; i++) {
-    const mid = (low + high) / 2;
-    if (cdf(mid) < probability) low = mid;
-    else high = mid;
-  }
-  return ((low + high) / 2) * meanSeconds;
+  return unitErlangQuantile(blocks, probability) * meanSeconds;
 }
 
 function validateTimingInputs(
