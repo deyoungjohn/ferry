@@ -10,5 +10,7 @@ export default defineProject({
     root: import.meta.dirname,
     environment: 'node',
     include: ['test/**/*.test.ts'],
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 });

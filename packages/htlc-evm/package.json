@@ -17,9 +17,11 @@
     "slither": "slither . --filter-paths 'node_modules|lib|test|script'"
   },
   "devDependencies": {
+    "@ferry/chain-config": "workspace:*",
     "@ferry/core": "workspace:*",
     "@openzeppelin/contracts": "5.6.1",
     "forge-std": "github:foundry-rs/forge-std#v1.9.7",
+    "tsx": "4.23.15",
     "viem": "2.57.20"
   }
 }
