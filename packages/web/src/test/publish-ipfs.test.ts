@@ -9,6 +9,7 @@ interface PublishIpfsModule {
   publishIpfs: (options?: {
     pin?: boolean;
     skipBuild?: boolean;
+    distDir?: string;
     provider?: {
       name: string;
       pin: (opts: {
@@ -76,6 +77,7 @@ describe('IPFS Publish Script & Pinning Provider (Task B3-09)', () => {
     const res = await publishIpfs({
       pin: false,
       skipBuild: true,
+      distDir,
       provider: fakeProvider,
     });
 
@@ -98,6 +100,7 @@ describe('IPFS Publish Script & Pinning Provider (Task B3-09)', () => {
     const res = await publishIpfs({
       pin: true,
       skipBuild: true,
+      distDir,
       provider: fakeProvider,
       token: secretToken,
     });

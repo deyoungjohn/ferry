@@ -136,6 +136,7 @@ export async function computeDistCid(dir = distDir) {
  * @param {PinningProvider} [options.provider=pinataProvider]
  * @param {string} [options.token]
  * @param {typeof fetch} [options.fetchFn=fetch]
+ * @param {string} [options.distDir] build output to hash and pin (defaults to this package's dist)
  */
 export async function publishIpfs({
   pin = false,
@@ -143,6 +144,7 @@ export async function publishIpfs({
   provider = pinataProvider,
   token = process.env.PINATA_JWT || process.env.IPFS_PINNING_TOKEN || '',
   fetchFn = globalThis.fetch,
+  distDir: outDir = distDir,
 } = {}) {
   console.log('--- Ferry IPFS Publish Tool ---');
 
@@ -157,7 +159,7 @@ export async function publishIpfs({
   }
 
   console.log('Computing local IPFS CID from dist/ ...');
-  const cid = await computeDistCid(distDir);
+  const cid = await computeDistCid(outDir);
   console.log(`Local IPFS CID: ${cid}`);
 
   if (!pin) {
@@ -174,7 +176,7 @@ export async function publishIpfs({
   }
 
   // Call provider without exposing token in logs
-  const result = await provider.pin({ distDir, cid, token, fetchFn });
+  const result = await provider.pin({ distDir: outDir, cid, token, fetchFn });
   console.log(
     `Successfully pinned to ${provider.name}! CID: ${result.cid} (status: ${result.status ?? 'pinned'})`,
   );
