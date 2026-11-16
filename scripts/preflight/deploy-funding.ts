@@ -1,10 +1,15 @@
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { estimateDeployFunding } from '@ferry/chain-evm';
-import { formatEther } from 'viem';
-import { CHAIN_IDS, type ChainId } from './schema.js';
-import { parseRpcOverrides, redactRpcUrl } from './rpc-overrides.js';
-import { makeJsonRpc } from './rpc-client.js';
+import { estimateDeployFunding } from '../../packages/chain-evm/src/gas.js';
+import {
+  CHAIN_IDS,
+  type ChainId,
+} from '../../packages/chain-config/src/schema.js';
+import {
+  parseRpcOverrides,
+  redactRpcUrl,
+} from '../../packages/chain-config/src/rpc-overrides.js';
+import { makeJsonRpc } from '../../packages/chain-config/src/rpc-client.js';
 
 const DEPLOY_GAS: Record<ChainId, bigint> = {
   base: 804_543n,
@@ -27,8 +32,16 @@ const NATIVE_GAS: Record<ChainId, string> = {
   robinhood: 'ETH',
 };
 
+function formatWei(wei: bigint): string {
+  const base = 10n ** 18n;
+  const whole = wei / base;
+  const fraction = (wei % base).toString().padStart(18, '0');
+  const trimmed = fraction.replace(/0+$/, '');
+  return trimmed === '' ? whole.toString() : `${whole}.${trimmed}`;
+}
+
 function roundedNative(wei: bigint): string {
-  const value = formatEther(wei);
+  const value = formatWei(wei);
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return value;
   return numeric.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');

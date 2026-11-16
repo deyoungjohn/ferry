@@ -102,7 +102,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
@@ -215,7 +215,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
@@ -348,7 +348,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
@@ -478,7 +478,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
@@ -573,7 +573,7 @@
             "symbol": "USDT",
             "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
             "decimals": 6,
-            "name": "USD₮0",
+            "name": "USD\u20ae0",
             "version": "1",
             "domainSeparator": "0x566af68fb471b22d6421762f84aa7bd761c670a2e4d5c8a47d4085d5957b127c",
             "permit": true,
@@ -593,7 +593,7 @@
               },
               "eip712": {
                 "status": "verified",
-                "source": "DOMAIN_SEPARATOR() = 0x566af68fb471b22d6421762f84aa7bd761c670a2e4d5c8a47d4085d5957b127c, which equals the EIP-712 domain for name USD₮0, version 1, chainId 42161 and the token address; version() itself reverts",
+                "source": "DOMAIN_SEPARATOR() = 0x566af68fb471b22d6421762f84aa7bd761c670a2e4d5c8a47d4085d5957b127c, which equals the EIP-712 domain for name USD\u20ae0, version 1, chainId 42161 and the token address; version() itself reverts",
                 "date": "2026-11-15"
               },
               "permit": {
@@ -611,7 +611,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
@@ -741,7 +741,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
@@ -761,6 +761,15 @@
               "status": "verified",
               "source": "eth_chainId = 0x13b2; eth_getLogs succeeds at 10,000 blocks and rejects 50,000",
               "date": "2026-11-15"
+            }
+          },
+          {
+            "url": "https://rpc.blockdaemon.mainnet.arc.io",
+            "getLogsMaxRange": 100000,
+            "evidence": {
+              "status": "verified",
+              "source": "eth_chainId = 0x13b2; eth_getLogs accepts 100,000 blocks; listed in the Arc RPC endpoint documentation",
+              "date": "2026-11-16"
             }
           },
           {
@@ -840,7 +849,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
@@ -954,7 +963,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
@@ -1061,7 +1070,7 @@
             "verification": {
               "address": {
                 "status": "verified",
-                "source": "https://www.binance.com/en/collateral-btokens lists the BEP20 wrapped token at 0x55d398326f99059fF775485246999027B3197955; BscScan has the verified contract; https://tether.to/en/supported-protocols/ lists only XAU₮ for BNB Smart Chain",
+                "source": "https://www.binance.com/en/collateral-btokens lists the BEP20 wrapped token at 0x55d398326f99059fF775485246999027B3197955; BscScan has the verified contract; https://tether.to/en/supported-protocols/ lists only XAU\u20ae for BNB Smart Chain",
                 "date": "2026-11-15"
               },
               "decimals": {
@@ -1089,7 +1098,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
@@ -1220,7 +1229,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
@@ -1235,20 +1244,20 @@
         "rpcUrls": [
           {
             "url": "https://rpc.mainnet.chain.robinhood.com",
-            "getLogsMaxRange": 100000,
+            "getLogsMaxRange": 500000,
             "evidence": {
               "status": "verified",
-              "source": "eth_chainId = 0x1237; eth_getLogs succeeds at 100,000 blocks",
-              "date": "2026-11-15"
+              "source": "eth_chainId = 0x1237; eth_getLogs accepts 500,000 blocks",
+              "date": "2026-11-16"
             }
           },
           {
             "url": "https://robinhood.drpc.org",
-            "getLogsMaxRange": 0,
+            "getLogsMaxRange": 100,
             "evidence": {
               "status": "verified",
-              "source": "eth_chainId = 0x1237; the free tier rejects eth_getLogs at every probed range",
-              "date": "2026-11-15",
+              "source": "eth_chainId = 0x1237; the free tier accepts 100 blocks and rejects 1,000",
+              "date": "2026-11-16",
               "note": "Read-only fallback only; it cannot serve event logs."
             }
           }
@@ -1284,7 +1293,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
@@ -1305,12 +1314,12 @@
           },
           {
             "url": "https://robinhood-testnet.drpc.org",
-            "getLogsMaxRange": 0,
+            "getLogsMaxRange": 100,
             "evidence": {
-              "status": "verified",
-              "source": "eth_chainId = 0xb626; the free tier rejects eth_getLogs at every probed range",
-              "date": "2026-11-15",
-              "note": "Read-only fallback only; it cannot serve event logs."
+              "status": "reported",
+              "source": "eth_chainId = 0xb626; eth_getLogs cap 100 blocks; eth_getBlockByNumber safe/finalized is not available",
+              "date": "2026-11-16",
+              "note": "Read-only fallback; not used for finality checks."
             }
           }
         ],
@@ -1345,7 +1354,7 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
             "date": "2026-11-16",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }

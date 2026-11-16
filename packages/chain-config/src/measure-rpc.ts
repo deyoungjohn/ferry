@@ -86,7 +86,7 @@ export async function runMeasureRpc(
 ): Promise<void> {
   const overrides = parseRpcOverrides(env);
   const urls = Object.values(overrides).flatMap((list) => list ?? []);
-  const rpc = makeJsonRpc(urls);
+  const rpc = makeJsonRpc(urls, { attempts: 1 });
 
   console.log('Paid endpoint measurements (host names only)');
   console.log(`Read at: ${new Date().toISOString()}`);

@@ -49,6 +49,8 @@ export {
   parseEnabledRoutes,
 } from './routes.js';
 export type { RouteKey } from './routes.js';
+export { isRetryableRpcError, withRetry } from './rpc-client.js';
+export type { RetryOptions } from './rpc-client.js';
 export {
   RPC_OVERRIDE_ENV_NAMES,
   RpcOverrideError,
@@ -65,6 +67,12 @@ export type {
   RpcOverrides,
 } from './rpc-overrides.js';
 export {
+  ActivityReadUnavailableError,
+  MIN_ACTIVITY_LOG_RANGE,
+  activityLogCapability,
+  selectActivityLogEndpoint,
+} from './config.js';
+export {
   DeploymentAddressError,
   NetworkConfigurationError,
   RouteConfigurationError,
@@ -75,6 +83,7 @@ export {
   routeIneligibilityReasons,
 } from './config.js';
 export type {
+  ActivityLogCapability,
   ChainConfig,
   ChainDeploymentFactView,
   ChainDisplayConfig,

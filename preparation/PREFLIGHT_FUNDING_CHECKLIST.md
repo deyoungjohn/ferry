@@ -88,6 +88,21 @@ Robinhood Chain only if it ever becomes enabled):
 - [ ] BNB Chain USDT is Binance-Peg BSC-USD with 18 decimals. It is off by
       default; enable it only after the disclosure is accepted.
 
+## RPC redundancy and log reads
+
+- Arbitrum: the paid endpoint dropped 4 of 20 burst calls in the 2026-11-16
+  measurement, so keep a second endpoint configured and let the solver retry
+  with backoff. The data already lists `arb1.arbitrum.io` and
+  `arbitrum.gateway.tenderly.co`.
+- Arc: use the chain's public endpoint, or the Blockdaemon endpoint with the
+  100,000-block cap, for history. The paid Alchemy endpoint is tip-only at 10
+  blocks.
+- Robinhood Chain: use the chain's public endpoint for history; the paid Alchemy
+  endpoint is tip-only at 10 blocks. The route remains skipped until a canonical
+  token exists.
+- Activity reads require at least 1,000 blocks per `eth_getLogs`; a route with
+  only tiny endpoints fails closed in the preflight instead of scanning forever.
+
 ## Next actions and commands
 
 The preflight prints a `Next actions` line per route (`DEPLOY`, `FUND`, `VERIFY`,
@@ -108,7 +123,7 @@ pnpm --filter @ferry/chain-config preflight
 pnpm --filter @ferry/chain-config measure-rpc
 
 # Deploy and relay native gas at the current gas price.
-pnpm --filter @ferry/chain-config deploy-funding
+pnpm --dir scripts/preflight deploy-funding
 ```
 
 `PREFLIGHT_ADDRESSES` accepts unlabelled EVM/BCH addresses too; labels make the

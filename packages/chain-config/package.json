@@ -22,8 +22,7 @@
     "verify": "node --conditions=ferry-source --import tsx src/verify.ts",
     "preflight": "node --conditions=ferry-source --import tsx src/preflight.ts",
     "watch-chains": "node --conditions=ferry-source --import tsx src/watch-chains.ts",
-    "measure-rpc": "node --conditions=ferry-source --import tsx src/measure-rpc.ts",
-    "deploy-funding": "node --conditions=ferry-source --import tsx src/deploy-funding.ts"
+    "measure-rpc": "node --conditions=ferry-source --import tsx src/measure-rpc.ts"
   },
   "dependencies": {
     "@ferry/core": "workspace:*",
@@ -35,7 +34,6 @@
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "5.0.5",
-    "@ferry/htlc-bch": "workspace:*",
-    "@ferry/chain-evm": "workspace:*"
+    "@ferry/htlc-bch": "workspace:*"
   }
 }

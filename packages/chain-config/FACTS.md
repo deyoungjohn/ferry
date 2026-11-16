@@ -128,26 +128,27 @@ On-chain commands use these forms:
 
 ### Arc
 
-| Network | Fact                      | Value                                                              | Source                                        | Date       | Status |
-| ------- | ------------------------- | ------------------------------------------------------------------ | --------------------------------------------- | ---------- | ------ |
-| mainnet | Chain ID                  | 5042 (`0x13b2`)                                                    | CHAIN_ID via `https://rpc.mainnet.arc.io`; A2 | 2026-11-15 | ✔      |
-| mainnet | Public RPC 1              | `https://rpc.mainnet.arc.io`; `eth_getLogs` cap 10,000 blocks      | LOGS; CHAIN_ID                                | 2026-11-15 | ✔      |
-| mainnet | Public RPC 2              | `https://rpc.drpc.mainnet.arc.io`; free tier rejects `eth_getLogs` | LOGS; CHAIN_ID                                | 2026-11-15 | ✔      |
-| mainnet | Explorer                  | `https://explorer.arc.io`                                          | A2                                            | 2026-11-15 | ✔      |
-| mainnet | Native gas token          | USDC (18 decimals in balances and fees)                            | A2                                            | 2026-11-15 | ✔      |
-| mainnet | `safe` block tag          | works; safe block 31,434,280                                       | BLOCK                                         | 2026-11-15 | ✔      |
-| mainnet | `finalized` block tag     | works; finalized block 31,434,282                                  | BLOCK                                         | 2026-11-15 | ✔      |
-| mainnet | Typical block time        | 0.5 s (50-block sample); deterministic sub-second finality         | block timestamps; A2                          | 2026-11-15 | ✔      |
-| mainnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code     | CODE                                          | 2026-11-15 | ✔      |
-| testnet | Chain ID                  | 5042002 (`0x4cef52`)                                               | CHAIN_ID via `https://rpc.testnet.arc.io`; A2 | 2026-11-15 | ✔      |
-| testnet | Public RPC 1              | `https://rpc.testnet.arc.io`; `eth_getLogs` cap 10,000 blocks      | LOGS; CHAIN_ID                                | 2026-11-15 | ✔      |
-| testnet | Public RPC 2              | `https://rpc.drpc.testnet.arc.io`; free tier rejects `eth_getLogs` | LOGS; CHAIN_ID                                | 2026-11-15 | ✔      |
-| testnet | Explorer                  | `https://explorer.testnet.arc.io`                                  | A2                                            | 2026-11-15 | ✔      |
-| testnet | Native gas token          | USDC (18 decimals in balances and fees)                            | A2                                            | 2026-11-15 | ✔      |
-| testnet | `safe` block tag          | works; safe block 72,477,925                                       | BLOCK                                         | 2026-11-15 | ✔      |
-| testnet | `finalized` block tag     | works; finalized block 72,477,926                                  | BLOCK                                         | 2026-11-15 | ✔      |
-| testnet | Typical block time        | 0.66 s (50-block sample); deterministic sub-second finality        | block timestamps; A2                          | 2026-11-15 | ✔      |
-| testnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code     | CODE                                          | 2026-11-15 | ✔      |
+| Network | Fact                      | Value                                                                      | Source                                        | Date       | Status |
+| ------- | ------------------------- | -------------------------------------------------------------------------- | --------------------------------------------- | ---------- | ------ |
+| mainnet | Chain ID                  | 5042 (`0x13b2`)                                                            | CHAIN_ID via `https://rpc.mainnet.arc.io`; A2 | 2026-11-15 | ✔      |
+| mainnet | Public RPC 1              | `https://rpc.mainnet.arc.io`; `eth_getLogs` cap 10,000 blocks              | LOGS; CHAIN_ID                                | 2026-11-15 | ✔      |
+| mainnet | Public RPC 2              | `https://rpc.blockdaemon.mainnet.arc.io`; `eth_getLogs` cap 100,000 blocks | LOGS; A2                                      | 2026-11-16 | ✔      |
+| mainnet | Public RPC 3              | `https://rpc.drpc.mainnet.arc.io`; free tier rejects `eth_getLogs`         | LOGS; CHAIN_ID                                | 2026-11-15 | ✔      |
+| mainnet | Explorer                  | `https://explorer.arc.io`                                                  | A2                                            | 2026-11-15 | ✔      |
+| mainnet | Native gas token          | USDC (18 decimals in balances and fees)                                    | A2                                            | 2026-11-15 | ✔      |
+| mainnet | `safe` block tag          | works; safe block 31,434,280                                               | BLOCK                                         | 2026-11-15 | ✔      |
+| mainnet | `finalized` block tag     | works; finalized block 31,434,282                                          | BLOCK                                         | 2026-11-15 | ✔      |
+| mainnet | Typical block time        | 0.5 s (50-block sample); deterministic sub-second finality                 | block timestamps; A2                          | 2026-11-15 | ✔      |
+| mainnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code             | CODE                                          | 2026-11-15 | ✔      |
+| testnet | Chain ID                  | 5042002 (`0x4cef52`)                                                       | CHAIN_ID via `https://rpc.testnet.arc.io`; A2 | 2026-11-15 | ✔      |
+| testnet | Public RPC 1              | `https://rpc.testnet.arc.io`; `eth_getLogs` cap 10,000 blocks              | LOGS; CHAIN_ID                                | 2026-11-15 | ✔      |
+| testnet | Public RPC 2              | `https://rpc.drpc.testnet.arc.io`; free tier rejects `eth_getLogs`         | LOGS; CHAIN_ID                                | 2026-11-15 | ✔      |
+| testnet | Explorer                  | `https://explorer.testnet.arc.io`                                          | A2                                            | 2026-11-15 | ✔      |
+| testnet | Native gas token          | USDC (18 decimals in balances and fees)                                    | A2                                            | 2026-11-15 | ✔      |
+| testnet | `safe` block tag          | works; safe block 72,477,925                                               | BLOCK                                         | 2026-11-15 | ✔      |
+| testnet | `finalized` block tag     | works; finalized block 72,477,926                                          | BLOCK                                         | 2026-11-15 | ✔      |
+| testnet | Typical block time        | 0.66 s (50-block sample); deterministic sub-second finality                | block timestamps; A2                          | 2026-11-15 | ✔      |
+| testnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code             | CODE                                          | 2026-11-15 | ✔      |
 
 ### BNB Chain
 
@@ -176,26 +177,26 @@ On-chain commands use these forms:
 
 ### Robinhood Chain
 
-| Network | Fact                      | Value                                                                           | Source                                                     | Date       | Status |
-| ------- | ------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------- | ------ |
-| mainnet | Chain ID                  | 4663 (`0x1237`)                                                                 | CHAIN_ID via `https://rpc.mainnet.chain.robinhood.com`; R2 | 2026-11-15 | ✔      |
-| mainnet | Public RPC 1              | `https://rpc.mainnet.chain.robinhood.com`; `eth_getLogs` accepts 100,000 blocks | LOGS; CHAIN_ID                                             | 2026-11-15 | ✔      |
-| mainnet | Public RPC 2              | `https://robinhood.drpc.org`; free tier rejects `eth_getLogs`                   | LOGS; CHAIN_ID                                             | 2026-11-15 | ✔      |
-| mainnet | Explorer                  | `https://robinhoodchain.blockscout.com`                                         | R2                                                         | 2026-11-15 | ✔      |
-| mainnet | Native gas token          | ETH                                                                             | R2                                                         | 2026-11-15 | ✔      |
-| mainnet | `safe` block tag          | works; safe block 115,251,190                                                   | BLOCK                                                      | 2026-11-15 | ✔      |
-| mainnet | `finalized` block tag     | works; finalized block 115,246,875                                              | BLOCK                                                      | 2026-11-15 | ✔      |
-| mainnet | Typical block time        | 0.1 s (50-block sample)                                                         | block timestamps                                           | 2026-11-15 | ✔      |
-| mainnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code                  | CODE                                                       | 2026-11-15 | ✔      |
-| testnet | Chain ID                  | 46630 (`0xb626`)                                                                | CHAIN_ID via `https://rpc.testnet.chain.robinhood.com`; R2 | 2026-11-15 | ✔      |
-| testnet | Public RPC 1              | `https://rpc.testnet.chain.robinhood.com`; `eth_getLogs` accepts 100,000 blocks | LOGS; CHAIN_ID                                             | 2026-11-15 | ✔      |
-| testnet | Public RPC 2              | `https://robinhood-testnet.drpc.org`; free tier rejects `eth_getLogs`           | LOGS; CHAIN_ID                                             | 2026-11-15 | ✔      |
-| testnet | Explorer                  | `https://explorer.testnet.chain.robinhood.com`                                  | R2                                                         | 2026-11-15 | ✔      |
-| testnet | Native gas token          | ETH                                                                             | R2                                                         | 2026-11-15 | ✔      |
-| testnet | `safe` block tag          | works; safe block 153,799,509                                                   | BLOCK                                                      | 2026-11-15 | ✔      |
-| testnet | `finalized` block tag     | works; finalized block 153,799,509                                              | BLOCK                                                      | 2026-11-15 | ✔      |
-| testnet | Typical block time        | 0.25 s (50-block sample)                                                        | block timestamps                                           | 2026-11-15 | ✔      |
-| testnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code                  | CODE                                                       | 2026-11-15 | ✔      |
+| Network | Fact                      | Value                                                                               | Source                                                     | Date       | Status |
+| ------- | ------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------- | ------ |
+| mainnet | Chain ID                  | 4663 (`0x1237`)                                                                     | CHAIN_ID via `https://rpc.mainnet.chain.robinhood.com`; R2 | 2026-11-15 | ✔      |
+| mainnet | Public RPC 1              | `https://rpc.mainnet.chain.robinhood.com`; `eth_getLogs` accepts 500,000 blocks     | LOGS; CHAIN_ID                                             | 2026-11-16 | ✔      |
+| mainnet | Public RPC 2              | `https://robinhood.drpc.org`; `eth_getLogs` cap 100 blocks                          | LOGS; CHAIN_ID                                             | 2026-11-16 | ✔      |
+| mainnet | Explorer                  | `https://robinhoodchain.blockscout.com`                                             | R2                                                         | 2026-11-15 | ✔      |
+| mainnet | Native gas token          | ETH                                                                                 | R2                                                         | 2026-11-15 | ✔      |
+| mainnet | `safe` block tag          | works; safe block 115,251,190                                                       | BLOCK                                                      | 2026-11-15 | ✔      |
+| mainnet | `finalized` block tag     | works; finalized block 115,246,875                                                  | BLOCK                                                      | 2026-11-15 | ✔      |
+| mainnet | Typical block time        | 0.1 s (50-block sample)                                                             | block timestamps                                           | 2026-11-15 | ✔      |
+| mainnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code                      | CODE                                                       | 2026-11-15 | ✔      |
+| testnet | Chain ID                  | 46630 (`0xb626`)                                                                    | CHAIN_ID via `https://rpc.testnet.chain.robinhood.com`; R2 | 2026-11-15 | ✔      |
+| testnet | Public RPC 1              | `https://rpc.testnet.chain.robinhood.com`; `eth_getLogs` accepts 100,000 blocks     | LOGS; CHAIN_ID                                             | 2026-11-15 | ✔      |
+| testnet | Public RPC 2              | `https://robinhood-testnet.drpc.org`; `eth_getLogs` cap 100; no safe/finalized tags | LOGS; CHAIN_ID                                             | 2026-11-16 | ◇      |
+| testnet | Explorer                  | `https://explorer.testnet.chain.robinhood.com`                                      | R2                                                         | 2026-11-15 | ✔      |
+| testnet | Native gas token          | ETH                                                                                 | R2                                                         | 2026-11-15 | ✔      |
+| testnet | `safe` block tag          | works; safe block 153,799,509                                                       | BLOCK                                                      | 2026-11-15 | ✔      |
+| testnet | `finalized` block tag     | works; finalized block 153,799,509                                                  | BLOCK                                                      | 2026-11-15 | ✔      |
+| testnet | Typical block time        | 0.25 s (50-block sample)                                                            | block timestamps                                           | 2026-11-15 | ✔      |
+| testnet | Canonical CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C`; 69 bytes of code                      | CODE                                                       | 2026-11-15 | ✔      |
 
 AppKit custom-chain configuration uses the chain ID, RPC URL, explorer URL and
 native gas token recorded in each network table above. Arc is a custom chain
@@ -473,11 +474,44 @@ Notes:
 - All six hosts returned the expected chain ID and both `safe` and `finalized`
   block tags.
 - The first-position public caps in `src/data/chains.json` remain the measured
-  public values (Base 50,000; Ethereum 10,000; Arbitrum 100,000; Arc 10,000;
-  BNB 50,000; Robinhood 100,000). Paid caps stay at runtime in `rpcEndpoints`.
-- The paid-override `verify` run also returned 230 checked, 17 skipped,
+  public values (Base 50,000; Ethereum 10,000; Arbitrum 100,000; Arc 10,000
+  primary and 100,000 on Blockdaemon; BNB 50,000; Robinhood 500,000). Paid caps
+  stay at runtime in `rpcEndpoints`.
+- The paid-override `verify` run also returned 232 checked, 15 skipped,
   0 differences. One Base Ankr cap probe was unknown because of a transient
   rate limit, so the table above uses the dedicated `measure-rpc` run.
+
+## Arc and Robinhood log reads
+
+Measured on 2026-11-16, host names only. `eth_getBlockReceipts` was tested on
+one recent block; a yes means it returned receipts, not that a full-history scan
+is cheap.
+
+| Chain           | Host                              | Kind            | `eth_getLogs` cap | `eth_getBlockReceipts` |
+| --------------- | --------------------------------- | --------------- | ----------------: | ---------------------- |
+| Arc             | `rpc.mainnet.arc.io`              | Chain public    |            10,000 | yes                    |
+| Arc             | `rpc.blockdaemon.mainnet.arc.io`  | Second provider |           100,000 | yes                    |
+| Arc             | `rpc.quicknode.mainnet.arc.io`    | Second provider |               100 | yes                    |
+| Arc             | `arc-mainnet.g.alchemy.com`       | Paid override   |                10 | yes                    |
+| Robinhood Chain | `rpc.mainnet.chain.robinhood.com` | Chain public    |           500,000 | yes                    |
+| Robinhood Chain | `robinhood.drpc.org`              | Public fallback |               100 | yes                    |
+| Robinhood Chain | `robinhood-rpc.publicnode.com`    | Public fallback |                10 | yes                    |
+| Robinhood Chain | `robinhood-mainnet.g.alchemy.com` | Paid override   |                10 | yes                    |
+
+**Recommendation:** use the chain's own public endpoint for history. Arc now
+also lists `rpc.blockdaemon.mainnet.arc.io` with a 100,000-block cap as a second
+provider; it is in the Arc RPC list in the data. Robinhood's own public endpoint
+accepts 500,000 blocks. The paid Alchemy endpoints are tip-only because of their
+10-block cap. No purchase is required for history today; a paid plan is only
+needed if the public endpoints become unavailable or the solver needs a
+provider SLA. `eth_getBlockReceipts` works as a fallback, but it is one call per
+block and is not cheaper than a 10,000-block `eth_getLogs` scan.
+
+`rpcEndpoints` exposes the per-endpoint caps. Activity readers use
+`selectActivityLogEndpoint()`, which requires at least 1,000 blocks per
+`eth_getLogs` and throws `ActivityReadUnavailableError` instead of silently
+scanning a 10-block endpoint forever. The preflight table shows an `Activity`
+column and the next actions point at the fix when no endpoint is capable.
 
 ## S-17 price feeds
 
@@ -518,7 +552,7 @@ so the route remains skipped; the feed is recorded here for the watch only.
 The opt-in `verify` script re-read every ✔ fact over public RPCs on 2026-11-16:
 
 ```
-Checked 230 facts, skipped 17, differences 0.
+Checked 232 facts, skipped 15, differences 0.
 
 Routes:
   usdc:base: eligible
@@ -531,13 +565,13 @@ Routes:
   usdt:bnb: eligible
 ```
 
-The 17 skips are 12 undeployed HTLC checks, the four Arc and Robinhood dRPC
-endpoints that reject `eth_getLogs`, and the USDT0 `version()` check whose
-value is reconstructed from the domain separator instead. The Arc and Robinhood
-dRPC endpoints remain listed as read-only fallbacks because no free public
-log-capable endpoint was found. The Base `mainnet.base.org` endpoint is recorded
-as reported because it rate-limits bursts; the publicnode and 1RPC endpoints are
-the verified log sources. The script sends no transaction.
+The 15 skips are 12 undeployed HTLC checks, the two Arc dRPC endpoints that
+reject `eth_getLogs`, and the USDT0 `version()` check whose value is
+reconstructed from the domain separator instead. The Arc dRPC endpoints remain
+read-only fallbacks; the Arc Blockdaemon endpoint and the Robinhood public
+endpoint provide the wide log history. The Base `mainnet.base.org` endpoint is
+recorded as reported because it rate-limits bursts; the publicnode and 1RPC
+endpoints are the verified log sources. The script sends no transaction.
 
 ## Limitations and follow-ups
 
