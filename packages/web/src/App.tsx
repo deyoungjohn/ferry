@@ -13,6 +13,36 @@ const SwapStatusPage = lazy(async () => {
   return { default: m.SwapStatusPage };
 });
 
+const ActivityPage = lazy(async () => {
+  const m = await import('./routes/ActivityPage');
+  return { default: m.ActivityPage };
+});
+
+const RecoverPage = lazy(async () => {
+  const m = await import('./routes/RecoverPage');
+  return { default: m.RecoverPage };
+});
+
+const PayLinksPage = lazy(async () => {
+  const m = await import('./routes/PayLinksPage');
+  return { default: m.PayLinksPage };
+});
+
+const PayLinkPage = lazy(async () => {
+  const m = await import('./routes/PayLinkPage');
+  return { default: m.PayLinkPage };
+});
+
+const SendLinksPage = lazy(async () => {
+  const m = await import('./routes/SendLinksPage');
+  return { default: m.SendLinksPage };
+});
+
+const SendLinkPage = lazy(async () => {
+  const m = await import('./routes/SendLinkPage');
+  return { default: m.SendLinkPage };
+});
+
 export function App() {
   return (
     <Routes>
@@ -32,6 +62,54 @@ export function App() {
               }
             >
               <SwapStatusPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/activity"
+          element={
+            <Suspense fallback={null}>
+              <ActivityPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/recover"
+          element={
+            <Suspense fallback={null}>
+              <RecoverPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/pay-links"
+          element={
+            <Suspense fallback={null}>
+              <PayLinksPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/p/:id"
+          element={
+            <Suspense fallback={null}>
+              <PayLinkPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/send-links"
+          element={
+            <Suspense fallback={null}>
+              <SendLinksPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/s/:id"
+          element={
+            <Suspense fallback={null}>
+              <SendLinkPage />
             </Suspense>
           }
         />
