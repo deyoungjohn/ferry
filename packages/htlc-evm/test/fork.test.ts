@@ -57,7 +57,7 @@ async function fundTokenViaAnvil(
   });
   if (current >= amount) return;
 
-  for (let baseSlot = 0n; baseSlot <= 25n; baseSlot++) {
+  for (let baseSlot = 0n; baseSlot <= 60n; baseSlot++) {
     const slot = keccak256(
       encodeAbiParameters(
         [{ type: 'address' }, { type: 'uint256' }],
@@ -111,13 +111,13 @@ async function exerciseApproveLockClaimRefund(params: {
   const recipient = recipientClient.account!;
   const amount = parseUnits('10', decimals);
 
-  await fundTokenViaAnvil(publicClient, token, user.address, amount * 3n);
+  await fundTokenViaAnvil(publicClient, token, user.address, amount * 5n);
 
   const approveHash = await userClient.writeContract({
     address: token,
     abi: erc20Abi,
     functionName: 'approve',
-    args: [htlc, amount * 2n],
+    args: [htlc, amount * 4n],
     account: user,
     chain: null,
   });
@@ -142,6 +142,18 @@ async function exerciseApproveLockClaimRefund(params: {
   });
   expect(lockReceipt.status).toBe('success');
 
+  // 1b. second lock with the same hashLock from the same sender must fail
+  await expect(
+    userClient.writeContract({
+      address: htlc,
+      abi: ferryHtlcAbi,
+      functionName: 'lock',
+      args: [token, recipient.address, amount, hashLock1, deadline],
+      account: user,
+      chain: null,
+    }),
+  ).rejects.toThrow();
+
   const lockId1 = await publicClient.readContract({
     address: htlc,
     abi: ferryHtlcAbi,
@@ -162,7 +174,7 @@ async function exerciseApproveLockClaimRefund(params: {
   });
   expect(claimReceipt.status).toBe('success');
 
-  // 2. lock + refund
+  // 2. repeated lock + refund after deadline
   const secret2 = sha256(stringToHex(`${label}-refund`));
   const hashLock2 = sha256(secret2);
   const shortDeadline = latest.timestamp + 60n;
@@ -175,6 +187,19 @@ async function exerciseApproveLockClaimRefund(params: {
     chain: null,
   });
   await publicClient.waitForTransactionReceipt({ hash: lock2Hash });
+
+  // 3. repeated lock + claim after deadline
+  const secret3 = sha256(stringToHex(`${label}-claim-after-deadline`));
+  const hashLock3 = sha256(secret3);
+  const lock3Hash = await userClient.writeContract({
+    address: htlc,
+    abi: ferryHtlcAbi,
+    functionName: 'lock',
+    args: [token, recipient.address, amount, hashLock3, shortDeadline],
+    account: user,
+    chain: null,
+  });
+  await publicClient.waitForTransactionReceipt({ hash: lock3Hash });
 
   await publicClient.request({
     method: 'evm_increaseTime' as never,
@@ -204,6 +229,26 @@ async function exerciseApproveLockClaimRefund(params: {
     hash: refundHash,
   });
   expect(refundReceipt.status).toBe('success');
+
+  const lockId3 = await publicClient.readContract({
+    address: htlc,
+    abi: ferryHtlcAbi,
+    functionName: 'lockId',
+    args: [user.address, hashLock3],
+  });
+  const claimAfterDeadlineHash = await recipientClient.writeContract({
+    address: htlc,
+    abi: ferryHtlcAbi,
+    functionName: 'claim',
+    args: [lockId3, secret3],
+    account: recipient,
+    chain: null,
+  });
+  const claimAfterDeadlineReceipt =
+    await publicClient.waitForTransactionReceipt({
+      hash: claimAfterDeadlineHash,
+    });
+  expect(claimAfterDeadlineReceipt.status).toBe('success');
 
   return {
     lockGas: lockReceipt.gasUsed,
@@ -395,27 +440,32 @@ describe.skipIf(!runForkTests)(
           });
           expect(deployRes.address).toBe(predicted);
 
-          const primarySymbol = chain.id === 'bnb' ? 'USDT' : 'USDC';
-          const primaryAsset = chain.assets.find(
-            (a) => a.symbol === primarySymbol,
-          );
-          const primaryFacts = rawData.chains[chain.id].mainnet.tokens.find(
-            (t) => t.symbol === primarySymbol,
-          );
+          if (chain.assets.length === 0) {
+            console.log(
+              'FORK_GAS_REPORT',
+              JSON.stringify({
+                chain: chain.id,
+                chainId: String(chain.chainId),
+                rpc: rpcUrl,
+                htlc: predicted,
+                note: 'No route tokens configured in chain-config',
+              }),
+            );
+          }
 
-          let gasSummary: Record<string, string> = {
-            chain: chain.id,
-            chainId: String(chain.chainId),
-            rpc: rpcUrl,
-            htlc: predicted,
-            token: primarySymbol,
-          };
+          for (const asset of chain.assets) {
+            if (!asset.address || asset.decimals === null) continue;
+            const facts = rawData.chains[chain.id].mainnet.tokens.find(
+              (t) => t.symbol === asset.symbol,
+            );
+            let gasSummary: Record<string, string> = {
+              chain: chain.id,
+              chainId: String(chain.chainId),
+              rpc: rpcUrl,
+              htlc: predicted,
+              token: asset.symbol,
+            };
 
-          if (
-            primaryAsset &&
-            primaryAsset.address &&
-            primaryAsset.decimals !== null
-          ) {
             if (chain.id === 'arc') {
               try {
                 const standard = await exerciseApproveLockClaimRefund({
@@ -423,9 +473,9 @@ describe.skipIf(!runForkTests)(
                   userClient,
                   recipientClient,
                   htlc: predicted,
-                  token: primaryAsset.address as Address,
-                  decimals: primaryAsset.decimals,
-                  label: `${chain.id}-usdc`,
+                  token: asset.address as Address,
+                  decimals: asset.decimals,
+                  label: `${chain.id}-${asset.symbol.toLowerCase()}`,
                 });
                 gasSummary = {
                   ...gasSummary,
@@ -449,9 +499,9 @@ describe.skipIf(!runForkTests)(
                 userClient,
                 recipientClient,
                 htlc: predicted,
-                token: primaryAsset.address as Address,
-                decimals: primaryAsset.decimals,
-                label: `${chain.id}-${primarySymbol.toLowerCase()}`,
+                token: asset.address as Address,
+                decimals: asset.decimals,
+                label: `${chain.id}-${asset.symbol.toLowerCase()}`,
               });
               gasSummary = {
                 ...gasSummary,
@@ -460,23 +510,19 @@ describe.skipIf(!runForkTests)(
                 refundGas: standard.refundGas.toString(),
               };
 
-              if (
-                primaryAsset.permit &&
-                primaryFacts?.name &&
-                primaryFacts?.version
-              ) {
+              if (asset.permit && facts?.name && facts?.version) {
                 const intentGas = await exerciseLockWithIntent({
                   publicClient,
                   userClient,
                   deployerClient,
                   recipient: recipient.address,
                   htlc: predicted,
-                  token: primaryAsset.address as Address,
-                  tokenName: primaryFacts.name,
-                  tokenVersion: primaryFacts.version,
+                  token: asset.address as Address,
+                  tokenName: facts.name,
+                  tokenVersion: facts.version,
                   chainId: chain.chainId,
-                  decimals: primaryAsset.decimals,
-                  label: `${chain.id}-${primarySymbol.toLowerCase()}`,
+                  decimals: asset.decimals,
+                  label: `${chain.id}-${asset.symbol.toLowerCase()}`,
                 });
                 gasSummary = {
                   ...gasSummary,
@@ -484,30 +530,9 @@ describe.skipIf(!runForkTests)(
                 };
               }
             }
-          }
 
-          // Quirk: Ethereum USDT (void return, no permit)
-          if (chain.id === 'ethereum') {
-            const usdt = chain.assets.find((a) => a.symbol === 'USDT');
-            if (usdt?.address && usdt.decimals !== null) {
-              const usdtGas = await exerciseApproveLockClaimRefund({
-                publicClient,
-                userClient,
-                recipientClient,
-                htlc: predicted,
-                token: usdt.address as Address,
-                decimals: usdt.decimals,
-                label: 'ethereum-usdt',
-              });
-              gasSummary = {
-                ...gasSummary,
-                usdtLockGas: usdtGas.lockGas.toString(),
-                usdtClaimGas: usdtGas.claimGas.toString(),
-              };
-            }
+            console.log('FORK_GAS_REPORT', JSON.stringify(gasSummary));
           }
-
-          console.log('FORK_GAS_REPORT', JSON.stringify(gasSummary));
         } finally {
           await anvil.stop();
         }
