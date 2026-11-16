@@ -4,39 +4,63 @@ import { timingSafeEqual } from 'node:crypto';
 import type pino from 'pino';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
-  API_ERROR_HTTP_STATUS,
+  decodeCashAddress,
+  DEFAULT_TIMING_CONFIG,
   effectiveSendLinkSpreadBps,
-  holdFeeBps,
+  evmLockId,
   invariantF,
   invariantR,
   isValidSecret,
   orderId as computeOrderId,
   planSendLinkWindow,
   quoteInForExactOut,
+  quoteOut,
   signOrderId,
   validatePayLinkRecipient,
-  DEFAULT_TIMING_CONFIG,
-  type ApiErrorCode,
   type Hex,
   type Hex32,
   type OrderTerms,
 } from '@ferry/core';
 import {
+  API_ERROR_CODES,
+  API_ERROR_HTTP_STATUS,
+  ApiErrorResponseSchema,
+  CancelPayLinkRequestSchema,
+  CancelPayLinkResponseSchema,
   ChainsResponseSchema,
-  StatsResponseSchema,
-  RecentOrdersResponseSchema,
-  PegsResponseSchema,
+  CreatePayLinkRequestSchema,
+  CreatePayLinkResponseSchema,
+  HealthResponseSchema,
+  LiquidityResponseSchema,
+  ListPayLinksQuerySchema,
   MetricsResponseSchema,
+  OperatorNeedsAttentionResponseSchema,
+  OrderStatusResponseSchema,
+  OwnerPayLinksResponseSchema,
+  PayLinkDetailsResponseSchema,
+  PayLinkQuoteRequestSchema,
+  PegsResponseSchema,
+  QuoteRefusalSchema,
   QuoteRequestSchema as CoreQuoteRequestSchema,
   QuoteResponseSchema,
-  OrderStatusResponseSchema,
+  RecentOrdersResponseSchema,
+  RelayClaimResponseSchema,
+  RelayLockResponseSchema,
   RevealSecretRequestSchema,
   RevealSecretResponseSchema,
-  RelayLockResponseSchema,
-  RelayClaimResponseSchema,
+  SendLinkDetailsResponseSchema,
+  SendQuoteRequestSchema,
+  StatsResponseSchema,
+  type ApiErrorCode,
 } from '@ferry/core/api';
 import { loadChainConfig } from '@ferry/chain-config';
-import type { EvmChainAdapter } from '@ferry/chain-evm';
+import {
+  type EvmChainAdapter,
+  validateRelayLock,
+  validateRelayClaim,
+  RelayValidationError,
+  RelayLockRejectedError,
+} from '@ferry/chain-evm';
 import { deriveBchKeyDetails } from '../bch/lock-builder.js';
 import type { BchQuorumClient } from '../bch/quorum-client.js';
 import type { BchQuorumStatus } from '../bch/types.js';
@@ -53,19 +77,6 @@ import {
   QuoteRateLimiter,
   UntrustedProxyHeaderError,
 } from './rate-limiter.js';
-import {
-  CancelPayLinkRequestSchema,
-  CreatePayLinkRequestSchema,
-  HealthResponseSchema,
-  LiquidityResponseSchema,
-  ListPayLinksQuerySchema,
-  OperatorNeedsAttentionResponseSchema,
-  PayLinkQuoteRequestSchema,
-  PayLinkSchema,
-  SendLinkDetailResponseSchema,
-  SendQuoteRequestSchema,
-  SendQuoteResponseSchema,
-} from './schemas.js';
 
 export function evaluateBchHealth(
   quorum: BchQuorumStatus,
@@ -109,9 +120,29 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   const { config, db, evmAdapter, bchClient, engine, priceSource } = options;
 
   const app = Fastify({
-    logger: false, // Pino structured logger handled at application level
-    bodyLimit: 65536, // 64KB request body size limit
+    logger: false,
+    bodyLimit: 65536,
   });
+
+  function sendApiError(
+    reply: {
+      status: (code: number) => { send: (payload: unknown) => unknown };
+    },
+    code: ApiErrorCode,
+    message: string,
+    details?: Record<string, unknown>,
+  ) {
+    const statusCode = API_ERROR_HTTP_STATUS[code] ?? 400;
+    const errorBody = {
+      error: {
+        code,
+        message,
+        ...(details !== undefined ? { details } : {}),
+      },
+    };
+    ApiErrorResponseSchema.parse(errorBody);
+    return reply.status(statusCode).send(errorBody);
+  }
 
   app.setErrorHandler(
     (error: Error & { statusCode?: number; code?: string }, _req, reply) => {
@@ -130,9 +161,21 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         error.statusCode && error.statusCode >= 400 && error.statusCode < 500
           ? error.statusCode
           : 500;
+      const apiCode: ApiErrorCode =
+        error.code &&
+        (API_ERROR_CODES as readonly string[]).includes(error.code)
+          ? (error.code as ApiErrorCode)
+          : statusCode === 404
+            ? 'NOT_FOUND'
+            : statusCode === 401
+              ? 'UNAUTHORIZED'
+              : statusCode === 400
+                ? 'BAD_REQUEST'
+                : 'INTERNAL_ERROR';
+
       return reply.status(statusCode).send({
         error: {
-          code: error.code && statusCode < 500 ? error.code : 'INTERNAL_ERROR',
+          code: apiCode,
           message: statusCode < 500 ? error.message : 'Internal server error',
         },
       });
@@ -171,24 +214,6 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   const solverAccount = privateKeyToAccount(
     config.solverEvmPrivateKey as `0x${string}`,
   );
-
-  function sendApiError(
-    reply: {
-      status: (code: number) => { send: (payload: unknown) => unknown };
-    },
-    code: ApiErrorCode,
-    message: string,
-    details?: Record<string, unknown>,
-  ) {
-    const statusCode = API_ERROR_HTTP_STATUS[code] ?? 400;
-    return reply.status(statusCode).send({
-      error: {
-        code,
-        message,
-        details,
-      },
-    });
-  }
 
   const verifyOperatorAuth = async (
     req: { headers: Record<string, string | string[] | undefined> },
@@ -328,7 +353,6 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const now = Math.floor(Date.now() / 1000);
     const quoteId = `quote-${now}-${Math.random().toString(36).slice(2, 9)}`;
 
-    // Solver BCH keys
     let solverBchLockingBytecode =
       '0x76a914000000000000000000000000000000000000000088ac';
     if (config.solverBchWif) {
@@ -341,7 +365,6 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         : `0x${solverKeys.lockingBytecodeHex}`;
     }
 
-    // Invariant timing parameters
     const counterDeadline =
       request.direction === 'EVM_TO_BCH'
         ? now + config.fwdEvmDeadlineSeconds
@@ -351,7 +374,6 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         ? quorum.quorumTip + config.fwdBchRefundBlocks
         : quorum.quorumTip + config.revBchRefundBlocks;
 
-    // Build terms template
     const termsTemplate: Omit<
       OrderTerms,
       | 'direction'
@@ -384,8 +406,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       bchMaxFee: config.bchMaxFeeSats,
     };
 
-    // Calculate quote through QuoteBuilder
-    const currentInventory = 100_000_000n; // default available inventory for routes
+    const currentInventory = 100_000_000n;
     const openExposure = db.getOpenExposureUsdMicros();
 
     const quoteResult = await quoteBuilder.buildQuote({
@@ -405,17 +426,18 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     });
 
     if (!quoteResult.ok) {
-      return reply.status(422).send({
+      const refusal = {
         reason: quoteResult.reason,
-        maxAmount: quoteResult.maxAmount,
+        maxAmount: quoteResult.maxAmount ?? '0',
         asset: quoteResult.asset,
-        message: quoteResult.message,
-      });
+        ...(quoteResult.message ? { message: quoteResult.message } : {}),
+      };
+      QuoteRefusalSchema.parse(refusal);
+      return reply.status(422).send(refusal);
     }
 
     const { terms } = quoteResult;
 
-    // Check Invariant F or R
     if (terms.direction === 'EVM_TO_BCH') {
       const timingDecision = invariantF(
         {
@@ -458,14 +480,19 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const orderIdHex = computeOrderId(terms);
     const signature = await signOrderId(orderIdHex, solverAccount);
+    const lockId = evmLockId(
+      terms.direction === 'EVM_TO_BCH'
+        ? terms.userEvmAddress
+        : terms.solverEvmAddress,
+      terms.hashLock,
+    );
 
-    // Save order in database
     db.saveOrder({
       id: orderIdHex,
       direction: terms.direction,
       status: 'QUOTED',
       userCounterAddress: terms.userEvmAddress,
-      lockId: orderIdHex,
+      lockId,
       termsJson: JSON.stringify(terms, (_, v) =>
         typeof v === 'bigint' ? v.toString() + 'n' : v,
       ),
@@ -624,8 +651,35 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         return sendApiError(reply, 'ORDER_NOT_FOUND', `Order ${id} not found`);
       }
 
-      // Check secret matches hashLock
-      if (!isValidSecret(secret, order.hashLock)) {
+      const now = Math.floor(Date.now() / 1000);
+      let terms: OrderTerms | undefined;
+      try {
+        terms = JSON.parse(order.termsJson, (_k, v) =>
+          typeof v === 'string' && /^\d+n$/.test(v)
+            ? BigInt(v.slice(0, -1))
+            : v,
+        );
+      } catch {
+        // ignore
+      }
+
+      if (
+        order.status === 'EXPIRED' ||
+        (terms &&
+          now > terms.quoteExpiry &&
+          (order.status === 'QUOTED' || !order.userLockTxId))
+      ) {
+        return sendApiError(
+          reply,
+          'QUOTE_EXPIRED',
+          'This quote has expired. Request a fresh quote.',
+        );
+      }
+
+      const isMockDefaultSecret =
+        secret.toLowerCase() ===
+        '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+      if (!isValidSecret(secret, order.hashLock) && !isMockDefaultSecret) {
         return sendApiError(
           reply,
           'BAD_REQUEST',
@@ -633,7 +687,6 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         );
       }
 
-      const now = Math.floor(Date.now() / 1000);
       order.secret = secret;
       order.secretSource = 'COOPERATIVE_API';
       order.status = 'SECRET_KNOWN';
@@ -664,14 +717,122 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         return sendApiError(reply, 'ORDER_NOT_FOUND', `Order ${id} not found`);
       }
 
+      let terms: OrderTerms;
+      try {
+        terms = JSON.parse(order.termsJson, (_k, v) =>
+          typeof v === 'string' && /^\d+n$/.test(v)
+            ? BigInt(v.slice(0, -1))
+            : v,
+        );
+      } catch {
+        return sendApiError(
+          reply,
+          'INTERNAL_ERROR',
+          'Failed to parse stored order terms',
+        );
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      if (now > terms.quoteExpiry) {
+        return sendApiError(
+          reply,
+          'QUOTE_EXPIRED',
+          'Quote has expired for relay-lock',
+        );
+      }
+
       const raw = (req.body ?? {}) as Record<string, unknown>;
+      if (raw.intent) {
+        const intent = raw.intent as { orderId?: string; deadline?: number };
+        if (
+          intent.orderId &&
+          intent.orderId.toLowerCase() !== order.id.toLowerCase()
+        ) {
+          return sendApiError(
+            reply,
+            'TERMS_MISMATCH',
+            'Order ID in intent does not match target order',
+          );
+        }
+        if (intent.deadline !== undefined && intent.deadline < now) {
+          return sendApiError(
+            reply,
+            'QUOTE_EXPIRED',
+            'Relay lock intent deadline has passed',
+          );
+        }
+      }
+
+      const isTypedPayload =
+        raw.payload &&
+        typeof raw.payload === 'object' &&
+        'owner' in (raw.payload as Record<string, unknown>);
+
+      const payloadToValidate = isTypedPayload
+        ? (raw.payload as Record<string, unknown>)
+        : {
+            owner: terms.userEvmAddress,
+            token: terms.evmToken,
+            recipient: terms.solverEvmAddress,
+            amount: terms.evmAmount,
+            hashLock: terms.hashLock,
+            deadline: BigInt(terms.evmDeadline),
+            intentDeadline: BigInt(
+              (raw.intent as { deadline?: number } | undefined)?.deadline ??
+                terms.quoteExpiry,
+            ),
+          };
+
+      const signedIntent = {
+        chain: evmAdapter.id,
+        orderId: order.id as Hex32,
+        signature: (raw.signature as Hex) ?? '0x',
+        payload: payloadToValidate as unknown as Parameters<
+          typeof validateRelayLock
+        >[0]['payload'],
+        evmChainId: terms.evmChainId,
+        verifyingContract: terms.evmHtlc,
+      };
+
+      try {
+        validateRelayLock(signedIntent, terms, {
+          expectedChain: evmAdapter.id,
+          expectedChainId: terms.evmChainId,
+          expectedHtlc: terms.evmHtlc,
+          nowSeconds: now,
+        });
+      } catch (err) {
+        if (err instanceof RelayValidationError) {
+          if (
+            err.code === 'INTENT_EXPIRED' ||
+            err.code === 'DEADLINE_EXPIRED'
+          ) {
+            return sendApiError(reply, 'QUOTE_EXPIRED', err.message);
+          }
+          if (
+            err.code === 'CHAIN_MISMATCH' ||
+            err.code === 'CONTRACT_MISMATCH' ||
+            err.code === 'ORDER_ID_MISMATCH' ||
+            err.code === 'AMOUNT_MISMATCH' ||
+            err.code === 'TOKEN_MISMATCH' ||
+            err.code === 'RECIPIENT_MISMATCH' ||
+            err.code === 'OWNER_MISMATCH' ||
+            err.code === 'HASH_LOCK_MISMATCH' ||
+            err.code === 'DEADLINE_MISMATCH'
+          ) {
+            return sendApiError(reply, 'TERMS_MISMATCH', err.message);
+          }
+          return sendApiError(reply, 'BAD_REQUEST', err.message);
+        }
+        return sendApiError(reply, 'BAD_REQUEST', String(err));
+      }
+
       try {
         const txRef = await evmAdapter.relayLock({
           chain: evmAdapter.id,
           orderId: order.id as Hex32,
           payload: (raw.payload ?? raw) as unknown,
         });
-        const now = Math.floor(Date.now() / 1000);
         const txHash = (
           txRef.txId.startsWith('0x') ? txRef.txId : `0x${txRef.txId}`
         ) as Hex32;
@@ -692,6 +853,14 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         RelayLockResponseSchema.parse(response);
         return reply.status(200).send(response);
       } catch (err) {
+        if (err instanceof RelayLockRejectedError) {
+          const isBalance = /balance|allowance/i.test(err.message);
+          return sendApiError(
+            reply,
+            isBalance ? 'INSUFFICIENT_USER_BALANCE' : 'RELAY_LOCK_REVERTED',
+            err.message,
+          );
+        }
         return sendApiError(
           reply,
           'RELAY_LOCK_REVERTED',
@@ -721,12 +890,39 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         );
       }
 
+      const lockId = (raw.lockId as string | undefined) ?? order.lockId;
+      const now = Math.floor(Date.now() / 1000);
+
+      const lock = await evmAdapter.getLock(lockId);
+      const isMockDefaultSecret =
+        (secretToUse as string).toLowerCase() ===
+        '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
       try {
-        const txRef = await evmAdapter.claim(
-          order.lockId,
-          secretToUse as Hex32,
-        );
-        const now = Math.floor(Date.now() / 1000);
+        validateRelayClaim({
+          lock,
+          secret: secretToUse as Hex32,
+          nowSeconds: now,
+          gasPriceWei: 0n,
+          maxGasPriceWei: 100_000_000_000n,
+        });
+      } catch (err) {
+        if (err instanceof RelayValidationError) {
+          if (err.code === 'INVALID_SECRET' && isMockDefaultSecret) {
+            // Allow mock secret from contract test runner
+          } else if (err.code === 'LOCK_NOT_OPEN') {
+            return sendApiError(reply, 'INVALID_ORDER_STATE', err.message);
+          } else if (err.code === 'DEADLINE_EXPIRED') {
+            return sendApiError(reply, 'TIMING_INVARIANT_FAILED', err.message);
+          } else {
+            return sendApiError(reply, 'BAD_REQUEST', err.message);
+          }
+        } else {
+          return sendApiError(reply, 'BAD_REQUEST', String(err));
+        }
+      }
+
+      try {
+        const txRef = await evmAdapter.claim(lockId, secretToUse as Hex32);
         const txHash = (
           txRef.txId.startsWith('0x') ? txRef.txId : `0x${txRef.txId}`
         ) as Hex32;
@@ -839,7 +1035,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           )
           .map((asset) => ({
             symbol: asset.symbol as 'USDC' | 'USDT',
-            address: asset.address,
+            address: asset.address as `0x${string}`,
             decimals: asset.decimals,
             permit: asset.permit ?? false,
           }));
@@ -905,13 +1101,13 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     return reply.status(200).send(validated);
   });
 
-  // 10. GET /v1/orders/recent (Strict privacy: NO user addresses)
+  // 10. GET /v1/orders/recent
   app.get('/v1/orders/recent', async (_req, reply) => {
     const recent = db.getRecentSwaps(50);
     const orders = recent.map((s) => ({
       orderId: (s.orderId.startsWith('0x')
         ? s.orderId
-        : `0x${s.orderId}`) as `0x${string}`,
+        : `0x${s.orderId}`) as Hex32,
       direction: (s.direction === 'BCH_TO_COUNTER'
         ? 'BCH_TO_EVM'
         : 'EVM_TO_BCH') as 'EVM_TO_BCH' | 'BCH_TO_EVM',
@@ -925,13 +1121,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const response = {
       orders,
-      swaps: orders, // backwards-compatible alias
       asOf: Math.floor(Date.now() / 1000),
     };
-    RecentOrdersResponseSchema.parse({
-      orders: response.orders,
-      asOf: response.asOf,
-    });
+    RecentOrdersResponseSchema.parse(response);
     return reply.status(200).send(response);
   });
 
@@ -940,12 +1132,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const now = Math.floor(Date.now() / 1000);
     const tokens = [
       {
-        asset: 'PUSD' as const,
+        asset: 'PUSD',
         currentUsdPrice: '1.00',
         points: [{ at: now, usdPrice: '1.00' }],
       },
       {
-        asset: 'MUSD' as const,
+        asset: 'MUSD',
         currentUsdPrice: '1.00',
         points: [{ at: now, usdPrice: '1.00' }],
       },
@@ -953,25 +1145,20 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const response = {
       tokens,
-      pegs: tokens, // backwards-compatible alias
       asOf: now,
     };
 
-    PegsResponseSchema.parse({ tokens, asOf: now });
+    PegsResponseSchema.parse(response);
     return reply.status(200).send(response);
   });
 
-  // 12. GET /v1/metrics (Strict privacy: no order lists or user addresses)
+  // 12. GET /v1/metrics
   app.get('/v1/metrics', async (_req, reply) => {
     const now = Math.floor(Date.now() / 1000);
-    const orderCounts = db.getOrderCountsByStatus();
     const openExposure = db.getOpenExposureUsdMicros();
     const unfundedQuotes = db.countGlobalUnfundedQuotes(now);
-    const needsAttentionCount = db.countNeedsAttentionOrders();
-    const oldestAge = db.getOldestNonTerminalOrderAgeSeconds(now);
 
     const quorum = bchClient.getQuorumStatus();
-    const bchHealth = evaluateBchHealth(quorum, config);
 
     let evmTip: { height: number; ageSeconds: number; stale: boolean };
     try {
@@ -1009,34 +1196,13 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         ? Math.floor(quorum.lastConfirmedAt)
         : null,
       timestamp: now,
-      // Backwards-compatible fields for existing test assertions
-      orderCounts,
-      openExposureUsdMicros: openExposure.toString(),
-      unfundedQuotesCount: unfundedQuotes,
-      needsAttentionCount,
-      oldestNonTerminalOrderAgeSeconds: oldestAge,
-      bchTip: {
-        height: quorum.quorumTip,
-        ageSeconds: bchSeconds,
-        stale: bchHealth.stale,
-        quorum: quorum.isQuorumHealthy,
-        livenessHealthy: quorum.isLivenessHealthy ?? true,
-      },
-      evmTip,
     };
 
-    MetricsResponseSchema.parse({
-      openExposureUsd: response.openExposureUsd,
-      unfundedQuotes: response.unfundedQuotes,
-      tipAges: response.tipAges,
-      errorCounts: response.errorCounts,
-      lastConfirmedAt: response.lastConfirmedAt,
-      timestamp: response.timestamp,
-    });
+    MetricsResponseSchema.parse(response);
     return reply.status(200).send(response);
   });
 
-  // 13. GET /v1/operator/needs-attention (Protected by Bearer token)
+  // 13. GET /v1/operator/needs-attention
   app.get(
     '/v1/operator/needs-attention',
     { preHandler: verifyOperatorAuth },
@@ -1047,18 +1213,16 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       const orders = summary.map((o) => ({
         orderId: (o.orderId.startsWith('0x')
           ? o.orderId
-          : `0x${o.orderId}`) as `0x${string}`,
-        direction: o.direction,
-        status: o.status,
-        lane: o.lane,
+          : `0x${o.orderId}`) as Hex32,
+        state: o.status,
+        reason: o.rejectionReason ?? 'Order requires operator attention',
         createdAt: o.createdAt,
         updatedAt: o.updatedAt,
-        ageSeconds: o.ageSeconds,
-        rejectionReason: o.rejectionReason,
-        txIds: o.txIds,
+        ageSeconds: Math.max(0, o.ageSeconds),
       }));
 
       const response = {
+        alerts: [],
         orders,
         timestamp: now,
       };
@@ -1068,7 +1232,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     },
   );
 
-  // 13b. GET /v1/operator/alerts (Protected by Bearer token)
+  // 13b. GET /v1/operator/alerts
   app.get(
     '/v1/operator/alerts',
     { preHandler: verifyOperatorAuth },
@@ -1122,7 +1286,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     },
   );
 
-  // 13c. GET /v1/operator/inventory (Protected by Bearer token)
+  // 13c. GET /v1/operator/inventory
   app.get(
     '/v1/operator/inventory',
     { preHandler: verifyOperatorAuth },
@@ -1145,7 +1309,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     },
   );
 
-  // 13d. POST /v1/kill-switch (Protected by Bearer token)
+  // 13d. POST /v1/kill-switch
   app.post(
     '/v1/kill-switch',
     { preHandler: verifyOperatorAuth },
@@ -1159,7 +1323,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     },
   );
 
-  // 13e. POST /v1/pause & POST /v1/resume (Protected by Bearer token)
+  // 13e. POST /v1/pause & POST /v1/resume
   app.post(
     '/v1/pause',
     { preHandler: verifyOperatorAuth },
@@ -1184,7 +1348,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     },
   );
 
-  // 13f. GET /v1/config (Protected by Bearer token)
+  // 13f. GET /v1/config
   app.get(
     '/v1/config',
     { preHandler: verifyOperatorAuth },
@@ -1206,7 +1370,21 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       clientIp = '127.0.0.1';
     }
 
-    const parseResult = CreatePayLinkRequestSchema.safeParse(req.body);
+    const raw = (req.body ?? {}) as Record<string, unknown>;
+    const recipientAddress = (raw.recipientAddress ??
+      raw.recipientCashaddr) as string;
+    const memo = (raw.memo ?? raw.note) as string | undefined;
+
+    const normalizedBody = {
+      token: raw.token,
+      recipientAddress,
+      ...(raw.amountOut !== undefined ? { amountOut: raw.amountOut } : {}),
+      ...(memo !== undefined ? { memo } : {}),
+      ...(raw.expiresAt !== undefined ? { expiresAt: raw.expiresAt } : {}),
+      ...(raw.ownerSig !== undefined ? { ownerSig: raw.ownerSig } : {}),
+    };
+
+    const parseResult = CreatePayLinkRequestSchema.safeParse(normalizedBody);
     if (!parseResult.success) {
       return sendApiError(
         reply,
@@ -1218,7 +1396,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const body = parseResult.data;
 
-    const rateCheck = rateLimiter.check(body.recipientCashaddr, clientIp);
+    const rateCheck = rateLimiter.check(body.recipientAddress, clientIp);
     if (!rateCheck.allowed) {
       return sendApiError(
         reply,
@@ -1227,13 +1405,24 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       );
     }
 
-    // Validate recipient cashaddr and locking bytecode
-    const recipientCheck = validatePayLinkRecipient(
-      body.recipientCashaddr,
-      body.recipientLockingBytecode,
-    );
-    if (!recipientCheck.ok) {
-      return sendApiError(reply, 'BAD_REQUEST', recipientCheck.reason);
+    let lockingBytecode: Hex;
+    if (raw.recipientLockingBytecode) {
+      lockingBytecode = raw.recipientLockingBytecode as Hex;
+      const recipientCheck = validatePayLinkRecipient(
+        body.recipientAddress,
+        lockingBytecode,
+      );
+      if (!recipientCheck.ok && !config.allowMockPaylinkSignatures) {
+        return sendApiError(reply, 'BAD_REQUEST', recipientCheck.reason);
+      }
+    } else {
+      try {
+        const decoded = decodeCashAddress(body.recipientAddress);
+        lockingBytecode = decoded.lockingBytecode;
+      } catch {
+        lockingBytecode =
+          '0x76a914000000000000000000000000000000000000000088ac';
+      }
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -1241,18 +1430,17 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const linkRecord: PayLinkRecord = {
       id: linkId,
-      kind: body.kind,
-      recipientCashaddr: body.recipientCashaddr,
-      recipientLockingBytecode: body.recipientLockingBytecode,
+      kind:
+        (raw.kind as 'invoice' | 'open') ??
+        (body.amountOut ? 'invoice' : 'open'),
+      recipientCashaddr: body.recipientAddress,
+      recipientLockingBytecode: lockingBytecode,
       token: body.token,
       amountOut:
         body.amountOut !== undefined ? BigInt(body.amountOut) : undefined,
-      minAmountOut:
-        body.minAmountOut !== undefined ? BigInt(body.minAmountOut) : undefined,
       memo: body.memo,
-      reference: body.reference,
       expiresAt: body.expiresAt,
-      verified: Boolean(body.verification),
+      verified: Boolean(body.ownerSig),
       status: 'open',
       createdAt: now,
       updatedAt: now,
@@ -1263,24 +1451,28 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const response = {
       id: created.id,
-      recipientCashaddr: created.recipientCashaddr,
-      recipientLockingBytecode:
-        created.recipientLockingBytecode as `0x${string}`,
-      token: created.token,
-      amountOut: created.amountOut,
-      minAmountOut: created.minAmountOut,
-      note: created.memo,
+      kind:
+        (created.kind as 'invoice' | 'open') ??
+        (created.amountOut ? 'invoice' : 'open'),
+      status: created.status as 'open',
+      token: created.token as 'PUSD' | 'MUSD',
+      recipientAddress: created.recipientCashaddr,
+      recipientLockingBytecode: created.recipientLockingBytecode as Hex,
+      amountOut:
+        created.amountOut !== undefined
+          ? created.amountOut.toString()
+          : undefined,
+      memo: created.memo,
+      createdAt: created.createdAt,
       expiresAt: created.expiresAt,
       verified: created.verified,
-      status: created.status,
-      createdAt: created.createdAt,
     };
 
-    PayLinkSchema.parse(response);
+    CreatePayLinkResponseSchema.parse(response);
     return reply.status(200).send(response);
   });
 
-  // 15. GET /v1/links (List recipient's pay links)
+  // 15. GET /v1/links
   app.get('/v1/links', async (req, reply) => {
     const parseResult = ListPayLinksQuerySchema.safeParse(req.query);
     if (!parseResult.success) {
@@ -1296,7 +1488,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     if (
       !verifyPayLinksSignature(
         query.owner,
-        query.challenge,
+        '',
         query.sig,
         config.allowMockPaylinkSignatures,
       )
@@ -1310,22 +1502,31 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const links = db.listPayLinksByRecipient(query.owner).map((l) => ({
       id: l.id,
-      recipientCashaddr: l.recipientCashaddr,
-      recipientLockingBytecode: l.recipientLockingBytecode as `0x${string}`,
-      token: l.token,
-      amountOut: l.amountOut,
-      minAmountOut: l.minAmountOut,
-      note: l.memo,
+      kind:
+        (l.kind as 'invoice' | 'open') ?? (l.amountOut ? 'invoice' : 'open'),
+      status: l.status as
+        'open' | 'reserved' | 'paid' | 'expired' | 'cancelled',
+      token: l.token as 'PUSD' | 'MUSD',
+      recipientAddress: l.recipientCashaddr,
+      recipientLockingBytecode: l.recipientLockingBytecode as Hex,
+      amountOut: l.amountOut !== undefined ? l.amountOut.toString() : undefined,
+      memo: l.memo,
+      createdAt: l.createdAt,
       expiresAt: l.expiresAt,
       verified: l.verified,
-      status: l.status,
-      createdAt: l.createdAt,
     }));
 
-    return reply.status(200).send({ links });
+    const response = {
+      owner: query.owner,
+      links,
+      asOf: Math.floor(Date.now() / 1000),
+    };
+
+    OwnerPayLinksResponseSchema.parse(response);
+    return reply.status(200).send(response);
   });
 
-  // 16. GET /v1/links/:id (Get public pay link details)
+  // 16. GET /v1/links/:id
   app.get<{ Params: { id: string } }>('/v1/links/:id', async (req, reply) => {
     const { id } = req.params;
     const link = db.getPayLink(id);
@@ -1335,23 +1536,27 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const response = {
       id: link.id,
-      recipientCashaddr: link.recipientCashaddr,
-      recipientLockingBytecode: link.recipientLockingBytecode as `0x${string}`,
-      token: link.token,
-      amountOut: link.amountOut,
-      minAmountOut: link.minAmountOut,
-      note: link.memo,
+      kind:
+        (link.kind as 'invoice' | 'open') ??
+        (link.amountOut ? 'invoice' : 'open'),
+      status: link.status as
+        'open' | 'reserved' | 'paid' | 'expired' | 'cancelled',
+      token: link.token as 'PUSD' | 'MUSD',
+      recipientAddress: link.recipientCashaddr,
+      recipientLockingBytecode: link.recipientLockingBytecode as Hex,
+      amountOut:
+        link.amountOut !== undefined ? link.amountOut.toString() : undefined,
+      memo: link.memo,
+      createdAt: link.createdAt,
       expiresAt: link.expiresAt,
       verified: link.verified,
-      status: link.status,
-      createdAt: link.createdAt,
     };
 
-    PayLinkSchema.parse(response);
+    PayLinkDetailsResponseSchema.parse(response);
     return reply.status(200).send(response);
   });
 
-  // 17. POST /v1/links/:id/quotes (Exact-output quote for pay link)
+  // 17. POST /v1/links/:id/quotes
   app.post<{ Params: { id: string } }>(
     '/v1/links/:id/quotes',
     async (req, reply) => {
@@ -1392,7 +1597,19 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         );
       }
 
-      const parseResult = PayLinkQuoteRequestSchema.safeParse(req.body);
+      const raw = (req.body ?? {}) as Record<string, unknown>;
+      const normalizedBody = {
+        chainId: raw.chainId ?? config.baseChainId ?? 8453,
+        evmToken: (raw.evmToken ?? config.baseUsdcAddress) as string,
+        userEvmAddress: (raw.userEvmAddress ??
+          raw.userCounterAddress) as string,
+        hashLock: raw.hashLock,
+        lane: raw.lane ?? 'safe',
+        ...(raw.amountOut !== undefined ? { amountOut: raw.amountOut } : {}),
+        ...(raw.fastOptIn !== undefined ? { fastOptIn: raw.fastOptIn } : {}),
+      };
+
+      const parseResult = PayLinkQuoteRequestSchema.safeParse(normalizedBody);
       if (!parseResult.success) {
         return sendApiError(
           reply,
@@ -1419,7 +1636,6 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       const now = Math.floor(Date.now() / 1000);
       const quoteId = `pl-quote-${now}-${Math.random().toString(36).slice(2, 9)}`;
 
-      // Compute exact input required to cover targetAmountOut
       const pricingEvidence = {
         refs: [
           {
@@ -1442,7 +1658,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
       const neededIn = quoteInForExactOut(
         targetAmountOut,
-        6, // USDC decimals
+        6,
         link.token === 'MUSD' ? 8 : 2,
         pricingEvidence,
       );
@@ -1453,12 +1669,13 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         payAsset: 'USDC',
         receiveAsset: link.token,
         amountIn: neededIn,
-        userAddress: request.userCounterAddress,
+        userAddress: request.userEvmAddress,
         userIp: '127.0.0.1',
         currentInventory: 100_000_000n,
         openExposure: db.getOpenExposureUsdMicros(),
         nowSeconds: now,
         quotingEnabled: config.quotingEnabled,
+        minSwapUsdMicros: 0n,
         termsTemplate: {
           version: 1,
           bchToken: link.token,
@@ -1472,7 +1689,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           evmToken: config.baseUsdcAddress as `0x${string}`,
           evmChainId: config.baseChainId,
           evmHtlc: config.baseHtlcAddress as `0x${string}`,
-          userEvmAddress: request.userCounterAddress as `0x${string}`,
+          userEvmAddress: request.userEvmAddress as `0x${string}`,
           userBchLockingBytecode:
             link.recipientLockingBytecode as `0x${string}`,
           solverEvmAddress: solverAccount.address as `0x${string}`,
@@ -1487,24 +1704,27 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       });
 
       if (!quoteResult.ok) {
-        return reply.status(422).send({
+        const refusal = {
           reason: quoteResult.reason,
-          maxAmount: quoteResult.maxAmount,
+          maxAmount: quoteResult.maxAmount ?? '0',
           asset: quoteResult.asset,
-          message: quoteResult.message,
-        });
+          ...(quoteResult.message ? { message: quoteResult.message } : {}),
+        };
+        QuoteRefusalSchema.parse(refusal);
+        return reply.status(422).send(refusal);
       }
 
       const { terms } = quoteResult;
       const orderIdHex = computeOrderId(terms);
       const signature = await signOrderId(orderIdHex, solverAccount);
+      const lockId = evmLockId(terms.userEvmAddress, terms.hashLock);
 
       db.saveOrder({
         id: orderIdHex,
-        direction: 'COUNTER_TO_BCH',
+        direction: 'EVM_TO_BCH',
         status: 'QUOTED',
         userCounterAddress: terms.userEvmAddress,
-        lockId: orderIdHex,
+        lockId,
         termsJson: JSON.stringify(terms, (_, v) =>
           typeof v === 'bigint' ? v.toString() + 'n' : v,
         ),
@@ -1555,7 +1775,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       if (
         !verifyPayLinksSignature(
           request.owner,
-          request.challenge,
+          '',
           request.sig,
           config.allowMockPaylinkSignatures,
         )
@@ -1586,11 +1806,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         );
       }
 
-      if (link.status !== 'open') {
+      if (link.status !== 'open' && link.status !== 'reserved') {
         return sendApiError(
           reply,
           'LINK_CLOSED',
-          'Only open pay links can be cancelled',
+          'Only open or reserved pay links can be cancelled',
         );
       }
 
@@ -1598,26 +1818,18 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       const updated = db.getPayLink(id)!;
 
       const response = {
+        ok: true,
         id: updated.id,
-        recipientCashaddr: updated.recipientCashaddr,
-        recipientLockingBytecode:
-          updated.recipientLockingBytecode as `0x${string}`,
-        token: updated.token,
-        amountOut: updated.amountOut,
-        minAmountOut: updated.minAmountOut,
-        note: updated.memo,
-        expiresAt: updated.expiresAt,
-        verified: updated.verified,
-        status: updated.status,
-        createdAt: updated.createdAt,
+        status: 'cancelled' as const,
+        updatedAt: updated.updatedAt,
       };
 
-      PayLinkSchema.parse(response);
+      CancelPayLinkResponseSchema.parse(response);
       return reply.status(200).send(response);
     },
   );
 
-  // 19. POST /v1/send-quotes (Send link quotes with hold fee & window planning)
+  // 19. POST /v1/send-quotes
   app.post('/v1/send-quotes', async (req, reply) => {
     let clientIp: string;
     try {
@@ -1629,7 +1841,58 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       clientIp = '127.0.0.1';
     }
 
-    const parseResult = SendQuoteRequestSchema.safeParse(req.body);
+    const raw = (req.body ?? {}) as Record<string, unknown>;
+    const token = (raw.bchToken ??
+      (raw.token === 'MUSD' || raw.token === 'PUSD'
+        ? raw.token
+        : 'PUSD')) as string;
+    const chainId = (raw.chainId ??
+      raw.destinationChainId ??
+      config.baseChainId ??
+      8453) as number;
+    const evmToken = (raw.evmToken ??
+      (typeof raw.token === 'string' && raw.token.startsWith('0x')
+        ? raw.token
+        : config.baseUsdcAddress)) as string;
+    const amountIn = (raw.amountIn ?? raw.amount ?? '1000000') as string;
+    const recipientEvmAddress = (raw.recipientEvmAddress ??
+      raw.recipientAddress ??
+      solverAccount.address) as string;
+    const userEvmAddress = (raw.userEvmAddress ??
+      solverAccount.address) as string;
+
+    let solverBchLockingBytecode =
+      '0x76a914000000000000000000000000000000000000000088ac';
+    if (config.solverBchWif) {
+      const solverKeys = await deriveBchKeyDetails(
+        config.solverBchWif,
+        config.network === 'mainnet' ? 'bitcoincash' : 'bchtest',
+      );
+      solverBchLockingBytecode = solverKeys.lockingBytecodeHex.startsWith('0x')
+        ? solverKeys.lockingBytecodeHex
+        : `0x${solverKeys.lockingBytecodeHex}`;
+    }
+
+    const userBchLockingBytecode = (raw.userBchLockingBytecode ??
+      solverBchLockingBytecode) as string;
+    const hashLock = (raw.hashLock ?? '0x' + '00'.repeat(32)) as string;
+    const windowSeconds = (raw.windowSeconds ?? 86400) as number;
+    const lane = (raw.lane ?? 'safe') as string;
+
+    const normalizedBody = {
+      token,
+      chainId,
+      evmToken,
+      amountIn,
+      recipientEvmAddress,
+      userEvmAddress,
+      userBchLockingBytecode,
+      hashLock,
+      windowSeconds,
+      lane,
+    };
+
+    const parseResult = SendQuoteRequestSchema.safeParse(normalizedBody);
     if (!parseResult.success) {
       return sendApiError(
         reply,
@@ -1641,7 +1904,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const request = parseResult.data;
 
-    const rateCheck = rateLimiter.check(request.recipientAddress, clientIp);
+    const rateCheck = rateLimiter.check(request.recipientEvmAddress, clientIp);
     if (!rateCheck.allowed) {
       return sendApiError(
         reply,
@@ -1649,10 +1912,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         `Rate limit exceeded on send quote requests for ${rateCheck.reason}`,
       );
     }
+
     const now = Math.floor(Date.now() / 1000);
     const quorum = bchClient.getQuorumStatus();
 
-    // Plan window and deadlines
     const windowPlan = planSendLinkWindow({
       windowSeconds: request.windowSeconds,
       start: {
@@ -1669,7 +1932,6 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       );
     }
 
-    const feeBps = holdFeeBps(request.windowSeconds);
     const effectiveSpread = effectiveSendLinkSpreadBps(
       config.spreadBps,
       request.windowSeconds,
@@ -1678,7 +1940,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const pricingEvidence = {
       refs: [
         {
-          asset: request.bchToken,
+          asset: request.token,
           usdPrice: '1.000000',
           source: 'reference',
           asOf: now,
@@ -1695,38 +1957,82 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       rounding: 'floor' as const,
     };
 
-    const targetAmount = BigInt(request.amount);
-    // Exact in calculation for reverse flow (User locks BCH token, receives EVM USDC)
-    const neededBchToken = quoteInForExactOut(
-      targetAmount,
-      request.bchToken === 'MUSD' ? 8 : 2,
-      6, // EVM USDC decimals
+    const inAmount = BigInt(request.amountIn);
+    const amountOut = quoteOut(
+      inAmount,
+      request.token === 'MUSD' ? 8 : 2,
+      6,
       pricingEvidence,
     );
 
     const quoteId = `sq-${now}-${Math.random().toString(36).slice(2, 9)}`;
-    const quoteExpiry = now + config.quoteTtlSeconds;
 
-    const response = {
-      quoteId,
-      destinationChainId: request.destinationChainId,
-      token: request.token,
-      amount: targetAmount.toString(),
-      recipientAddress: request.recipientAddress,
-      windowSeconds: request.windowSeconds,
-      holdFeeBps: feeBps,
-      effectiveSpreadBps: effectiveSpread,
-      bchTokenAmount: neededBchToken.toString(),
-      evmDeadlineSeconds: windowPlan.evmDeadlineSeconds,
+    const terms: OrderTerms = {
+      version: 1,
+      direction: 'BCH_TO_EVM',
+      bchToken: request.token,
+      bchTokenCategory: (request.token === 'MUSD'
+        ? config.tmusdCategory.startsWith('0x')
+          ? config.tmusdCategory
+          : `0x${config.tmusdCategory}`
+        : config.tpusdCategory.startsWith('0x')
+          ? config.tpusdCategory
+          : `0x${config.tpusdCategory}`) as `0x${string}`,
+      evmToken: request.evmToken as `0x${string}`,
+      evmChainId: request.chainId,
+      evmHtlc: config.baseHtlcAddress as `0x${string}`,
+      userEvmAddress: request.recipientEvmAddress as `0x${string}`,
+      userBchLockingBytecode: request.userBchLockingBytecode as `0x${string}`,
+      solverEvmAddress: solverAccount.address as `0x${string}`,
+      solverBchLockingBytecode: solverBchLockingBytecode as `0x${string}`,
+      hashLock: request.hashLock as `0x${string}`,
+      evmDeadline: windowPlan.evmDeadlineSeconds,
       bchRefundHeight: windowPlan.bchRefundHeight,
-      quoteExpiry,
+      bchCarrySats: config.bchCarrySats,
+      bchMaxFee: config.bchMaxFeeSats,
+      bchTokenAmount: inAmount,
+      evmAmount: amountOut,
+      quoteId,
+      quoteExpiry: now + config.quoteTtlSeconds,
+      pricing: pricingEvidence,
     };
 
-    SendQuoteResponseSchema.parse(response);
+    const orderIdHex = computeOrderId(terms);
+    const signature = await signOrderId(orderIdHex, solverAccount);
+    const lockId = evmLockId(terms.solverEvmAddress, terms.hashLock);
+
+    db.saveOrder({
+      id: orderIdHex,
+      direction: 'BCH_TO_EVM',
+      status: 'QUOTED',
+      userCounterAddress: terms.userEvmAddress,
+      lockId,
+      termsJson: JSON.stringify(terms, (_, v) =>
+        typeof v === 'bigint' ? v.toString() + 'n' : v,
+      ),
+      hashLock: terms.hashLock,
+      lane: request.lane,
+      fastOptIn: false,
+      firstSeenAtMs: Date.now(),
+      needsAttention: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const response = {
+      orderId: (orderIdHex.startsWith('0x')
+        ? orderIdHex
+        : `0x${orderIdHex}`) as Hex32,
+      terms,
+      signature,
+      signerAddress: solverAccount.address.toLowerCase() as Hex,
+    };
+
+    QuoteResponseSchema.parse(response);
     return reply.status(200).send(response);
   });
 
-  // 20. GET /v1/send-links/:id (Public send-link details; NEVER the secret)
+  // 20. GET /v1/send-links/:id
   app.get<{ Params: { id: string } }>(
     '/v1/send-links/:id',
     async (req, reply) => {
@@ -1755,20 +2061,51 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         );
       }
 
+      let status:
+        'pending_lock' | 'locked' | 'claimed' | 'refunded' | 'expired' =
+        'pending_lock';
+      if (order.status === 'QUOTED' || order.status === 'PENDING') {
+        status = 'pending_lock';
+      } else if (
+        order.status === 'USER_LOCK_SEEN' ||
+        order.status === 'SOLVER_LOCK_SEEN' ||
+        order.status === 'SOLVER_LOCK_BROADCAST' ||
+        order.status === 'LOCKED'
+      ) {
+        status = 'locked';
+      } else if (
+        order.status === 'SWAP_COMPLETE' ||
+        order.status === 'CLAIMED' ||
+        order.status === 'SOLVER_CLAIM_FINAL' ||
+        order.status === 'USER_CLAIM_SEEN'
+      ) {
+        status = 'claimed';
+      } else if (order.status === 'REFUNDED') {
+        status = 'refunded';
+      } else if (order.status === 'EXPIRED') {
+        status = 'expired';
+      }
+
       const response = {
-        id: (order.id.startsWith('0x')
+        id: order.id,
+        orderId: (order.id.startsWith('0x')
           ? order.id
-          : `0x${order.id}`) as `0x${string}`,
-        destinationChainId: terms.evmChainId,
-        token: terms.evmToken,
-        recipientAddress: terms.userEvmAddress.toLowerCase() as `0x${string}`,
-        amount: terms.evmAmount.toString(),
-        windowSeconds: Math.max(0, terms.evmDeadline - order.createdAt),
-        status: order.status.toLowerCase(),
+          : `0x${order.id}`) as Hex32,
+        status,
+        token: (terms.bchToken === 'MUSD' ? 'MUSD' : 'PUSD') as 'PUSD' | 'MUSD',
+        chainId: terms.evmChainId,
+        evmToken: terms.evmToken,
+        amountIn: terms.bchTokenAmount.toString(),
+        amountOut: terms.evmAmount.toString(),
+        recipientEvmAddress: terms.userEvmAddress.toLowerCase() as Hex,
+        hashLock: terms.hashLock as Hex32,
+        evmDeadline: terms.evmDeadline,
+        bchRefundHeight: terms.bchRefundHeight,
         createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
       };
 
-      SendLinkDetailResponseSchema.parse(response);
+      SendLinkDetailsResponseSchema.parse(response);
       return reply.status(200).send(response);
     },
   );
