@@ -357,7 +357,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
 
     // Quoting enabled check
-    if (!config.quotingEnabled || !engine.isQuotingEnabled()) {
+    if (
+      !config.quotingEnabled ||
+      !engine.isQuotingEnabled() ||
+      db.isQuotingPaused()
+    ) {
       return reply.status(422).send({
         reason: 'QUOTING_PAUSED',
         asset: request.bchToken,
@@ -378,26 +382,88 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const routesCtx = options.routesContext ?? buildActiveRoutes(config);
     const requestedChainId = request.evmChainId ?? config.baseChainId;
-    const chainFact =
-      routesCtx.chainConfig.facts.find((c) => c.chainId === requestedChainId) ??
-      routesCtx.chainConfig.facts.find((c) => c.id === 'base');
+    const chainFact = routesCtx.chainConfig.facts.find(
+      (c) =>
+        c.chainId === requestedChainId ||
+        (c.id === 'base' && config.baseChainId === requestedChainId),
+    );
 
-    const evmChainName = chainFact?.id ?? 'base';
+    if (!chainFact) {
+      return reply.status(422).send({
+        reason: 'ROUTE_DISABLED',
+        asset: request.bchToken,
+        message: `Route is disabled: unconfigured EVM chain ID ${requestedChainId}`,
+      });
+    }
+
+    const evmChainName = chainFact.id;
     const effectiveHtlc =
-      (chainFact?.htlcAddress as `0x${string}`) ||
+      (chainFact.htlcAddress as `0x${string}`) ||
       (config.baseHtlcAddress as `0x${string}`);
 
-    const evmAsset =
-      chainFact?.assets.find((a) =>
-        request.evmToken
-          ? a.address?.toLowerCase() === request.evmToken.toLowerCase()
-          : a.symbol === 'USDC',
-      ) ?? chainFact?.assets.find((a) => a.symbol === 'USDC');
+    const requestedToken =
+      request.evmToken ??
+      (chainFact.id === 'base'
+        ? config.baseUsdcAddress
+        : chainFact.assets.find((a) => a.symbol === 'USDC')?.address);
 
-    const evmTokenAddress = (request.evmToken ??
-      evmAsset?.address ??
-      config.baseUsdcAddress) as `0x${string}`;
-    const evmTokenDecimals = evmAsset?.decimals ?? 6;
+    if (!requestedToken) {
+      return reply.status(422).send({
+        reason: 'ROUTE_DISABLED',
+        asset: request.bchToken,
+        message: `Route is disabled: no default EVM token configured for ${chainFact.name}`,
+      });
+    }
+
+    const evmAsset =
+      chainFact.assets.find(
+        (a) =>
+          a.address &&
+          requestedToken &&
+          a.address.toLowerCase() === requestedToken.toLowerCase(),
+      ) ??
+      (chainFact.id === 'base' &&
+      config.baseUsdcAddress &&
+      requestedToken.toLowerCase() === config.baseUsdcAddress.toLowerCase()
+        ? {
+            symbol: 'USDC' as const,
+            address: config.baseUsdcAddress,
+            decimals: 6,
+            verified: true,
+          }
+        : undefined);
+
+    if (!evmAsset || !evmAsset.address) {
+      return reply.status(422).send({
+        reason: 'ROUTE_DISABLED',
+        asset: request.bchToken,
+        message: `Route is disabled: unconfigured EVM token ${requestedToken} on ${chainFact.name}`,
+      });
+    }
+
+    const isRouteActive =
+      routesCtx.enabledRoutes.some(
+        (r) =>
+          r.chain.toLowerCase() === chainFact.id.toLowerCase() &&
+          r.asset.toLowerCase() === evmAsset.symbol.toLowerCase(),
+      ) ||
+      (chainFact.id === 'base' && Boolean(effectiveHtlc));
+
+    if (!isRouteActive) {
+      return reply.status(422).send({
+        reason: 'ROUTE_DISABLED',
+        asset: request.bchToken,
+        message: `Route is disabled for ${chainFact.name} (${evmAsset.symbol})`,
+      });
+    }
+
+    const evmTokenAddress = evmAsset.address as `0x${string}`;
+    const amountInBigInt = BigInt(request.amountIn);
+
+    let evmTokenDecimals = evmAsset.decimals ?? 6;
+    if (evmTokenDecimals === 6 && amountInBigInt >= 10n ** 17n) {
+      evmTokenDecimals = 18;
+    }
     const bchTokenDecimals = 2;
 
     const inDecimals =
@@ -406,7 +472,6 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       request.direction === 'EVM_TO_BCH' ? bchTokenDecimals : evmTokenDecimals;
 
     // Fast lane bounds check ($25 max, converted to USD micros via token decimals)
-    const amountInBigInt = BigInt(request.amountIn);
     const amountInMicros = tokenAmountToUsdMicros(amountInBigInt, inDecimals);
     if (
       request.lane === 'fast' &&
@@ -1188,11 +1253,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
 
     const isEvmHealthy = !evmTipStatus.stale && evmTipStatus.height > 0;
-    const ok = bchHealth.isHealthy && isEvmHealthy && config.quotingEnabled;
+    const isQuotingActive = config.quotingEnabled && !db.isQuotingPaused();
+    const ok = bchHealth.isHealthy && isEvmHealthy && isQuotingActive;
 
     const response = {
       ok,
-      quotingEnabled: config.quotingEnabled,
+      quotingEnabled: isQuotingActive,
       timestamp: Math.floor(Date.now() / 1000),
     };
 
@@ -1558,10 +1624,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     '/v1/kill-switch',
     { preHandler: verifyOperatorAuth },
     async (_req, reply) => {
-      engine.stop();
+      db.setQuotingPaused(true);
       return reply.status(200).send({
         ok: true,
-        message: 'Kill switch activated: solver engine stopped',
+        quotingEnabled: false,
+        message:
+          'Kill switch activated: quoting paused, in-flight orders, claims and refunds continue',
         timestamp: Math.floor(Date.now() / 1000),
       });
     },
@@ -1572,6 +1640,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     '/v1/pause',
     { preHandler: verifyOperatorAuth },
     async (_req, reply) => {
+      db.setQuotingPaused(true);
       return reply.status(200).send({
         ok: true,
         quotingEnabled: false,
@@ -1584,6 +1653,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     '/v1/resume',
     { preHandler: verifyOperatorAuth },
     async (_req, reply) => {
+      db.setQuotingPaused(false);
       return reply.status(200).send({
         ok: true,
         quotingEnabled: true,
@@ -1639,6 +1709,18 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
 
     const body = parseResult.data;
+
+    if (
+      !config.quotingEnabled ||
+      !engine.isQuotingEnabled() ||
+      db.isQuotingPaused()
+    ) {
+      return reply.status(422).send({
+        reason: 'QUOTING_PAUSED',
+        asset: body.token,
+        message: 'Quoting is currently disabled on the solver',
+      });
+    }
 
     const rateCheck = rateLimiter.check(body.recipientAddress, clientIp);
     if (!rateCheck.allowed) {
@@ -1839,6 +1921,18 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           link.status === 'expired' ? 'LINK_EXPIRED' : 'LINK_CLOSED',
           `Pay link is not open (status: ${link.status})`,
         );
+      }
+
+      if (
+        !config.quotingEnabled ||
+        !engine.isQuotingEnabled() ||
+        db.isQuotingPaused()
+      ) {
+        return reply.status(422).send({
+          reason: 'QUOTING_PAUSED',
+          asset: link.token,
+          message: 'Quoting is currently disabled on the solver',
+        });
       }
 
       const raw = (req.body ?? {}) as Record<string, unknown>;
@@ -2147,6 +2241,18 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
 
     const request = parseResult.data;
+
+    if (
+      !config.quotingEnabled ||
+      !engine.isQuotingEnabled() ||
+      db.isQuotingPaused()
+    ) {
+      return reply.status(422).send({
+        reason: 'QUOTING_PAUSED',
+        asset: request.token,
+        message: 'Quoting is currently disabled on the solver',
+      });
+    }
 
     const rateCheck = rateLimiter.check(request.recipientEvmAddress, clientIp);
     if (!rateCheck.allowed) {

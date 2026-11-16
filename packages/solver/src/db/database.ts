@@ -106,6 +106,12 @@ export class SolverDatabase {
         CREATE INDEX IF NOT EXISTS idx_pay_links_recipient ON pay_links(recipient_cashaddr);
         CREATE INDEX IF NOT EXISTS idx_pay_links_status ON pay_links(status);
         CREATE INDEX IF NOT EXISTS idx_pay_links_order_id ON pay_links(order_id);
+
+        CREATE TABLE IF NOT EXISTS system_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at INTEGER NOT NULL CHECK (updated_at < 100000000000)
+        );
       `);
 
       this.db.pragma(`user_version = ${SUPPORTED_SCHEMA_VERSION}`);
@@ -143,7 +149,40 @@ export class SolverDatabase {
       CREATE INDEX IF NOT EXISTS idx_pay_links_recipient ON pay_links(recipient_cashaddr);
       CREATE INDEX IF NOT EXISTS idx_pay_links_status ON pay_links(status);
       CREATE INDEX IF NOT EXISTS idx_pay_links_order_id ON pay_links(order_id);
+
+      CREATE TABLE IF NOT EXISTS system_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL CHECK (updated_at < 100000000000)
+      );
     `);
+  }
+
+  getSetting(key: string): string | null {
+    const row = this.db
+      .prepare('SELECT value FROM system_settings WHERE key = ?')
+      .get(key) as { value: string } | undefined;
+    return row ? row.value : null;
+  }
+
+  setSetting(key: string, value: string): void {
+    const now = Math.floor(Date.now() / 1000);
+    assertSecondsTimestamp(now, 'updated_at');
+    this.db
+      .prepare(
+        `INSERT INTO system_settings (key, value, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      )
+      .run(key, value, now);
+  }
+
+  isQuotingPaused(): boolean {
+    return this.getSetting('quoting_paused') === 'true';
+  }
+
+  setQuotingPaused(paused: boolean): void {
+    this.setSetting('quoting_paused', paused ? 'true' : 'false');
   }
 
   recordIntent(
