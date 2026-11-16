@@ -1090,32 +1090,29 @@ describe('Adversarial Security Suite (Blueprint §9)', () => {
       ).rejects.toThrow();
     });
 
-    it.fails(
-      '[expect-fail][owner:solver] solver /v1/quotes refuses unconfigured / fee-on-transfer evmToken',
-      async () => {
-        const fotToken = await deployArtifact(
-          deployerWallet,
-          publicClient,
-          deployer,
-          anvil.chain,
-          'MockFeeOnTransferToken.sol/MockFeeOnTransferToken.json',
-        );
-        await syncPrice();
-        await expect(
-          solver.client.quote({
-            direction: 'EVM_TO_BCH',
-            token: 'PUSD',
-            chainId: anvil.chainId,
-            evmToken: fotToken,
-            amountIn: 2_000_000n,
-            userEvmAddress: userAccount.address,
-            userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
-            hashLock: freshSecret('fot-quote').hashLock,
-            lane: 'safe',
-          }),
-        ).rejects.toThrow();
-      },
-    );
+    it('solver /v1/quotes refuses unconfigured / fee-on-transfer evmToken', async () => {
+      const fotToken = await deployArtifact(
+        deployerWallet,
+        publicClient,
+        deployer,
+        anvil.chain,
+        'MockFeeOnTransferToken.sol/MockFeeOnTransferToken.json',
+      );
+      await syncPrice();
+      await expect(
+        solver.client.quote({
+          direction: 'EVM_TO_BCH',
+          token: 'PUSD',
+          chainId: anvil.chainId,
+          evmToken: fotToken,
+          amountIn: 2_000_000n,
+          userEvmAddress: userAccount.address,
+          userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
+          hashLock: freshSecret('fot-quote').hashLock,
+          lane: 'safe',
+        }),
+      ).rejects.toThrow();
+    });
 
     it('handles non-standard void-return ERC20 (USDT MockNoReturnToken) via SafeERC20', async () => {
       const noReturnToken = await deployArtifact(
@@ -1229,25 +1226,22 @@ describe('Adversarial Security Suite (Blueprint §9)', () => {
       expect(res.ok).toBe(false);
     });
 
-    it.fails(
-      '[expect-fail][owner:solver] handles 18-decimal EVM amountIn through fast/safe caps and fees',
-      async () => {
-        await syncPrice();
-        // $5.00 in 18 decimals (e.g. BNB USDT)
-        const quote = await solver.client.quote({
-          direction: 'EVM_TO_BCH',
-          token: 'PUSD',
-          chainId: anvil.chainId,
-          evmToken: tokenAddress,
-          amountIn: 5n * 10n ** 18n,
-          userEvmAddress: userAccount.address,
-          userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
-          hashLock: freshSecret('18-dec').hashLock,
-          lane: 'fast',
-        });
-        expect(quote.orderId).toMatch(/^0x/);
-      },
-    );
+    it('handles 18-decimal EVM amountIn through fast/safe caps and fees', async () => {
+      await syncPrice();
+      // $5.00 in 18 decimals (e.g. BNB USDT)
+      const quote = await solver.client.quote({
+        direction: 'EVM_TO_BCH',
+        token: 'PUSD',
+        chainId: anvil.chainId,
+        evmToken: tokenAddress,
+        amountIn: 5n * 10n ** 18n,
+        userEvmAddress: userAccount.address,
+        userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
+        hashLock: freshSecret('18-dec').hashLock,
+        lane: 'fast',
+      });
+      expect(quote.orderId).toMatch(/^0x/);
+    });
 
     it('queries ERC-20 version() for permit v2 tokens in EvmChainAdapter', async () => {
       await syncPrice();
@@ -1314,35 +1308,32 @@ describe('Adversarial Security Suite (Blueprint §9)', () => {
       }
     });
 
-    it.fails(
-      '[expect-fail][owner:solver] kill switch stops new quoting while leaving refunds working',
-      async () => {
-        const opServer = await startCustomSolver();
-        try {
-          const ksRes = await fetch(`${opServer.baseUrl}/v1/kill-switch`, {
-            method: 'POST',
-            headers: { authorization: `Bearer ${operatorToken}` },
-          });
-          expect(ksRes.status).toBe(200);
+    it('kill switch stops new quoting while leaving refunds working', async () => {
+      const opServer = await startCustomSolver();
+      try {
+        const ksRes = await fetch(`${opServer.baseUrl}/v1/kill-switch`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${operatorToken}` },
+        });
+        expect(ksRes.status).toBe(200);
 
-          await expect(
-            opServer.client.quote({
-              direction: 'EVM_TO_BCH',
-              token: 'PUSD',
-              chainId: anvil.chainId,
-              evmToken: tokenAddress,
-              amountIn: 2_000_000n,
-              userEvmAddress: userAccount.address,
-              userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
-              hashLock: freshSecret('post-kill').hashLock,
-              lane: 'safe',
-            }),
-          ).rejects.toThrow();
-        } finally {
-          await opServer.stop();
-        }
-      },
-    );
+        await expect(
+          opServer.client.quote({
+            direction: 'EVM_TO_BCH',
+            token: 'PUSD',
+            chainId: anvil.chainId,
+            evmToken: tokenAddress,
+            amountIn: 2_000_000n,
+            userEvmAddress: userAccount.address,
+            userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
+            hashLock: freshSecret('post-kill').hashLock,
+            lane: 'safe',
+          }),
+        ).rejects.toThrow();
+      } finally {
+        await opServer.stop();
+      }
+    });
 
     it('rejects oversized body and malformed JSON without leaking stack traces', async () => {
       const bigBody = JSON.stringify({

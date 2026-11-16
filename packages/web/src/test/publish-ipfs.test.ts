@@ -1,8 +1,8 @@
 // @vitest-environment node
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 
 interface PublishIpfsModule {
   computeDistCid: (dirPath: string) => Promise<string>;
@@ -45,19 +45,20 @@ const { computeDistCid, publishIpfs, pinataProvider } = (await import(
   '../../scripts/publish-ipfs.mjs'
 )) as unknown as PublishIpfsModule;
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const webRoot = path.resolve(__dirname, '../..');
-const distDir = path.resolve(webRoot, 'dist');
+// A fixture in a temp directory: tests never write into the real build output.
+let distDir = '';
 
 describe('IPFS Publish Script & Pinning Provider (Task B3-09)', () => {
-  it('computes a valid IPFS CIDv1 from distribution directory', async () => {
-    if (!fs.existsSync(distDir)) {
-      // Ensure dist exists for test
-      fs.mkdirSync(distDir, { recursive: true });
-      fs.writeFileSync(path.join(distDir, 'index.html'), '<html>test</html>');
-    }
+  beforeAll(() => {
+    distDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ferry-cid-'));
+    fs.writeFileSync(path.join(distDir, 'index.html'), '<html>test</html>');
+  });
 
+  afterAll(() => {
+    fs.rmSync(distDir, { recursive: true, force: true });
+  });
+
+  it('computes a valid IPFS CIDv1 from distribution directory', async () => {
     const cid = await computeDistCid(distDir);
     expect(cid).toBeDefined();
     expect(typeof cid).toBe('string');
