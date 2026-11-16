@@ -254,6 +254,11 @@ export class EvmChainAdapter implements ChainAdapter {
       return currentLock.lockTx;
     }
 
+    const amount = BigInt(payload.amount);
+    const deadline = BigInt(payload.deadline);
+    const intentDeadline = BigInt(payload.intentDeadline);
+    const permitDeadline = BigInt(payload.permitDeadline);
+
     const owner = getAddress(payload.owner);
     const token = getAddress(payload.token);
     const balance = await this.client.readContract({
@@ -262,10 +267,10 @@ export class EvmChainAdapter implements ChainAdapter {
       functionName: 'balanceOf',
       args: [owner],
     });
-    if (balance < payload.amount) {
+    if (balance < amount) {
       throw new RelayLockRejectedError(
         'INSUFFICIENT_USER_BALANCE',
-        `Owner holds ${balance} base units but the lock needs ${payload.amount}`,
+        `Owner holds ${balance} base units but the lock needs ${amount}`,
       );
     }
 
@@ -279,12 +284,12 @@ export class EvmChainAdapter implements ChainAdapter {
           owner,
           token,
           getAddress(payload.recipient),
-          payload.amount,
+          amount,
           payload.hashLock,
-          payload.deadline,
-          payload.intentDeadline,
+          deadline,
+          intentDeadline,
           payload.intentSig,
-          payload.permitDeadline,
+          permitDeadline,
           payload.v,
           payload.r,
           payload.s,
