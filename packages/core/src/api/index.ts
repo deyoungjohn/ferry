@@ -136,6 +136,62 @@ export const ApiErrorResponseSchema = z.strictObject({
 
 export type ApiErrorResponse = z.infer<typeof ApiErrorResponseSchema>;
 
+export const API_ERROR_MESSAGES: Readonly<Record<ApiErrorCode, string>> =
+  Object.freeze({
+    BAD_REQUEST: 'The request was malformed or missing required parameters.',
+    VALIDATION_ERROR: 'One or more request fields failed validation.',
+    INVALID_SIGNATURE: 'The provided cryptographic signature is invalid.',
+    TERMS_MISMATCH: 'The signed order terms do not match the expected terms.',
+    AMOUNT_OUT_OF_RANGE: 'The requested swap amount is outside allowed limits.',
+    UNSUPPORTED_ROUTE: 'This chain or token route is not supported.',
+    UNAUTHORIZED: 'Authentication is required or the bearer token is invalid.',
+    NOT_FOUND: 'The requested resource was not found.',
+    ORDER_NOT_FOUND: 'The requested swap order was not found.',
+    LINK_NOT_FOUND: 'The requested pay link or send link was not found.',
+    CONFLICT: 'The request conflicts with the current resource state.',
+    LINK_RESERVED: 'This pay link is already reserved by another payer.',
+    LINK_CLOSED: 'This pay link is already paid or cancelled.',
+    INVALID_ORDER_STATE:
+      'This action is not valid for the order’s current state.',
+    QUOTE_EXPIRED: 'This quote has expired. Request a fresh quote.',
+    LINK_EXPIRED: 'This pay link has expired.',
+    REVEAL_NOT_READY:
+      'Counterparty lock does not yet meet the confirmation policy for secret reveal.',
+    TIMING_INVARIANT_FAILED:
+      'The proposed lock deadlines violate the HTLC safety timing invariant.',
+    RATE_LIMITED: 'Too many requests; please wait a moment and try again.',
+    QUOTING_DISABLED: 'Quoting is temporarily disabled on this solver.',
+    PEG_DEVIATION:
+      'Quoting is paused because the token price deviates from its peg.',
+    STALE_CHAIN_TIP: 'Chain tip data is stale; quoting is temporarily paused.',
+    BCH_TIP_UNHEALTHY:
+      'Bitcoin Cash node tip is stale or unhealthy; quoting is paused.',
+    EVM_TIP_UNHEALTHY:
+      'EVM chain tip is stale or unhealthy; quoting is paused.',
+    INSUFFICIENT_USER_BALANCE:
+      'Insufficient token balance or allowance for this swap.',
+    RELAY_LOCK_REVERTED: 'The relayed lock transaction reverted on-chain.',
+    INSUFFICIENT_INVENTORY:
+      'The solver does not currently have enough inventory for this amount.',
+    EXPOSURE_LIMIT_EXCEEDED:
+      'This swap would exceed the solver’s open exposure limit.',
+    UPSTREAM_ERROR:
+      'An upstream chain RPC or indexer returned an error; try again.',
+    INTERNAL_ERROR: 'The solver encountered an unexpected internal error.',
+  });
+
+export function formatApiErrorMessage(
+  code: ApiErrorCode,
+  detail?: string,
+): string {
+  const base = API_ERROR_MESSAGES[code];
+  const trimmed = detail?.trim();
+  if (trimmed !== undefined && trimmed.length > 0 && trimmed !== base) {
+    return `${base} (${trimmed})`;
+  }
+  return base;
+}
+
 export const HealthResponseSchema = z.strictObject({
   ok: z.boolean(),
   quotingEnabled: z.boolean(),
@@ -521,6 +577,13 @@ export const PayLinkQuoteRequestSchema = z.strictObject({
 });
 
 export type PayLinkQuoteRequest = z.infer<typeof PayLinkQuoteRequestSchema>;
+
+export const ListPayLinksQuerySchema = z.strictObject({
+  owner: textSchema,
+  sig: z.string().min(1).max(512),
+});
+
+export type ListPayLinksQuery = z.infer<typeof ListPayLinksQuerySchema>;
 
 export const OwnerPayLinksResponseSchema = z.strictObject({
   owner: textSchema,
