@@ -14,6 +14,7 @@ export interface BannerConfig {
   readonly emberAddress: string;
   readonly priorRepoUrl: string;
   readonly priorDemoUrl: string;
+  readonly licenseUrl?: string;
 }
 
 /**
@@ -27,6 +28,9 @@ export const BANNER_CONFIG: BannerConfig = {
   repoUrl:
     (import.meta.env?.VITE_REPO_URL as string | undefined) ??
     'https://github.com/deyoungjohn/ferry',
+  licenseUrl:
+    (import.meta.env?.VITE_LICENSE_URL as string | undefined) ??
+    'https://github.com/deyoungjohn/ferry/blob/main/LICENSE',
   emberAddress:
     (import.meta.env?.VITE_EMBER_ADDRESS as string | undefined) ?? '', // Empty until an official EMBER2026 address is designated
   priorRepoUrl:

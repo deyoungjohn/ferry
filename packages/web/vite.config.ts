@@ -10,6 +10,7 @@ const sourceConditions = [
 ];
 
 export default defineConfig({
+  base: './',
   plugins: [react(), tailwindcss()],
   resolve: {
     conditions: sourceConditions,

@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router';
+import { BrowserRouter, HashRouter } from 'react-router';
 import '@fontsource-variable/inter';
 import '@fontsource/instrument-serif';
 import './styles/index.css';
@@ -12,12 +12,23 @@ if (!rootElement) {
   throw new Error('Root element #root not found');
 }
 
+// IPFS and standalone routing support (FR-16 stretch)
+const isHash = import.meta.env?.VITE_ROUTER === 'hash';
+
 createRoot(rootElement).render(
   <StrictMode>
-    <BrowserRouter>
-      <SolverProvider>
-        <App />
-      </SolverProvider>
-    </BrowserRouter>
+    {isHash ? (
+      <HashRouter>
+        <SolverProvider>
+          <App />
+        </SolverProvider>
+      </HashRouter>
+    ) : (
+      <BrowserRouter>
+        <SolverProvider>
+          <App />
+        </SolverProvider>
+      </BrowserRouter>
+    )}
   </StrictMode>,
 );

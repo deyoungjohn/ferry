@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useContext } from 'react';
+import { isAddress } from 'viem';
 import {
   formatQuoteRefusalMessage,
   verifyPricing,
@@ -14,7 +15,7 @@ import {
   type BestQuoteResult,
   type VerifiedSolverQuote,
 } from '@ferry/solver-client';
-import { getModeCopy } from '../lib/copy';
+import { getModeCopy, FAILURE_COPY } from '../lib/copy';
 import { NETWORK_PROFILE } from '../lib/config';
 import { useSolver } from '../lib/solver/useSolver';
 import { WalletContext } from '../lib/wallet/context';
@@ -40,15 +41,31 @@ function formatSolverName(url: string): string {
   }
 }
 
-export function SwapCard() {
+export interface SwapCardProps {
+  initialReverse?: boolean;
+  initialRecipient?: string;
+  initialFailureState?:
+    | 'solver_unreachable'
+    | 'all_solvers_refused'
+    | 'quote_expired'
+    | 'wallet_rejected'
+    | 'wrong_network'
+    | 'read_only';
+}
+
+export function SwapCard({
+  initialReverse = true, // Judge path first: leads with PUSD -> USDC (§13, §19)
+  initialRecipient,
+  initialFailureState,
+}: SwapCardProps = {}) {
   const solver = useSolver();
   const walletContext = useContext(WalletContext);
   const evm = walletContext?.evm ?? { status: 'disconnected', address: null };
   const copy = getModeCopy('swap');
   const priceReader = useMemo(() => new MockPriceReader(), []);
 
-  // Direction: false = Far Chain -> BCH (forward), true = BCH -> Far Chain (reverse)
-  const [isReverse, setIsReverse] = useState(false);
+  // Direction: false = Far Chain -> BCH (forward), true = BCH -> Far Chain (reverse, PUSD -> USDC)
+  const [isReverse, setIsReverse] = useState(initialReverse);
 
   // Selected far chain and tokens
   const farChains = NETWORK_PROFILE.farChains;
@@ -68,6 +85,11 @@ export function SwapCard() {
     bchTokens[0] ?? 'tPUSD',
   );
 
+  // Recipient address (Paste-address flow)
+  const [recipientAddress, setRecipientAddress] = useState<string>(
+    initialRecipient ?? evm.address ?? '',
+  );
+
   // Send amount
   const [sendAmount, setSendAmount] = useState<string>('20.00');
   const [lane, setLane] = useState<SwapLane>('fast');
@@ -81,6 +103,23 @@ export function SwapCard() {
   const [liquidity, setLiquidity] = useState<LiquidityResponse | null>(null);
   const [recoveryDownloaded, setRecoveryDownloaded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Failure & Degraded States
+  const [failureState, setFailureState] = useState<
+    | 'solver_unreachable'
+    | 'all_solvers_refused'
+    | 'quote_expired'
+    | 'wallet_rejected'
+    | 'wrong_network'
+    | null
+  >(
+    initialFailureState && initialFailureState !== 'read_only'
+      ? initialFailureState
+      : null,
+  );
+  const [isReadOnly, setIsReadOnly] = useState<boolean>(
+    initialFailureState === 'read_only',
+  );
 
   // Multi-solver URLs from VITE_SOLVER_URLS (comma list) or mock fallbacks
   const solverUrls = useMemo(() => {
@@ -106,7 +145,7 @@ export function SwapCard() {
         if (active) setLiquidity(res);
       })
       .catch(() => {
-        // Fallback gracefully
+        // Gracefully ignore liquidity read failure
       });
     return () => {
       active = false;
@@ -137,6 +176,7 @@ export function SwapCard() {
         fromAmount: amountNum,
         lane,
         userAddress: evm.address ?? undefined,
+        recipientAddress: recipientAddress.trim() || undefined,
       })
       .then((res) => {
         if (!active) return;
@@ -162,8 +202,10 @@ export function SwapCard() {
           amountIn: isReverse
             ? BigInt(Math.max(1, Math.round(amountNum * 100)))
             : BigInt(Math.max(1, Math.round(amountNum * 1_000_000))),
-          userEvmAddress: ((evm.address as `0x${string}` | null) ??
-            '0x1111222233334444555566667777888899990000') as `0x${string}`,
+          userEvmAddress: (isAddress(recipientAddress)
+            ? recipientAddress
+            : ((evm.address as `0x${string}` | null) ??
+              '0x1111222233334444555566667777888899990000')) as `0x${string}`,
           userBchLockingBytecode:
             '0x76a914111111111111111111111111111111111111111188ac' as `0x${string}`,
           hashLock:
@@ -224,11 +266,15 @@ export function SwapCard() {
             if (active) {
               setMultiQuoteResult(null);
               setBestSolverQuote(null);
+              setFailureState('solver_unreachable');
             }
           });
       })
       .catch(() => {
-        if (active) setQuote(null);
+        if (active) {
+          setQuote(null);
+          setFailureState('solver_unreachable');
+        }
       });
 
     return () => {
@@ -244,6 +290,7 @@ export function SwapCard() {
     solver,
     solverUrls,
     evm.address,
+    recipientAddress,
     priceReader,
   ]);
 
@@ -265,6 +312,26 @@ export function SwapCard() {
     }
   }
 
+  // Address validation logic
+  const isAddressEmpty = recipientAddress.trim().length === 0;
+  const isValidRecipient = useMemo(() => {
+    if (isAddressEmpty) return false;
+    if (isReverse) {
+      // Must be valid EVM address format (0x + 40 hex chars)
+      return isAddress(recipientAddress.trim());
+    } else {
+      // Must be valid CashAddr format with prefix
+      const trimmed = recipientAddress.trim();
+      return (
+        trimmed.startsWith('bchtest:') ||
+        trimmed.startsWith('bitcoincash:') ||
+        trimmed.startsWith('bchreg:')
+      );
+    }
+  }, [isAddressEmpty, isReverse, recipientAddress]);
+
+  const hasAddressError = !isAddressEmpty && !isValidRecipient;
+
   // Calculate route liquidity display
   const availableLiquidity = useMemo(() => {
     if (!liquidity) return '5,000';
@@ -281,7 +348,7 @@ export function SwapCard() {
   const sendTokenSymbol = isReverse ? selectedBchToken : selectedFarToken;
   const receiveTokenSymbol = isReverse ? selectedFarToken : selectedBchToken;
 
-  // Recovery file download handler (Requirement 3)
+  // Recovery file download handler
   function handleDownloadRecovery() {
     if (!bestSolverQuote) return;
     const terms = bestSolverQuote.quote.terms;
@@ -317,6 +384,7 @@ export function SwapCard() {
   }
 
   async function handleSwap() {
+    if (isReadOnly || !isValidRecipient) return;
     setIsSubmitting(true);
     try {
       const orderId =
@@ -324,13 +392,22 @@ export function SwapCard() {
         quote?.signedQuote?.orderId ??
         `swap-mock-${Date.now()}`;
       if (solver.createOrder && quote?.signedQuote) {
-        await solver.createOrder(quote.signedQuote, evm.address ?? undefined);
+        await solver.createOrder(
+          quote.signedQuote,
+          recipientAddress || evm.address || undefined,
+        );
       }
       if (typeof window !== 'undefined') {
         window.location.assign(`/swap/${orderId}`);
       }
-    } catch {
+    } catch (err) {
       setIsSubmitting(false);
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('rejected') || msg.includes('denied')) {
+        setFailureState('wallet_rejected');
+      } else if (msg.includes('expired')) {
+        setFailureState('quote_expired');
+      }
     }
   }
 
@@ -347,6 +424,42 @@ export function SwapCard() {
   }, [bestSolverQuote, quote, isReverse]);
 
   const isChainDisabled = !selectedChain.enabled;
+
+  const submitButtonDisabled =
+    Boolean(refusal) ||
+    isSubmitting ||
+    isChainDisabled ||
+    isAddressEmpty ||
+    hasAddressError ||
+    isReadOnly ||
+    failureState === 'all_solvers_refused' ||
+    failureState === 'quote_expired' ||
+    failureState === 'wrong_network' ||
+    failureState === 'solver_unreachable';
+
+  const submitButtonText = useMemo(() => {
+    if (isReadOnly) return FAILURE_COPY.readOnlyMode.button;
+    if (isChainDisabled) return 'Route disabled';
+    if (isSubmitting) return 'Starting swap…';
+    if (isAddressEmpty) {
+      return isReverse
+        ? 'Paste destination EVM address'
+        : 'Paste destination BCH address';
+    }
+    if (hasAddressError) return 'Invalid destination address';
+    if (failureState === 'quote_expired') return 'Quote expired';
+    if (failureState === 'wrong_network') return 'Wrong network';
+    return copy.actionLabel;
+  }, [
+    isReadOnly,
+    isChainDisabled,
+    isSubmitting,
+    isAddressEmpty,
+    hasAddressError,
+    failureState,
+    isReverse,
+    copy.actionLabel,
+  ]);
 
   return (
     <div className="swap-stage mx-auto w-full max-w-md px-4 pt-1 pb-4">
@@ -558,6 +671,45 @@ export function SwapCard() {
           </div>
         </div>
 
+        {/* Destination Recipient Address Well (Judge Path - §13, §19) */}
+        <div className="mt-2.5 rounded-well border border-hairline bg-surface-2 p-3 transition-colors focus-within:border-lime">
+          <div className="flex items-center justify-between text-xs text-text-muted mb-1">
+            <label htmlFor="recipient-address-input" className="font-medium">
+              {isReverse
+                ? `Destination EVM Address (${selectedChain.name})`
+                : 'Destination Bitcoin Cash Address'}
+            </label>
+            <span className="text-[10px] text-text-dim">
+              {isReverse ? 'Paste any EVM address' : 'CashAddr format'}
+            </span>
+          </div>
+          <input
+            id="recipient-address-input"
+            data-testid="recipient-address-input"
+            type="text"
+            value={recipientAddress}
+            onChange={(e) => {
+              setRecipientAddress(e.target.value);
+              setFailureState(null);
+            }}
+            placeholder={isReverse ? '0x...' : 'bchtest:...'}
+            className="w-full bg-transparent font-mono text-xs text-text outline-none placeholder:text-text-dim/50"
+          />
+          {hasAddressError && (
+            <p
+              data-testid="address-validation-error"
+              className="mt-1.5 text-[11px] font-medium text-danger flex items-center gap-1"
+            >
+              <span>⚠️</span>
+              <span>
+                {isReverse
+                  ? `Invalid EVM address format for ${selectedChain.name}. Must start with 0x followed by 40 hex characters.`
+                  : 'Invalid Bitcoin Cash address format. Expected CashAddr with prefix (bchtest:...).'}
+              </span>
+            </p>
+          )}
+        </div>
+
         {/* Multi-solver Winning Badge & Collapsible Disclosure (FR-14) */}
         {bestSolverQuote && (
           <div className="mt-2.5 rounded-lg border border-hairline bg-surface-2/80 p-2 text-xs">
@@ -647,6 +799,149 @@ export function SwapCard() {
           </div>
         )}
 
+        {/* All Solvers Refused Failure State */}
+        {((multiQuoteResult &&
+          multiQuoteResult.quotes.length === 0 &&
+          multiQuoteResult.failures.length > 0) ||
+          failureState === 'all_solvers_refused') && (
+          <div
+            data-testid="all-solvers-refusing-alert"
+            className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn"
+            role="alert"
+          >
+            <p className="font-semibold">
+              {FAILURE_COPY.allSolversRefused.title}
+            </p>
+            <p className="mt-0.5 text-[11px] text-text-muted">
+              {FAILURE_COPY.allSolversRefused.message}
+            </p>
+          </div>
+        )}
+
+        {/* Solver Unreachable Failure State */}
+        {failureState === 'solver_unreachable' && (
+          <div
+            data-testid="solver-unreachable-alert"
+            className="mt-2.5 rounded-lg border border-danger/30 bg-danger/10 p-2.5 text-xs text-danger"
+            role="alert"
+          >
+            <p className="font-semibold">
+              {FAILURE_COPY.solverUnreachable.title}
+            </p>
+            <p className="mt-0.5 text-[11px] text-text-muted">
+              {FAILURE_COPY.solverUnreachable.message}
+            </p>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                data-testid="switch-read-only-button"
+                onClick={() => {
+                  setIsReadOnly(true);
+                  setFailureState(null);
+                }}
+                className="rounded-pill bg-surface-3 px-2.5 py-1 text-[11px] font-semibold text-text hover:text-lime cursor-pointer"
+              >
+                {FAILURE_COPY.solverUnreachable.action}
+              </button>
+              <button
+                type="button"
+                data-testid="retry-solver-button"
+                onClick={() => setFailureState(null)}
+                className="rounded-pill border border-hairline px-2.5 py-1 text-[11px] font-medium text-text-muted hover:text-text cursor-pointer"
+              >
+                {FAILURE_COPY.solverUnreachable.retry}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Quote Expired Failure State */}
+        {failureState === 'quote_expired' && (
+          <div
+            data-testid="quote-expired-alert"
+            className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn"
+            role="alert"
+          >
+            <p className="font-semibold">{FAILURE_COPY.quoteExpired.title}</p>
+            <p className="mt-0.5 text-[11px] text-text-muted">
+              {FAILURE_COPY.quoteExpired.message}
+            </p>
+            <button
+              type="button"
+              data-testid="refresh-quote-button"
+              onClick={() => setFailureState(null)}
+              className="mt-2 rounded-pill bg-lime px-2.5 py-1 text-[11px] font-semibold text-lime-ink hover:bg-lime/90 cursor-pointer"
+            >
+              {FAILURE_COPY.quoteExpired.action}
+            </button>
+          </div>
+        )}
+
+        {/* Wallet Rejected Failure State */}
+        {failureState === 'wallet_rejected' && (
+          <div
+            data-testid="wallet-rejected-alert"
+            className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn"
+            role="alert"
+          >
+            <p className="font-semibold">{FAILURE_COPY.walletRejected.title}</p>
+            <p className="mt-0.5 text-[11px] text-text-muted">
+              {FAILURE_COPY.walletRejected.message}
+            </p>
+            <button
+              type="button"
+              data-testid="try-again-button"
+              onClick={() => setFailureState(null)}
+              className="mt-2 rounded-pill bg-surface-3 px-2.5 py-1 text-[11px] font-semibold text-text hover:text-lime cursor-pointer"
+            >
+              {FAILURE_COPY.walletRejected.action}
+            </button>
+          </div>
+        )}
+
+        {/* Wrong Network Failure State */}
+        {failureState === 'wrong_network' && (
+          <div
+            data-testid="wrong-network-alert"
+            className="mt-2.5 rounded-lg border border-danger/30 bg-danger/10 p-2.5 text-xs text-danger"
+            role="alert"
+          >
+            <p className="font-semibold">{FAILURE_COPY.wrongNetwork.title}</p>
+            <p className="mt-0.5 text-[11px] text-text-muted">
+              {FAILURE_COPY.wrongNetwork.message} (Requires {selectedChain.name}
+              )
+            </p>
+            <button
+              type="button"
+              data-testid="switch-network-button"
+              onClick={() => setFailureState(null)}
+              className="mt-2 rounded-pill bg-olive px-2.5 py-1 text-[11px] font-semibold text-text hover:bg-olive/90 cursor-pointer"
+            >
+              {FAILURE_COPY.wrongNetwork.action}
+            </button>
+          </div>
+        )}
+
+        {/* Read-Only Mode Banner */}
+        {isReadOnly && (
+          <div
+            data-testid="read-only-banner"
+            className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn flex items-center justify-between"
+            role="status"
+          >
+            <p className="font-medium text-[11px]">
+              {FAILURE_COPY.readOnlyMode.banner}
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsReadOnly(false)}
+              className="ml-2 text-[10px] text-text underline hover:text-lime cursor-pointer shrink-0"
+            >
+              Exit read-only
+            </button>
+          </div>
+        )}
+
         {/* Price Verification Warning Alert (FR-17) */}
         {priceWarning && (
           <div
@@ -716,18 +1011,12 @@ export function SwapCard() {
         {/* Primary Action Button */}
         <button
           type="button"
-          disabled={Boolean(refusal) || isSubmitting || isChainDisabled}
+          disabled={submitButtonDisabled}
           onClick={handleSwap}
           data-testid="swap-submit-button"
           className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-pill bg-olive text-text font-semibold transition-colors hover:bg-olive/90 cursor-pointer shadow-elev-pill focus:outline-none focus-visible:ring-2 focus-visible:ring-lime disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <span>
-            {isChainDisabled
-              ? 'Route disabled'
-              : isSubmitting
-                ? 'Starting swap…'
-                : copy.actionLabel}
-          </span>
+          <span>{submitButtonText}</span>
         </button>
       </div>
 

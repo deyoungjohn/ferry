@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router';
 import { useSolver } from '../lib/solver/useSolver';
 import type { SwapOrder } from '../lib/solver/types';
-import { getModeCopy } from '../lib/copy';
+import { getModeCopy, STATUS_PLAIN_WORDS, FAILURE_COPY } from '../lib/copy';
 import { AlertTriangleIcon, CheckIcon, CopyIcon } from '../components/icons';
 
-function truncateHash(hash: string, head = 10, tail = 8): string {
+function truncateHash(hash?: string, head = 10, tail = 8): string {
+  if (!hash) return '';
   if (hash.length <= head + tail + 3) return hash;
   return `${hash.slice(0, head)}…${hash.slice(-tail)}`;
 }
@@ -103,6 +104,12 @@ export function SwapStatusPage() {
     order.status === 'USER_CLAIM_SEEN' ||
     order.status === 'DONE';
   const userClaimConfirmed = order.status === 'DONE';
+  const isCounterLockLate =
+    userLockConfirmed &&
+    !solverLockConfirmed &&
+    (order.elapsedSeconds >= 120 ||
+      order.waitDescription.toLowerCase().includes('late') ||
+      order.status === 'USER_LOCK_FINAL');
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-6 sm:py-8">
@@ -136,6 +143,7 @@ export function SwapStatusPage() {
           </div>
           <div className="flex items-center gap-2">
             <span
+              data-testid="status-plain-words"
               className={`inline-flex items-center gap-1.5 rounded-pill px-3 py-1 text-xs font-semibold ${
                 isDone
                   ? 'bg-ok/10 text-ok border border-ok/30'
@@ -145,10 +153,52 @@ export function SwapStatusPage() {
               }`}
             >
               {isDone && <CheckIcon className="size-3.5" />}
+              {STATUS_PLAIN_WORDS[order.status] ?? order.status}
+            </span>
+            <span
+              data-testid="status-raw-enum"
+              className="text-[11px] font-mono text-text-muted px-2 py-0.5 rounded bg-surface-2 border border-hairline"
+            >
               {order.status}
             </span>
           </div>
         </div>
+
+        {/* Counter-Lock Late Alert (Failure State) */}
+        {isCounterLockLate && (
+          <div
+            data-testid="counter-lock-late-alert"
+            className="mb-6 rounded-xl border border-warn/40 bg-warn/10 p-4 text-xs"
+            role="alert"
+          >
+            <div className="flex items-start gap-2.5">
+              <AlertTriangleIcon className="size-5 shrink-0 text-warn mt-0.5" />
+              <div className="flex-1">
+                <h3 className="font-semibold text-text text-sm">
+                  {FAILURE_COPY.counterLockLate.title}
+                </h3>
+                <p className="mt-1 text-text-muted">
+                  {FAILURE_COPY.counterLockLate.message}
+                </p>
+                <div className="mt-2.5 rounded-lg bg-surface-2 p-2.5 font-mono text-[11px] text-warn border border-warn/20">
+                  Refund Countdown: ~15 minutes (45 blocks) remaining until
+                  auto-refund window.
+                </div>
+                <p className="mt-2 text-text-muted">
+                  {FAILURE_COPY.counterLockLate.guidance}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link
+                    to="/recover"
+                    className="rounded-pill bg-surface-3 px-3 py-1 font-semibold text-text hover:text-lime transition-colors"
+                  >
+                    Open Recovery Tool
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Amounts and Direction Well */}
         <div className="rounded-well border border-hairline bg-surface-2 p-4 mb-6">
@@ -372,7 +422,7 @@ export function SwapStatusPage() {
         </div>
 
         {/* Transactions Section */}
-        {order.transactions.length > 0 && (
+        {(order.transactions?.length ?? 0) > 0 && (
           <div className="mt-8 border-t border-hairline pt-6">
             <h2 className="text-xs font-bold uppercase tracking-wider text-text-muted mb-3">
               On-Chain Transactions

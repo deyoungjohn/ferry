@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSolver } from '../lib/solver/useSolver';
+import { PEG_SOURCES } from '../lib/copy';
 import type { PegPrice } from '../lib/solver/types';
 
 function Sparkline({ points }: { points: readonly number[] }) {
@@ -63,9 +64,10 @@ export function PegCards() {
       className="mx-auto mt-16 max-w-5xl px-4 sm:px-6"
     >
       <div className="mb-4">
-        <h2 className="text-lg font-semibold text-text">BCH Stablecoin Pegs</h2>
+        <h2 className="text-lg font-semibold text-text">{PEG_SOURCES.title}</h2>
         <p className="text-xs text-text-muted">
-          Real-time parity vs USD on Bitcoin Cash CashTokens DEXs.
+          {PEG_SOURCES.description}{' '}
+          <span className="text-text-dim">({PEG_SOURCES.sourcesLabel})</span>
         </p>
       </div>
 

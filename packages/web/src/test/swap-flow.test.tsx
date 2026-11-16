@@ -44,13 +44,15 @@ describe('Swap Flow Integration', () => {
     });
     expect(flipBtn).toBeInTheDocument();
 
-    // Initial: send USDC, receive tPUSD
-    expect(screen.getByLabelText(/You send/i)).toBeInTheDocument();
-
-    fireEvent.click(flipBtn);
-    // After flip: send tPUSD, receive USDC
+    // Initial (Judge path): send tPUSD, receive USDC
     await waitFor(() => {
       expect(screen.getByText(/1 tPUSD ≈/i)).toBeInTheDocument();
+    });
+
+    fireEvent.click(flipBtn);
+    // After flip: send USDC, receive tPUSD
+    await waitFor(() => {
+      expect(screen.getByText(/1 USDC ≈/i)).toBeInTheDocument();
     });
   });
 
@@ -58,7 +60,7 @@ describe('Swap Flow Integration', () => {
     render(
       <MemoryRouter>
         <SolverProvider client={new MockSolverClient()}>
-          <SwapCard />
+          <SwapCard initialRecipient="0x1111222233334444555566667777888899990000" />
         </SolverProvider>
       </MemoryRouter>,
     );
@@ -88,7 +90,7 @@ describe('Swap Flow Integration', () => {
     render(
       <MemoryRouter>
         <SolverProvider client={client}>
-          <SwapCard />
+          <SwapCard initialRecipient="0x1111222233334444555566667777888899990000" />
         </SolverProvider>
       </MemoryRouter>,
     );
