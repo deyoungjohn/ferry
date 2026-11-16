@@ -21,8 +21,8 @@ describe('HomePage components', () => {
       }),
     ).toBeInTheDocument();
 
-    // Swap card & Mock label
-    expect(screen.getByTestId('mock-label')).toBeInTheDocument();
+    // Swap card & Solver label
+    expect(screen.getByTestId('solver-label')).toBeInTheDocument();
     expect(
       screen.getByText('Mock interface, no funds move'),
     ).toBeInTheDocument();

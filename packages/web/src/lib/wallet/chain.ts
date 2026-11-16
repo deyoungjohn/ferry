@@ -26,12 +26,12 @@ export function validateBchAddressPrefix(
     const decoded = decodeCashAddress(address);
     if (decoded.prefix !== expectedPrefix) {
       const targetNetwork =
-        expectedPrefix === 'bchtest' ? 'Bitcoin Cash Chipnet' : 'Bitcoin Cash';
+        expectedPrefix === 'bchtest' ? 'BCH Test' : 'Bitcoin Cash';
       const detectedNetwork =
         decoded.prefix === 'bitcoincash'
-          ? 'Bitcoin Cash Mainnet'
+          ? 'Bitcoin Cash'
           : decoded.prefix === 'bchtest'
-            ? 'Chipnet'
+            ? 'BCH Test'
             : decoded.prefix;
 
       return {
@@ -58,7 +58,7 @@ export function isWrongEvmChain(
 
 export function wrongEvmChainMessage(
   expectedChainId: number,
-  expectedChainName = 'Base Sepolia',
+  expectedChainName = 'Base',
 ): string {
   return `Switch your wallet to ${expectedChainName} (chain ${expectedChainId}).`;
 }

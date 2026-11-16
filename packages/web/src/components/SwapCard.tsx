@@ -19,15 +19,15 @@ import { getModeCopy, FAILURE_COPY } from '../lib/copy';
 import { NETWORK_PROFILE } from '../lib/config';
 import { useSolver } from '../lib/solver/useSolver';
 import { WalletContext } from '../lib/wallet/context';
-import { MockPriceReader } from '../lib/pricing/mock';
+import { RealPriceReader } from '../lib/pricing/real';
 import {
   formatPricingEvidence,
   CHECKABLE_QUOTE_WORDING,
 } from '../lib/solver/pricing-display';
-import { defaultMockServer } from '../lib/solver/mock-fetch';
 import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
 import { ArrowUpDownIcon, ChevronDownIcon } from './icons';
+import { CopyDiagnosticsButton } from './CopyDiagnosticsButton';
 
 function formatSolverName(url: string): string {
   try {
@@ -62,7 +62,7 @@ export function SwapCard({
   const walletContext = useContext(WalletContext);
   const evm = walletContext?.evm ?? { status: 'disconnected', address: null };
   const copy = getModeCopy('swap');
-  const priceReader = useMemo(() => new MockPriceReader(), []);
+  const priceReader = useMemo(() => new RealPriceReader(), []);
 
   // Direction: false = Far Chain -> BCH (forward), true = BCH -> Far Chain (reverse, PUSD -> USDC)
   const [isReverse, setIsReverse] = useState(initialReverse);
@@ -70,7 +70,7 @@ export function SwapCard({
   // Selected far chain and tokens
   const farChains = NETWORK_PROFILE.farChains;
   const [selectedChainId, setSelectedChainId] = useState<string | number>(
-    farChains[0]?.id ?? 84532,
+    farChains[0]?.id ?? 8453,
   );
 
   const selectedChain: ChainDisplay =
@@ -121,7 +121,7 @@ export function SwapCard({
     initialFailureState === 'read_only',
   );
 
-  // Multi-solver URLs from VITE_SOLVER_URLS (comma list) or mock fallbacks
+  // Multi-solver URLs from VITE_SOLVER_URLS (comma list)
   const solverUrls = useMemo(() => {
     const envUrls = import.meta.env?.VITE_SOLVER_URLS as string | undefined;
     if (envUrls && envUrls.trim().length > 0) {
@@ -130,10 +130,7 @@ export function SwapCard({
         .map((u) => u.trim())
         .filter(Boolean);
     }
-    return [
-      'https://mock-solver-alpha.local',
-      'https://mock-solver-beta.local',
-    ];
+    return [];
   }, []);
 
   // Fetch liquidity on mount
@@ -205,16 +202,19 @@ export function SwapCard({
           userEvmAddress: (isAddress(recipientAddress)
             ? recipientAddress
             : ((evm.address as `0x${string}` | null) ??
-              '0x1111222233334444555566667777888899990000')) as `0x${string}`,
-          userBchLockingBytecode:
-            '0x76a914111111111111111111111111111111111111111188ac' as `0x${string}`,
-          hashLock:
-            '0x1234567890123456789012345678901234567890123456789012345678901234' as Hex32,
+              '0x' + '0'.repeat(40))) as `0x${string}`,
+          userBchLockingBytecode: ('0x76a914' +
+            '0'.repeat(40) +
+            '88ac') as `0x${string}`,
+          hashLock: ('0x' + '0'.repeat(64)) as Hex32,
           lane,
         };
 
+        const fetchImpl =
+          typeof window !== 'undefined' ? window.fetch.bind(window) : fetch;
+
         bestQuote(solverUrls, quoteReq, {
-          fetch: defaultMockServer.fetch,
+          fetch: fetchImpl,
           bchTipHeight: 170000,
           evmTokenDecimals: 6,
           bchTokenDecimals: 2,
@@ -390,7 +390,7 @@ export function SwapCard({
       const orderId =
         bestSolverQuote?.quote.orderId ??
         quote?.signedQuote?.orderId ??
-        `swap-mock-${Date.now()}`;
+        `swap-${Date.now()}`;
       if (solver.createOrder && quote?.signedQuote) {
         await solver.createOrder(
           quote.signedQuote,
@@ -463,17 +463,23 @@ export function SwapCard({
 
   return (
     <div className="swap-stage mx-auto w-full max-w-md px-4 pt-1 pb-4">
-      {/* Mock interface disclaimer banner */}
-      <div
-        data-testid="mock-label"
-        className="mb-2 flex items-center justify-between rounded-lg border border-warn/30 bg-warn/10 px-3 py-1 text-xs"
-      >
-        <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-warn shadow-[0_0_8px_var(--warn)]" />
-          <span className="font-medium text-text">{solver.getLabel()}</span>
+      {/* Solver status disclaimer banner */}
+      {!solver.isLive() && (
+        <div
+          data-testid="solver-label"
+          className="mb-2 flex items-center justify-between rounded-lg border border-warn/30 bg-warn/10 px-3 py-1 text-xs"
+        >
+          <div className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-warn shadow-[0_0_8px_var(--warn)]" />
+            <span className="font-medium text-text">{solver.getLabel()}</span>
+          </div>
+          {!NETWORK_PROFILE.isMainnet && (
+            <span className="text-[11px] text-text-dim">
+              {NETWORK_PROFILE.label}
+            </span>
+          )}
         </div>
-        <span className="text-[11px] text-text-dim">Testnet Only</span>
-      </div>
+      )}
 
       {/* Main swap card shell */}
       <div className="card-ring relative rounded-card border border-hairline bg-surface-1 p-3.5 sm:p-4">
@@ -825,6 +831,16 @@ export function SwapCard({
             <p className="mt-0.5 text-[11px] text-text-muted">
               {FAILURE_COPY.allSolversRefused.message}
             </p>
+            <div className="mt-2 flex justify-end">
+              <CopyDiagnosticsButton
+                data={{
+                  route: `${sendTokenSymbol.toLowerCase()}-to-${receiveTokenSymbol.toLowerCase()}`,
+                  errorCode: 'ALL_SOLVERS_REFUSED',
+                  errorMessage: FAILURE_COPY.allSolversRefused.message,
+                  solverUrls,
+                }}
+              />
+            </div>
           </div>
         )}
 
@@ -861,6 +877,14 @@ export function SwapCard({
               >
                 {FAILURE_COPY.solverUnreachable.retry}
               </button>
+              <CopyDiagnosticsButton
+                data={{
+                  route: `${sendTokenSymbol.toLowerCase()}-to-${receiveTokenSymbol.toLowerCase()}`,
+                  errorCode: 'SOLVER_UNREACHABLE',
+                  errorMessage: FAILURE_COPY.solverUnreachable.message,
+                  solverUrls,
+                }}
+              />
             </div>
           </div>
         )}

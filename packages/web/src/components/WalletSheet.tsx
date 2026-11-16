@@ -47,7 +47,7 @@ export function WalletSheet({ open, onClose }: WalletSheetProps) {
         <div className="rounded-xl border border-hairline bg-surface-2 p-3.5">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-              EVM Wallet (Base Sepolia & Testnets)
+              EVM Wallet
             </span>
             {evm.status === 'connected' && (
               <span className="inline-flex items-center gap-1 rounded-pill bg-ok/10 px-2 py-0.5 text-[11px] font-medium text-ok">
@@ -66,9 +66,7 @@ export function WalletSheet({ open, onClose }: WalletSheetProps) {
                 <code className="text-text font-mono text-[11px]">
                   VITE_REOWN_PROJECT_ID
                 </code>{' '}
-                in your environment or append{' '}
-                <code className="text-text font-mono text-[11px]">?mock=1</code>{' '}
-                to use mock adapters.
+                in your environment.
               </p>
             </div>
           )}

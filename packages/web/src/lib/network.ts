@@ -64,9 +64,9 @@ export function loadFarChainsFromFacts(
   const envRoutes =
     typeof import.meta !== 'undefined' && import.meta.env?.VITE_ENABLED_ROUTES
       ? (import.meta.env.VITE_ENABLED_ROUTES as string)
-      : network === 'testnet'
-        ? 'usdc:base,usdc:ethereum,usdc:arbitrum'
-        : undefined;
+      : isMainnetEnv
+        ? undefined
+        : 'usdc:base,usdc:ethereum,usdc:arbitrum';
 
   const result: ChainDisplayResult = loadChainDisplay({
     network,
@@ -88,32 +88,57 @@ export function loadFarChainsFromFacts(
   }));
 }
 
-export const TESTNET_CHAINS: readonly ChainDisplay[] =
-  loadFarChainsFromFacts('testnet');
+const isMainnetEnv = import.meta.env.VITE_NETWORK === 'mainnet';
+
+export const TESTNET_CHAINS: readonly ChainDisplay[] = isMainnetEnv
+  ? []
+  : loadFarChainsFromFacts('testnet');
 export const MAINNET_CHAINS_FROM_FACTS: readonly ChainDisplay[] =
   loadFarChainsFromFacts('mainnet');
 
-export const TESTNET_BCH: BchChainDisplay = {
-  name: 'Bitcoin Cash Chipnet',
-  network: 'chipnet',
-  prefix: 'bchtest',
-  tokenSymbols: ['tPUSD', 'tMUSD'],
-  enabled: true,
-};
+export const TESTNET_BCH: BchChainDisplay = isMainnetEnv
+  ? {
+      name: 'Bitcoin Cash',
+      network: 'mainnet',
+      prefix: 'bitcoincash',
+      tokenSymbols: ['PUSD', 'MUSD'],
+      enabled: true,
+    }
+  : {
+      name: 'Bitcoin Cash Chipnet',
+      network: 'chipnet',
+      prefix: 'bchtest',
+      tokenSymbols: ['tPUSD', 'tMUSD'],
+      enabled: true,
+    };
 
-export const TESTNET_PROFILE: NetworkProfile = {
-  kind: 'testnet',
-  label: 'Testnet',
-  isMainnet: false,
-  isConfigured: true,
-  farChains: TESTNET_CHAINS,
-  bch: TESTNET_BCH,
-  limits: {
-    minUsdMicros: 1_000_000n, // $1.00 minimum
-    maxUsdMicros: 100_000_000n, // $100.00 maximum testnet
-    fastLaneMaxUsdMicros: 25_000_000n, // $25.00 fast lane limit
-  },
-};
+export const TESTNET_PROFILE: NetworkProfile = isMainnetEnv
+  ? {
+      kind: 'mainnet',
+      label: 'Mainnet',
+      isMainnet: true,
+      isConfigured: true,
+      farChains: MAINNET_CHAINS_FROM_FACTS,
+      bch: TESTNET_BCH,
+      limits: {
+        minUsdMicros: 1_000_000n,
+        maxUsdMicros: 100_000_000n,
+        fastLaneMaxUsdMicros: 25_000_000n,
+      },
+    }
+  : {
+      kind: 'testnet',
+      label: 'Testnet',
+      isMainnet: false,
+      isConfigured: true,
+      farChains: TESTNET_CHAINS,
+      bch: TESTNET_BCH,
+      limits: {
+        minUsdMicros: 1_000_000n, // $1.00 minimum
+        maxUsdMicros: 100_000_000n, // $100.00 maximum
+        fastLaneMaxUsdMicros: 25_000_000n, // $25.00 fast lane limit
+      },
+    };
 
 export interface BannerCheckValues {
   readonly deckUrl?: string;
@@ -209,10 +234,10 @@ export function readNetworkSetting(
   kind: 'testnet' | 'mainnet';
   error?: string;
 } {
-  if (!envVar || envVar === 'testnet') {
+  if (envVar === 'testnet') {
     return { kind: 'testnet' };
   }
-  if (envVar === 'mainnet') {
+  if (envVar === 'mainnet' || (envVar === undefined && isMainnetEnv)) {
     if (mainnetConfiguredFlag) {
       return { kind: 'mainnet' };
     }
@@ -222,10 +247,8 @@ export function readNetworkSetting(
         'Mainnet profile selected, but mainnet deployment is not configured.',
     };
   }
-  return {
-    kind: 'testnet',
-    error: `Unknown VITE_NETWORK value "${envVar}". Defaulting to testnet.`,
-  };
+
+  return { kind: 'testnet' };
 }
 
 export function networkConfigErrors(

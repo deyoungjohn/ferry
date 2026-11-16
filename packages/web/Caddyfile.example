@@ -1,0 +1,107 @@
+# ==============================================================================
+# Ferry Web UI - Production Caddyfile Example
+# ==============================================================================
+# This configuration is designed for deploying the static Vite build (`dist/`)
+# on a modern Linux VPS (Ubuntu/Debian) running Caddy v2 with automatic TLS.
+#
+# Production Checklist:
+# 1. Point your domain (e.g. ferry.cash) DNS A/AAAA records to your VPS public IP.
+# 2. Place built web assets in /var/www/ferry/dist (e.g. via CI/CD or rsync).
+# 3. Adjust your domain name below or set FERRY_DOMAIN environment variable.
+# 4. If your solver is hosted on a custom domain, append its origin to the
+#    connect-src directive in the Content-Security-Policy header below.
+# ==============================================================================
+
+{$FERRY_DOMAIN:ferry.example.com} {
+    # --------------------------------------------------------------------------
+    # Root & Static File Serving
+    # --------------------------------------------------------------------------
+    root * /var/www/ferry/dist
+    file_server
+
+    # Single Page Application (SPA) routing:
+    # Rewrite all unmatched requests to index.html so React Router handles client routes.
+    try_files {path} /index.html
+
+    # Enable modern HTTP compression for text assets
+    encode zstd gzip
+
+    # --------------------------------------------------------------------------
+    # Security Headers
+    # --------------------------------------------------------------------------
+    header {
+        # HTTP Strict Transport Security (HSTS):
+        # Enforce HTTPS strictly for 1 year, including all subdomains, eligible for preload.
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+        # Frame Protection:
+        # Prevent clickjacking attacks by forbidding embedding Ferry inside any iframes.
+        X-Frame-Options "DENY"
+
+        # MIME Sniffing Prevention:
+        # Prevent browsers from trying to guess MIME types outside declared headers.
+        X-Content-Type-Options "nosniff"
+
+        # Referrer Policy:
+        # Send origin only on cross-origin requests; never leak path/query params.
+        Referrer-Policy "strict-origin-when-cross-origin"
+
+        # Permissions Policy:
+        # Restrict access to sensitive browser features that Ferry does not use.
+        Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+
+        # Content Security Policy (CSP):
+        # Strictly controls allowed origins for scripts, styles, connections, and images.
+        #
+        # Breakdown of Allowed Origins:
+        # - default-src: 'self'
+        # - script-src:  'self' 'wasm-unsafe-eval' (required for libauth WASM secp256k1 & sha256)
+        # - style-src:   'self' 'unsafe-inline' (required for Tailwind / CSS styles)
+        # - img-src:     'self' data: blob: (allows SVG icons, QR code canvas data, and blob URLs)
+        # - font-src:    'self' data:
+        # - connect-src: 'self'
+        #                Solver origins (from VITE_SOLVER_URLS): https://solver.ferry.cash https://solver-alpha.ferry.cash https://solver-beta.ferry.cash
+        #                WalletConnect / Reown AppKit APIs:
+        #                  https://*.walletconnect.com
+        #                  https://*.walletconnect.org
+        #                  https://*.reown.com
+        #                  https://api.web3modal.org
+        #                  https://rpc.walletconnect.org
+        #                  https://pulse.walletconnect.org
+        #                WalletConnect WebSocket relay endpoints:
+        #                  wss://*.walletconnect.com
+        #                  wss://*.walletconnect.org
+        #                  wss://*.reown.com
+        # - frame-src:   'self' https://verify.walletconnect.com https://verify.walletconnect.org
+        # - frame-ancestors: 'none' (reinforces X-Frame-Options DENY)
+        # - base-uri:    'self'
+        # - form-action: 'self'
+        # - object-src:  'none'
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://solver.ferry.cash https://solver-alpha.ferry.cash https://solver-beta.ferry.cash https://*.walletconnect.com https://*.walletconnect.org https://*.reown.com https://api.web3modal.org https://rpc.walletconnect.org https://pulse.walletconnect.org wss://*.walletconnect.com wss://*.walletconnect.org wss://*.reown.com; frame-src 'self' https://verify.walletconnect.com https://verify.walletconnect.org; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none';"
+    }
+
+    # --------------------------------------------------------------------------
+    # Caching Policy
+    # --------------------------------------------------------------------------
+    # Fingerprinted Vite assets in /assets/* contain content hashes in filenames.
+    # Cache them immutably for 1 year to maximize browser caching and CDN performance.
+    @hashedAssets path /assets/*
+    header @hashedAssets {
+        Cache-Control "public, max-age=31536000, immutable"
+    }
+
+    # Static assets like favicon and robots.txt can be cached for 1 day.
+    @staticFiles path /favicon.svg /robots.txt /glass/*
+    header @staticFiles {
+        Cache-Control "public, max-age=86400"
+    }
+
+    # Entry HTML (index.html) must NEVER be cached by browsers so that updates
+    # and new asset hashes are immediately served on new deployments.
+    @htmlEntry path /index.html /
+    header @htmlEntry {
+        Cache-Control "no-cache, no-store, must-revalidate"
+        Pragma "no-cache"
+        Expires "0"
+    }
+}

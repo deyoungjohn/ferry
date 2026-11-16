@@ -24,8 +24,7 @@ export function ActivityPage() {
   const bch = walletContext?.bch ?? { status: 'disconnected', address: null };
   const [pastedAddress, setPastedAddress] = useState('');
   const [activeAddress, setActiveAddress] = useState(
-    bch.address?.address ??
-      'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk',
+    bch.address?.address ?? '',
   );
   const [addressError, setAddressError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);

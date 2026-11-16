@@ -27,7 +27,7 @@ describe('SwapStatusPage (/swap/:orderId)', () => {
     });
 
     // Check header & badges
-    expect(screen.getByTestId('mock-order-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('simulated-order-badge')).toBeInTheDocument();
     expect(screen.getByText('DONE')).toBeInTheDocument();
 
     // Check amounts
