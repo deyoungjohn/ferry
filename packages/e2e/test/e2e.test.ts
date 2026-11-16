@@ -32,7 +32,9 @@ import {
   planRecovery,
   probeEvmLockStatus,
 } from '@ferry/recover-cli';
-import { SolverHttpError } from '@ferry/solver-client';
+import type { QuoteResponse } from '@ferry/core/api';
+import { SolverHttpError, SolverRefusalError } from '@ferry/solver-client';
+import { runContractSuite } from '@ferry/solver-client/testing';
 import {
   DEPLOYER_KEY,
   RECIPIENT_KEY,
@@ -56,14 +58,6 @@ const tokenAbi = parseAbi([
   'function balanceOf(address account) external view returns (uint256)',
   'function setBlacklisted(address account, bool blocked) external',
 ]);
-
-interface SolverQuotePayload {
-  orderId: Hex32;
-  terms: OrderTerms;
-  lane: 'safe' | 'fast';
-  signature: Hex;
-  signerAddress: Address;
-}
 
 function reviveBigInts<T>(json: unknown): T {
   const rec = (v: unknown): unknown => {
@@ -203,50 +197,57 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
     direction: 'EVM_TO_BCH' | 'BCH_TO_EVM';
     amountIn: bigint;
     hashLock: Hex32;
-  }): Promise<SolverQuotePayload> {
-    const res = await postSolverJson<SolverQuotePayload>(
-      solver.baseUrl,
-      '/v1/quotes',
-      {
-        direction: params.direction,
-        bchToken: 'PUSD',
-        amountIn: params.amountIn.toString(),
-        userEvmAddress: userAccount.address,
-        userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
-        hashLock: params.hashLock,
-        lane: 'safe',
-        evmChainId: anvil.chainId,
-        evmToken: tokenAddress,
-      },
-    );
-    if (res.status !== 200) {
-      throw new Error(
-        `Quote failed (${res.status}): ${JSON.stringify(res.data, (_k, v: unknown) => (typeof v === 'bigint' ? v.toString() : v))}`,
-      );
-    }
-    return res.data;
+  }): Promise<QuoteResponse> {
+    return solver.client.quote({
+      direction: params.direction,
+      token: 'PUSD',
+      chainId: anvil.chainId,
+      evmToken: tokenAddress,
+      amountIn: params.amountIn,
+      userEvmAddress: userAccount.address,
+      userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
+      hashLock: params.hashLock,
+      lane: 'safe',
+    });
   }
 
-  it('0. SolverClient health & schema gap verification', async () => {
+  it('0. SolverClient health, quote, order status, and contract suite', async () => {
+    await syncPriceTimestamp();
     const health = await solver.client.health();
     expect(health.ok).toBe(true);
 
-    // Known gap: SolverClient.quote uses @ferry/core/api QuoteRequestSchema (token, chainId)
-    // whereas @ferry/solver POST /v1/quotes expects (bchToken, evmChainId).
     const { hashLock } = freshSecret('00');
-    await expect(
-      solver.client.quote({
-        direction: 'EVM_TO_BCH',
-        token: 'PUSD',
+    const quote = await requestQuote({
+      direction: 'EVM_TO_BCH',
+      amountIn: 5_000_000n,
+      hashLock,
+    });
+    expect(quote.orderId).toMatch(/^0x[0-9a-f]{64}$/);
+    const order = await solver.client.getOrder(quote.orderId);
+    expect(order.orderId).toBe(quote.orderId);
+    expect(order.state).toBe('QUOTED');
+
+    const report = await runContractSuite(solver.baseUrl, {
+      bearerToken: 'a'.repeat(32),
+      fixtures: {
         chainId: anvil.chainId,
         evmToken: tokenAddress,
-        amountIn: 5_000_000n,
         userEvmAddress: userAccount.address,
+        recipientEvmAddress: recipientAccount.address,
         userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
-        hashLock,
-        lane: 'safe',
-      }),
-    ).rejects.toBeInstanceOf(SolverHttpError);
+      },
+    });
+    const passedRoutes = new Set(
+      report.results.filter((r) => r.ok).map((r) => r.route),
+    );
+    expect(passedRoutes).toContain('GET /v1/health');
+    expect(passedRoutes).toContain('GET /v1/liquidity');
+    expect(passedRoutes).toContain('GET /v1/chains');
+    expect(passedRoutes).toContain('GET /v1/stats');
+    expect(passedRoutes).toContain('POST /v1/quotes');
+    expect(passedRoutes).toContain('GET /v1/orders/:orderId');
+    expect(passedRoutes).toContain('POST /v1/quotes [bad body]');
+    expect(passedRoutes).toContain('GET /v1/orders/:orderId [unknown order]');
   });
 
   it('1. Forward happy path: quote -> relay-lock -> secret -> claim', async () => {
@@ -274,32 +275,32 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
 
     const relayPayload = await signRelayLockPayload({
       evmAdapter: solver.evmAdapter,
-      terms: quote.terms,
+      terms: quote.terms as OrderTerms,
       userAccount,
     });
 
+    // server.ts passes raw.payload ?? raw directly to EvmChainAdapter.relayLock,
+    // which expects RelayLockPayload rather than RelayLockRequest.
     const relayRes = await postSolverJson<{
-      relayed: boolean;
-      txId: Hex32;
+      ok: boolean;
+      orderId: Hex32;
+      txHash: Hex32;
     }>(solver.baseUrl, `/v1/orders/${quote.orderId}/relay-lock`, {
       payload: relayPayload,
     });
     expect(relayRes.status).toBe(200);
-    expect(relayRes.data.relayed).toBe(true);
+    expect(relayRes.data.ok).toBe(true);
+    expect(relayRes.data.txHash).toMatch(/^0x[0-9a-f]{64}$/);
 
     const lockId = evmLockId(userAccount.address, hashLock);
     const lockState = await solver.evmAdapter.getLock(lockId);
     expect(lockState.status).toBe('locked');
 
-    const revealRes = await postSolverJson<{ accepted: boolean }>(
-      solver.baseUrl,
-      `/v1/orders/${quote.orderId}/secret`,
-      { secret },
-    );
-    expect(revealRes.status).toBe(200);
-    expect(revealRes.data.accepted).toBe(true);
+    const revealRes = await solver.client.revealSecret(quote.orderId, secret);
+    expect(revealRes.ok).toBe(true);
+    expect(revealRes.orderId).toBe(quote.orderId);
 
-    // Known solver gap: POST /v1/orders/:id/relay-claim passes order.id instead of evmLockId(owner, hashLock).
+    // Remaining solver gap: POST /v1/orders/:id/relay-claim passes order.id instead of evmLockId(owner, hashLock).
     await expect(
       solver.client.relayClaim(quote.orderId, { secret }),
     ).rejects.toBeInstanceOf(SolverHttpError);
@@ -341,19 +342,15 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
       args: [userAccount.address],
     });
 
-    const lockTx = await solver.evmAdapter.lock(quote.terms);
+    const lockTx = await solver.evmAdapter.lock(quote.terms as OrderTerms);
     expect(lockTx.txId).toMatch(/^0x[0-9a-f]{64}$/);
 
     const lockId = evmLockId(solverAccount.address, hashLock);
     expect((await solver.evmAdapter.getLock(lockId)).status).toBe('locked');
 
-    const revealRes = await postSolverJson<{ accepted: boolean }>(
-      solver.baseUrl,
-      `/v1/orders/${quote.orderId}/secret`,
-      { secret },
-    );
-    expect(revealRes.status).toBe(200);
-    expect(revealRes.data.accepted).toBe(true);
+    const revealRes = await solver.client.revealSecret(quote.orderId, secret);
+    expect(revealRes.ok).toBe(true);
+    expect(revealRes.orderId).toBe(quote.orderId);
 
     const claimTx = await solver.evmAdapter.claim(lockId, secret);
     expect(claimTx.txId).toMatch(/^0x[0-9a-f]{64}$/);
@@ -381,15 +378,16 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
 
       const relayPayload = await signRelayLockPayload({
         evmAdapter: solver.evmAdapter,
-        terms: quote.terms,
+        terms: quote.terms as OrderTerms,
         userAccount,
       });
-      const relayRes = await postSolverJson<{ relayed: boolean }>(
+      const relayRes = await postSolverJson<{ ok: boolean; txHash: Hex32 }>(
         solver.baseUrl,
         `/v1/orders/${quote.orderId}/relay-lock`,
         { payload: relayPayload },
       );
       expect(relayRes.status).toBe(200);
+      expect(relayRes.data.ok).toBe(true);
 
       const lockId = evmLockId(userAccount.address, hashLock);
       await expect(solver.evmAdapter.refund(lockId)).rejects.toThrow();
@@ -429,23 +427,20 @@ describe.skipIf(!RUN_E2E)('Ferry EVM End-to-End Harness', () => {
     });
 
     const { hashLock } = freshSecret('44');
-    const res = await postSolverJson<{ reason: string }>(
-      solver.baseUrl,
-      '/v1/quotes',
-      {
+    let caught: unknown;
+    try {
+      await requestQuote({
         direction: 'EVM_TO_BCH',
-        bchToken: 'PUSD',
-        amountIn: '5000000',
-        userEvmAddress: userAccount.address,
-        userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
+        amountIn: 5_000_000n,
         hashLock,
-        lane: 'safe',
-        evmChainId: anvil.chainId,
-        evmToken: tokenAddress,
-      },
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(SolverRefusalError);
+    expect((caught as SolverRefusalError).refusal.reason).toBe(
+      'PRICE_UNAVAILABLE',
     );
-    expect(res.status).toBe(422);
-    expect(res.data.reason).toBe('PRICE_UNAVAILABLE');
 
     await syncPriceTimestamp();
   });
