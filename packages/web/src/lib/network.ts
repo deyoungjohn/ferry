@@ -88,7 +88,9 @@ export function loadFarChainsFromFacts(
   }));
 }
 
-const isMainnetEnv = import.meta.env.VITE_NETWORK === 'mainnet';
+// Default to mainnet profile in production/default builds per human decision:
+// "no testnet swaps; small mainnet swaps first, so the default production build must be the mainnet profile".
+const isMainnetEnv = import.meta.env.VITE_NETWORK !== 'testnet';
 
 export const TESTNET_CHAINS: readonly ChainDisplay[] = isMainnetEnv
   ? []
@@ -188,18 +190,9 @@ export function isMainnetProfileConfigured(
     (typeof import.meta !== 'undefined'
       ? (import.meta.env?.VITE_PRIOR_REPO_URL as string | undefined)
       : '');
-  const priorDemo =
-    banner?.priorDemoUrl ??
-    (typeof import.meta !== 'undefined'
-      ? (import.meta.env?.VITE_PRIOR_DEMO_URL as string | undefined)
-      : '');
 
   const hasBanner = Boolean(
-    deck?.trim() &&
-    repo?.trim() &&
-    ember?.trim() &&
-    priorRepo?.trim() &&
-    priorDemo?.trim(),
+    deck?.trim() && repo?.trim() && ember?.trim() && priorRepo?.trim(),
   );
 
   return hasChains && hasSolver && hasBanner;

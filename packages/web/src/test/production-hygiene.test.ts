@@ -23,7 +23,7 @@ describe('Production Profile Hygiene & Security Headers (Task B3-08)', () => {
     expect(warnings).toContain('Deck URL is unset');
     expect(warnings).toContain('EMBER2026 address is unset');
     expect(warnings).toContain('Prior repo URL is unset');
-    expect(warnings).toContain('Prior demo URL is unset');
+    expect(warnings).not.toContain('Prior demo URL is unset');
   });
 
   it('proves Caddyfile.example exists and defines all required security headers and CSP directives', () => {
@@ -124,7 +124,7 @@ describe('Production Profile Hygiene & Security Headers (Task B3-08)', () => {
     const appFiles = fs
       .readdirSync(assetsDir)
       .filter((file) =>
-        /^(index|config|Route|Swap|Send|Pay|Recover|App|Feature|Recent|Banner|Wallet|swaps)-.*\.js$/.test(
+        /^(index|config|Route|Swap|Send|Pay|Recover|Activity|App|Feature|Recent|Banner|Wallet|CopyDiagnostics|swaps|useSolver|copy|link)-.*\.js$/.test(
           file,
         ),
       )
@@ -150,12 +150,24 @@ describe('Production Profile Hygiene & Security Headers (Task B3-08)', () => {
         content,
         `File ${name} should not contain "Chipnet"`,
       ).not.toContain('Chipnet');
+      expect(
+        content,
+        `File ${name} should not contain "localhost"`,
+      ).not.toContain('localhost');
 
-      // Must not contain mock hash signatures
+      // Must not contain mock hash signatures or mock solver labels
       expect(
         content,
         `File ${name} should not contain mock hashes`,
       ).not.toMatch(/0xmock/i);
+      expect(
+        content,
+        `File ${name} should not contain "Mock Solver"`,
+      ).not.toContain('Mock Solver');
+      expect(
+        content,
+        `File ${name} should not contain "mock solver"`,
+      ).not.toContain('mock solver');
 
       // Must not contain private-key-looking 64-character hex strings
       // (excluding common hash prefixes or css colors)

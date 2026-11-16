@@ -47,7 +47,6 @@ export function getBannerWarnings(
   if (!config.repoUrl.trim()) warnings.push('Repo URL is unset');
   if (!config.emberAddress.trim()) warnings.push('EMBER2026 address is unset');
   if (!config.priorRepoUrl.trim()) warnings.push('Prior repo URL is unset');
-  if (!config.priorDemoUrl.trim()) warnings.push('Prior demo URL is unset');
   return warnings;
 }
 

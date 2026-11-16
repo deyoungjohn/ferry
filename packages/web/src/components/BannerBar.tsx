@@ -54,18 +54,24 @@ export function BannerBar() {
                     prior repo
                   </a>
                 )}
-                {BANNER_CONFIG.priorRepoUrl && BANNER_CONFIG.priorDemoUrl && (
-                  <span>·</span>
-                )}
-                {BANNER_CONFIG.priorDemoUrl && (
-                  <a
-                    href={BANNER_CONFIG.priorDemoUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-text underline-offset-2 hover:underline hover:text-lime"
-                  >
-                    prior demo
-                  </a>
+                {BANNER_CONFIG.priorDemoUrl ? (
+                  <>
+                    <span>·</span>
+                    <a
+                      href={BANNER_CONFIG.priorDemoUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="text-text underline-offset-2 hover:underline hover:text-lime"
+                    >
+                      prior demo
+                    </a>
+                  </>
+                ) : (
+                  BANNER_CONFIG.priorRepoUrl && (
+                    <span>
+                      (the pre-event version ran locally; recording on request)
+                    </span>
+                  )
                 )}
               </span>
             ) : (

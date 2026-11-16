@@ -14,7 +14,7 @@ describe('BannerBar and build warnings', () => {
     expect(screen.getByText('not set')).toBeInTheDocument();
   });
 
-  it('detects all unset properties in getBannerWarnings', () => {
+  it('detects all required unset properties in getBannerWarnings (priorDemoUrl is optional)', () => {
     const emptyConfig: BannerConfig = {
       deckUrl: '',
       repoUrl: '',
@@ -23,12 +23,24 @@ describe('BannerBar and build warnings', () => {
       priorDemoUrl: '',
     };
     const warnings = getBannerWarnings(emptyConfig);
-    expect(warnings).toHaveLength(5);
+    expect(warnings).toHaveLength(4);
     expect(warnings).toContain('Deck URL is unset');
     expect(warnings).toContain('Repo URL is unset');
     expect(warnings).toContain('EMBER2026 address is unset');
     expect(warnings).toContain('Prior repo URL is unset');
-    expect(warnings).toContain('Prior demo URL is unset');
+    expect(warnings).not.toContain('Prior demo URL is unset');
+  });
+
+  it('returns no warnings when all required properties are provided and priorDemoUrl is empty', () => {
+    const configWithoutDemo: BannerConfig = {
+      deckUrl: 'https://example.com/deck',
+      repoUrl: 'https://github.com/deyoungjohn/ferry',
+      emberAddress: 'bchtest:qp3wjpa3tjlj042z2wv7hahsldgwhwy0rq9sywjpyy',
+      priorRepoUrl: 'https://github.com/example/prior',
+      priorDemoUrl: '',
+    };
+    const warnings = getBannerWarnings(configWithoutDemo);
+    expect(warnings).toHaveLength(0);
   });
 
   it('returns no warnings when all properties are provided', () => {
