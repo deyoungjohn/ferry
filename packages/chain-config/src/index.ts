@@ -50,6 +50,21 @@ export {
 } from './routes.js';
 export type { RouteKey } from './routes.js';
 export {
+  RPC_OVERRIDE_ENV_NAMES,
+  RpcOverrideError,
+  buildRpcEndpoints,
+  parseRpcOverrides,
+  probeRpcLogMaxRange,
+  redactRpcSecrets,
+  redactRpcUrl,
+} from './rpc-overrides.js';
+export type {
+  RpcCaller,
+  RpcEndpointSource,
+  RpcEndpointView,
+  RpcOverrides,
+} from './rpc-overrides.js';
+export {
   DeploymentAddressError,
   NetworkConfigurationError,
   RouteConfigurationError,

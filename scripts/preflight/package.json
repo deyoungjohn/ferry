@@ -1,0 +1,9 @@
+{
+  "name": "@ferry/preflight",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preflight": "pnpm --dir ../.. --filter @ferry/chain-config preflight",
+    "watch-chains": "pnpm --dir ../.. --filter @ferry/chain-config watch-chains"
+  }
+}

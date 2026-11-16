@@ -11,8 +11,18 @@ import {
   type RpcFact,
   type TokenFacts,
 } from './schema.js';
-import { loadChainData, routeIneligibilityReasons } from './config.js';
+import {
+  loadChainData,
+  parseFerryNetwork,
+  routeIneligibilityReasons,
+} from './config.js';
 import { predictHtlcAddress, usdt0DomainSeparator } from './htlc.js';
+import {
+  parseRpcOverrides,
+  probeRpcLogMaxRange,
+  redactRpcSecrets,
+  redactRpcUrl,
+} from './rpc-overrides.js';
 
 interface JsonRpcError {
   code: number;
@@ -109,7 +119,7 @@ async function rpc<T>(
   } catch (error) {
     if (error instanceof RpcError) throw error;
     const message = error instanceof Error ? error.message : String(error);
-    throw new RpcError(message);
+    throw new RpcError(redactRpcSecrets(message, [url]));
   } finally {
     clearTimeout(timer);
   }
@@ -117,7 +127,7 @@ async function rpc<T>(
 
 function isTransient(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /rate limit|request limit|too many|timeout|aborted|fetch failed|temporarily|try again|beyond current head|head block/i.test(
+  return /rate limit|rate-limited|request limit|too many|limit exceeded|timeout|aborted|fetch failed|temporarily|try again|beyond current head|head block/i.test(
     message,
   );
 }
@@ -168,6 +178,7 @@ async function checkRpc(
   chain: NetworkFacts,
   summary: Summary,
 ): Promise<void> {
+  const host = redactRpcUrl(rpcFact.url);
   try {
     const chainIdHex = await withRetry(() =>
       rpc<string>(rpcFact.url, 'eth_chainId', []),
@@ -177,7 +188,7 @@ async function checkRpc(
       normalizeHex(chainIdHex) === expectedChainId,
       summary,
       network,
-      `rpc ${rpcFact.url} chainId`,
+      `rpc ${host} chainId`,
       expectedChainId,
       normalizeHex(chainIdHex),
     );
@@ -188,7 +199,7 @@ async function checkRpc(
       record(
         summary,
         network,
-        `rpc ${rpcFact.url} chainId`,
+        `rpc ${host} chainId`,
         `0x${chain.chainId.toString(16)}`,
         error instanceof Error ? error.message : String(error),
       );
@@ -226,7 +237,7 @@ async function checkRpc(
         true,
         summary,
         network,
-        `rpc ${rpcFact.url} eth_getLogs range`,
+        `rpc ${host} eth_getLogs range`,
         `${maxRange} blocks accepted`,
         'accepted',
       );
@@ -238,7 +249,7 @@ async function checkRpc(
         record(
           summary,
           network,
-          `rpc ${rpcFact.url} eth_getLogs range`,
+          `rpc ${host} eth_getLogs range`,
           `${maxRange} blocks accepted`,
           message,
         );
@@ -257,7 +268,7 @@ async function checkRpc(
       (safe !== null) === chain.finality.safeTagWorks,
       summary,
       network,
-      `rpc ${rpcFact.url} safe tag`,
+      `rpc ${host} safe tag`,
       String(chain.finality.safeTagWorks),
       String(safe !== null),
     );
@@ -268,7 +279,7 @@ async function checkRpc(
       record(
         summary,
         network,
-        `rpc ${rpcFact.url} safe tag`,
+        `rpc ${host} safe tag`,
         String(chain.finality.safeTagWorks),
         error instanceof Error ? error.message : String(error),
       );
@@ -286,7 +297,7 @@ async function checkRpc(
       (finalized !== null) === chain.finality.finalizedTagWorks,
       summary,
       network,
-      `rpc ${rpcFact.url} finalized tag`,
+      `rpc ${host} finalized tag`,
       String(chain.finality.finalizedTagWorks),
       String(finalized !== null),
     );
@@ -297,7 +308,7 @@ async function checkRpc(
       record(
         summary,
         network,
-        `rpc ${rpcFact.url} finalized tag`,
+        `rpc ${host} finalized tag`,
         String(chain.finality.finalizedTagWorks),
         error instanceof Error ? error.message : String(error),
       );
@@ -867,11 +878,27 @@ function evidenceLabel(evidence: FactEvidence): string {
 async function main(): Promise<void> {
   const data: ChainConfigData = parseChainConfigData(loadChainData());
   const summary: Summary = { checked: 0, skipped: 0, differences: [] };
+  const selectedNetwork = parseFerryNetwork(process.env.FERRY_NETWORK);
+  const overrides = parseRpcOverrides(process.env);
+  const rpcCaps: Record<string, number> = {};
 
   console.log('Chain facts verification');
   console.log(`Baseline date: ${data.generatedAt}`);
   console.log('Read-only JSON-RPC calls; no transaction is sent.');
   console.log('');
+
+  const overrideUrls = Object.values(overrides).flatMap((urls) => urls ?? []);
+  if (overrideUrls.length > 0) {
+    console.log(`RPC overrides for ${selectedNetwork} (hosts only):`);
+    for (const url of overrideUrls) {
+      const cap = await probeRpcLogMaxRange(url, rpc);
+      if (cap !== null) rpcCaps[url] = cap;
+      console.log(
+        `  - ${redactRpcUrl(url)}: log cap ${cap === null ? 'unknown' : `${cap} blocks`}`,
+      );
+    }
+    console.log('');
+  }
 
   for (const id of CHAIN_IDS) {
     for (const network of NETWORKS) {
