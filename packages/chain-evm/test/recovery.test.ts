@@ -209,4 +209,89 @@ describe('EVM wallet recovery actions', () => {
       { chain: 'EVM', action: 'refund' },
     ]);
   });
+
+  it('does not report a reorged-out lock and detects a lock appearing after first scan', async () => {
+    const secret = sha256(stringToHex('wallet-recovery-reorg'));
+    const hashLock = sha256(secret);
+    const id = evmLockId(user.address, hashLock);
+    const amount = 2_000_000n;
+
+    await publicClient.waitForTransactionReceipt({
+      hash: await deployerClient.writeContract({
+        address: tokenAddress,
+        abi: mockTokenAbi,
+        functionName: 'mint',
+        args: [user.address, amount],
+        account: deployer,
+        chain: foundry,
+      }),
+    });
+    await publicClient.waitForTransactionReceipt({
+      hash: await userClient.writeContract({
+        address: tokenAddress,
+        abi: mockTokenAbi,
+        functionName: 'approve',
+        args: [htlcAddress, amount],
+        account: user,
+        chain: foundry,
+      }),
+    });
+
+    // First scan before lock exists
+    const initialPlan = await inspectEvmWalletRecovery({
+      client: publicClient,
+      htlc: htlcAddress,
+      lockId: id,
+      secret,
+    });
+    expect(initialPlan.status).toBe('none');
+
+    const snap = (await publicClient.request({
+      method: 'evm_snapshot' as never,
+      params: [] as never,
+    })) as Hex;
+
+    const latest = await publicClient.getBlock({ blockTag: 'latest' });
+    const deadline = Number(latest.timestamp) + 300;
+    await publicClient.waitForTransactionReceipt({
+      hash: await userClient.writeContract({
+        address: htlcAddress,
+        abi: ferryHtlcAbi,
+        functionName: 'lock',
+        args: [
+          tokenAddress,
+          deployer.address,
+          amount,
+          hashLock,
+          BigInt(deadline),
+        ],
+        account: user,
+        chain: foundry,
+      }),
+    });
+
+    const lockedPlan = await inspectEvmWalletRecovery({
+      client: publicClient,
+      htlc: htlcAddress,
+      lockId: id,
+      secret,
+    });
+    expect(lockedPlan.status).toBe('locked');
+    expect(lockedPlan.actions).toEqual([{ chain: 'EVM', action: 'claim' }]);
+
+    // Reorg removes the lock
+    await publicClient.request({
+      method: 'evm_revert' as never,
+      params: [snap] as never,
+    });
+
+    const revertedPlan = await inspectEvmWalletRecovery({
+      client: publicClient,
+      htlc: htlcAddress,
+      lockId: id,
+      secret,
+    });
+    expect(revertedPlan.status).toBe('none');
+    expect(revertedPlan.actions).toEqual([]);
+  });
 });
