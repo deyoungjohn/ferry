@@ -1,25 +1,50 @@
-import { loadConfigFromEnv } from './config.js';
-import { createSolverLogger } from './logging.js';
-import { runPreflightCheck } from './ops/self-check.js';
-import { SolverDatabase } from './db/database.js';
-import { BchQuorumClient } from './bch/quorum-client.js';
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  type PublicClient,
+} from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { base, baseSepolia } from 'viem/chains';
 import { EvmChainAdapter, type EvmChainAdapterOptions } from '@ferry/chain-evm';
-import { loadChainConfig } from '@ferry/chain-config';
-import { SolverEngine } from './engine/runner.js';
-import { MockPriceSource, type PriceSource } from './pricing/price-source.js';
+import { createBchPriceSource } from '@ferry/bch-prices';
 import { buildServer } from './api/server.js';
+import { BchQuorumClient } from './bch/quorum-client.js';
+import { loadConfigFromEnv, type SolverConfig } from './config.js';
+import { SolverDatabase } from './db/database.js';
+import { SolverEngine } from './engine/runner.js';
 import type {
   BchChainPort,
   EvmChainPort,
   EvmLockState,
 } from './engine/types.js';
-import { privateKeyToAccount } from 'viem/accounts';
-import { createWalletClient, http } from 'viem';
-import { base, baseSepolia } from 'viem/chains';
+import { createSolverLogger } from './logging.js';
+import { runPreflightCheck } from './ops/self-check.js';
+import { buildActiveRoutes } from './ops/routes-config.js';
+import { RoutePriceSource } from './pricing/composite-source.js';
+import type { PriceSource } from './pricing/price-source.js';
 
-export async function startSolver(): Promise<void> {
-  const config = loadConfigFromEnv(process.env);
-  const logger = createSolverLogger();
+export interface RunningSolver {
+  app: ReturnType<typeof buildServer>;
+  engine: SolverEngine;
+  bchClient: BchQuorumClient;
+  db: SolverDatabase;
+  stop: () => Promise<void>;
+}
+
+export async function startSolver(
+  overrides: {
+    config?: SolverConfig | undefined;
+    priceSource?: PriceSource | undefined;
+    bchClient?: BchQuorumClient | undefined;
+    skipListen?: boolean | undefined;
+  } = {},
+): Promise<RunningSolver> {
+  const config = overrides.config ?? loadConfigFromEnv(process.env);
+  const logger = createSolverLogger({
+    logFilePath: config.logFilePath,
+    minLevel: config.logLevel,
+  });
 
   // 1. Run strict preflight safety checks
   runPreflightCheck(config);
@@ -28,25 +53,34 @@ export async function startSolver(): Promise<void> {
     'Preflight checks passed',
   );
 
-  // 2. Initialize database
+  // 2. Configure routes from facts and verify mainnet profile
+  const routesContext = buildActiveRoutes(config, process.env);
+  logger.info(
+    {
+      totalRoutes: routesContext.routes.length,
+      enabledRoutes: routesContext.enabledRoutes.map((r) => r.key),
+    },
+    'Configured routes from facts',
+  );
+
+  // 3. Initialize database
   const db = new SolverDatabase(config.dbPath);
   logger.info({ dbPath: config.dbPath }, 'Solver database initialized');
 
-  // 3. Initialize BCH Quorum Client
+  // 4. Initialize BCH Quorum Client
   const electrumUrls = config.bchElectrumUrls
     .split(',')
     .map((u) => u.trim())
     .filter(Boolean);
 
-  const bchClient = new BchQuorumClient(electrumUrls);
+  const bchClient = overrides.bchClient ?? new BchQuorumClient(electrumUrls);
 
-  // 4. Initialize EVM Client & Adapter
+  // 5. Initialize EVM Client & Adapter
   const targetNetwork = config.network === 'mainnet' ? 'mainnet' : 'testnet';
-  const fullChainConfig = loadChainConfig();
-  const chainConfig = fullChainConfig.chains.find(
-    (c) => c.id === 'base' && c.network === targetNetwork,
+  const chainFact = routesContext.chainConfig.facts.find(
+    (c) => c.id === 'base',
   );
-  if (!chainConfig) {
+  if (!chainFact) {
     throw new Error(`Chain configuration for base ${targetNetwork} not found`);
   }
 
@@ -54,6 +88,11 @@ export async function startSolver(): Promise<void> {
   const evmAccount = config.solverEvmPrivateKey
     ? privateKeyToAccount(config.solverEvmPrivateKey as `0x${string}`)
     : undefined;
+
+  const publicClient = createPublicClient({
+    chain: viemChain,
+    transport: http(config.baseRpcUrl),
+  });
 
   const walletClient = evmAccount
     ? createWalletClient({
@@ -63,12 +102,44 @@ export async function startSolver(): Promise<void> {
       })
     : undefined;
 
+  const baseCoreConfig = routesContext.chainConfig.coreChains.find(
+    (c) => c.id === 'base',
+  ) ?? {
+    id: 'base' as const,
+    chainId: config.baseChainId,
+    rpcUrls: [config.baseRpcUrl],
+    htlcAddress: (config.baseHtlcAddress ||
+      chainFact.htlcAddress ||
+      chainFact.deployment.predictedHtlcAddress) as `0x${string}`,
+    relayCostUsd: 0.05,
+    finality: {
+      fast: 1,
+      safe: 'finalized' as const,
+    },
+    assets: [
+      {
+        symbol: 'USDC' as const,
+        decimals: 6,
+        address: (config.baseUsdcAddress ||
+          '0x036CbD53842c5426634e7929541eC2318f3dCF7e') as `0x${string}`,
+        permit: true,
+      },
+    ],
+  };
+
+  const coreChainConfig = {
+    ...baseCoreConfig,
+    ...(config.baseHtlcAddress
+      ? { htlcAddress: config.baseHtlcAddress as `0x${string}` }
+      : {}),
+  };
+
   const evmAdapter = new EvmChainAdapter({
-    config: chainConfig as unknown as EvmChainAdapterOptions['config'],
+    config: coreChainConfig as EvmChainAdapterOptions['config'],
     walletClient,
   });
 
-  // 5. Initialize Ports
+  // 6. Initialize Ports
   const bchPort: BchChainPort = {
     async getTip() {
       const q = bchClient.getQuorumStatus();
@@ -115,44 +186,22 @@ export async function startSolver(): Promise<void> {
     },
   };
 
-  // 6. Initialize Solver Engine
+  // 7. Initialize Solver Engine
   const engine = new SolverEngine(db, bchPort, evmPort, {
     dsproofWindowMs: config.dsproofWindowMs,
     pollIntervalMs: 1000,
   });
 
-  // 7. Initialize Price Source
-  const priceSource: PriceSource = new MockPriceSource(
-    new Map([
-      [
-        'usdc',
-        {
-          usdPrice: 1_000_000n,
-          source: 'chainlink-base-0.3%',
-          asOf: Math.floor(Date.now() / 1000),
-          heartbeatSeconds: 86_400,
-        },
-      ],
-      [
-        'pusd',
-        {
-          usdPrice: 1_000_000n,
-          source: 'cauldron-chipnet',
-          asOf: Math.floor(Date.now() / 1000),
-        },
-      ],
-      [
-        'musd',
-        {
-          usdPrice: 1_000_000n,
-          source: 'paryon-chipnet',
-          asOf: Math.floor(Date.now() / 1000),
-        },
-      ],
-    ]),
-  );
+  // 8. Initialize Price Source (Composite from BCH & EVM facts)
+  const priceSource: PriceSource =
+    overrides.priceSource ??
+    new RoutePriceSource({
+      chainConfig: routesContext.chainConfig,
+      evmClients: new Map([['base', publicClient as unknown as PublicClient]]),
+      bchSource: createBchPriceSource(),
+    });
 
-  // 8. Build Fastify Server
+  // 9. Build Fastify Server
   const app = buildServer({
     config,
     db,
@@ -161,36 +210,37 @@ export async function startSolver(): Promise<void> {
     engine,
     priceSource,
     logger,
+    publicClient: publicClient as unknown as PublicClient,
   });
 
-  // 9. Start background services
+  // 10. Start background services
   await bchClient.connect();
   await engine.start();
 
-  const address = await app.listen({
-    port: config.port,
-    host: config.host,
-  });
-  logger.info({ address }, 'Ferry solver HTTP server listening');
+  if (!overrides.skipListen) {
+    const address = await app.listen({
+      port: config.port,
+      host: config.host,
+    });
+    logger.info({ address }, 'Ferry solver HTTP server listening');
+  }
 
-  // 10. Graceful shutdown handler
-  const shutdown = async (signal: string) => {
-    logger.info({ signal }, 'Shutting down Ferry solver');
-    try {
-      await app.close();
-      await engine.stop();
-      bchClient.close();
-      db.close();
-      logger.info('Ferry solver stopped cleanly');
-      process.exit(0);
-    } catch (err) {
-      logger.error({ err }, 'Error during shutdown');
-      process.exit(1);
-    }
+  const stop = async () => {
+    logger.info('Stopping Ferry solver services');
+    await app.close();
+    await engine.stop();
+    bchClient.close();
+    db.close();
+    logger.info('Ferry solver stopped cleanly');
   };
 
-  process.on('SIGINT', () => void shutdown('SIGINT'));
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  return {
+    app,
+    engine,
+    bchClient,
+    db,
+    stop,
+  };
 }
 
 if (process.env.NODE_ENV !== 'test' && !process.env.FERRY_TEST_MODE) {
@@ -199,9 +249,24 @@ if (process.env.NODE_ENV !== 'test' && !process.env.FERRY_TEST_MODE) {
     (process.argv[1].endsWith('main.ts') ||
       process.argv[1].endsWith('main.js'));
   if (isDirectRun) {
-    startSolver().catch((err) => {
-      console.error('Fatal solver startup error:', err);
-      process.exit(1);
-    });
+    startSolver()
+      .then((running) => {
+        const shutdown = async (signal: string) => {
+          console.log(`Received ${signal}, shutting down...`);
+          try {
+            await running.stop();
+            process.exit(0);
+          } catch (err) {
+            console.error('Error during shutdown:', err);
+            process.exit(1);
+          }
+        };
+        process.on('SIGINT', () => void shutdown('SIGINT'));
+        process.on('SIGTERM', () => void shutdown('SIGTERM'));
+      })
+      .catch((err) => {
+        console.error('Fatal solver startup error:', err);
+        process.exit(1);
+      });
   }
 }

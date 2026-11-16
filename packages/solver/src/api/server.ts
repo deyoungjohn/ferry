@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { timingSafeEqual } from 'node:crypto';
 import type pino from 'pino';
 import { privateKeyToAccount } from 'viem/accounts';
+import type { PublicClient } from 'viem';
 import {
   decodeCashAddress,
   DEFAULT_TIMING_CONFIG,
@@ -61,6 +62,10 @@ import {
   RelayValidationError,
   RelayLockRejectedError,
 } from '@ferry/chain-evm';
+import {
+  buildActiveRoutes,
+  checkRouteReadiness,
+} from '../ops/routes-config.js';
 import { deriveBchKeyDetails } from '../bch/lock-builder.js';
 import type { BchQuorumClient } from '../bch/quorum-client.js';
 import type { BchQuorumStatus } from '../bch/types.js';
@@ -114,6 +119,7 @@ export interface BuildServerOptions {
   priceSource: PriceSource;
   logger?: pino.Logger | undefined;
   rateLimiter?: QuoteRateLimiter | undefined;
+  publicClient?: PublicClient | undefined;
 }
 
 export function buildServer(options: BuildServerOptions): FastifyInstance {
@@ -121,6 +127,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
   const app = Fastify({
     logger: false,
+    trustProxy: config.trustedProxy,
     bodyLimit: 65536,
   });
 
@@ -191,7 +198,20 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     });
   });
 
-  void app.register(cors, { origin: true });
+  const allowedOrigins = (config.allowedOrigins || '*')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const corsOrigin =
+    allowedOrigins.includes('*') || allowedOrigins.length === 0
+      ? true
+      : allowedOrigins;
+
+  void app.register(cors, {
+    origin: corsOrigin,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
 
   const rateLimiter =
     options.rateLimiter ??
@@ -1306,6 +1326,33 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       });
 
       return reply.status(200).send(view);
+    },
+  );
+
+  // 13d. GET /v1/operator/routes
+  app.get(
+    '/v1/operator/routes',
+    { preHandler: verifyOperatorAuth },
+    async (_req, reply) => {
+      const now = Math.floor(Date.now() / 1000);
+      const routesContext = buildActiveRoutes(config);
+      const routeResults = [];
+      for (const route of routesContext.enabledRoutes) {
+        const readiness = await checkRouteReadiness({
+          route,
+          evmAdapter,
+          bchClient,
+          priceSource,
+          publicClient: options.publicClient,
+          inventoryFloorUsdMicros: config.minSwapUsdMicros,
+        });
+        routeResults.push(readiness);
+      }
+      return reply.status(200).send({
+        ok: true,
+        routes: routeResults,
+        timestamp: now,
+      });
     },
   );
 

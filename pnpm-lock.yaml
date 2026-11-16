@@ -347,6 +347,9 @@ importers:
       '@fastify/cors':
         specifier: 11.3.1
         version: 11.3.1
+      '@ferry/bch-prices':
+        specifier: workspace:*
+        version: link:../bch-prices
       '@ferry/chain-config':
         specifier: workspace:*
         version: link:../chain-config
