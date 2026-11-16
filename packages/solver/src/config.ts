@@ -73,6 +73,7 @@ export const SolverConfigSchema = z
         'c99627aec3e041f281068704c2609699d234586d5097301eff995f3bd00ac04d',
       ),
     allowMockPaylinkSignatures: z.coerce.boolean().default(false),
+    allowDevKeys: z.coerce.boolean().default(false),
     allowedOrigins: z.string().default('*'),
     logLevel: z
       .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
@@ -230,7 +231,9 @@ export function loadConfigFromEnv(
     tmusdCategory: env.TMUSD_CATEGORY,
     allowMockPaylinkSignatures:
       env.ALLOW_MOCK_PAYLINK_SIGNATURES === '1' ||
-      env.ALLOW_MOCK_PAYLINK_SIGNATURES === 'true',
+      env.ALLOW_MOCK_PAYLINK_SIGNATURES === 'true' ||
+      allowDevKeys,
+    allowDevKeys,
     allowedOrigins: env.ALLOWED_ORIGINS,
     logLevel: env.LOG_LEVEL?.toLowerCase(),
     logFilePath: env.LOG_FILE_PATH,
