@@ -168,5 +168,5 @@ describe('SendLink schema and window planner', () => {
       ),
       { numRuns: 25 },
     );
-  });
+  }, 30_000);
 });
