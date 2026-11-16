@@ -390,6 +390,10 @@ export function RouteStatusPage() {
             value={operatorTokenInput}
             onChange={(e) => setOperatorTokenInput(e.target.value)}
             placeholder="Enter operator token (e.g. Bearer token)…"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            autoComplete="off"
             className="flex-1 rounded-pill border border-hairline bg-surface-2 px-3.5 py-1.5 font-mono text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
           />
           <button

@@ -107,6 +107,11 @@ export function SendLinksPage() {
                 value={recipientEvm}
                 onChange={(e) => setRecipientEvm(e.target.value)}
                 placeholder="0x…"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="off"
+                inputMode="text"
                 className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 font-mono text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
               />
             </div>
@@ -175,6 +180,8 @@ export function SendLinksPage() {
                   step="any"
                   min="1"
                   value={amount}
+                  inputMode="decimal"
+                  autoComplete="off"
                   onChange={(e) => setAmount(e.target.value)}
                   className="flex-1 rounded-well border border-hairline bg-surface-2 p-2.5 font-semibold text-text focus:border-lime focus:outline-none"
                 />
@@ -183,8 +190,15 @@ export function SendLinksPage() {
             </div>
 
             <div>
-              <label className="block text-text-muted mb-1">Claim Window</label>
+              <label
+                htmlFor="send-claim-window"
+                className="block text-text-muted mb-1"
+              >
+                Claim Window
+              </label>
               <select
+                id="send-claim-window"
+                aria-label="Claim Window"
                 value={durationHours}
                 onChange={(e) => setDurationHours(e.target.value)}
                 className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 text-xs text-text focus:border-lime focus:outline-none cursor-pointer"
