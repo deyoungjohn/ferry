@@ -52,6 +52,11 @@ describe('Crash-simulation test (SIGKILL between intent and broadcast)', () => {
     const child = spawn(process.execPath, [tsxCli, workerScript, ...args], {
       cwd: path.resolve(__dirname, '..'),
       detached: true,
+      env: {
+        ...process.env,
+        NODE_OPTIONS:
+          `${process.env.NODE_OPTIONS ?? ''} --conditions=ferry-source`.trim(),
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -171,5 +176,5 @@ describe('Crash-simulation test (SIGKILL between intent and broadcast)', () => {
     expect(allActions[0]?.status).toBe('BROADCAST');
     expect(allActions[0]?.txid).toBe('txid_crash_test');
     finalDb.close();
-  });
+  }, 15000);
 });
