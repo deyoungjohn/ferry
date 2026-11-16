@@ -1,25 +1,26 @@
 /**
  * Chain display configuration for Ferry Web UI.
  *
- * NOTE: This file contains ONLY UI display attributes (names, token symbols,
- * display ordering, and enabled flags). It carries NO chain facts (no RPC URLs,
- * no token contract addresses, no HTLC addresses, no Electrum endpoints).
- * Once @ferry/chain-config lands, chain facts will be imported from there.
+ * NOTE: Consumes public types from @ferry/chain-config (ChainId, AssetSymbol).
+ * This display mapping is replaceable once Agent 5's dedicated display view is exported.
+ * Carries NO chain facts (no RPC URLs, no token contract addresses, no HTLC addresses, no Electrum endpoints).
  * Out-of-scope networks are excluded.
  */
+import type { AssetSymbol, ChainId } from '@ferry/chain-config';
 
 export interface SupportedTokenDisplay {
-  readonly symbol: string;
+  readonly symbol: AssetSymbol | string;
   readonly name: string;
   readonly decimals: number;
 }
 
 export interface ChainDisplay {
   readonly id: string | number;
+  readonly chainKey?: ChainId;
   readonly name: string;
   readonly shortName?: string;
   readonly type: 'evm';
-  readonly tokenSymbols: readonly string[];
+  readonly tokenSymbols: readonly (AssetSymbol | string)[];
   readonly enabled: boolean;
   readonly order: number;
 }
@@ -49,6 +50,7 @@ export interface NetworkProfile {
 export const TESTNET_CHAINS: readonly ChainDisplay[] = [
   {
     id: 84532,
+    chainKey: 'base',
     name: 'Base Sepolia',
     shortName: 'Base',
     type: 'evm',
@@ -58,6 +60,7 @@ export const TESTNET_CHAINS: readonly ChainDisplay[] = [
   },
   {
     id: 11155111,
+    chainKey: 'ethereum',
     name: 'Ethereum Sepolia',
     shortName: 'Ethereum',
     type: 'evm',
@@ -67,6 +70,7 @@ export const TESTNET_CHAINS: readonly ChainDisplay[] = [
   },
   {
     id: 421614,
+    chainKey: 'arbitrum',
     name: 'Arbitrum Sepolia',
     shortName: 'Arbitrum',
     type: 'evm',
@@ -76,6 +80,7 @@ export const TESTNET_CHAINS: readonly ChainDisplay[] = [
   },
   {
     id: 97,
+    chainKey: 'bnb',
     name: 'BNB Smart Chain Testnet',
     shortName: 'BSC',
     type: 'evm',

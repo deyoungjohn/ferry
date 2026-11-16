@@ -1,8 +1,22 @@
+import { privateKeyToAccount } from 'viem/accounts';
+import {
+  orderId as computeOrderId,
+  signOrderId,
+  type Hex,
+  type Hex32,
+  type LiquidityResponse,
+  type OrderTerms,
+  type PricingEvidence,
+  type QuoteRefusal,
+} from '@ferry/core';
 import { SPREAD_BPS, FIXED_FEE_USD } from '../config';
+import { formatPricingEvidence } from './verify';
 import type {
   SolverClient,
   QuoteRequest,
   QuoteResponse,
+  QuoteResult,
+  SignedQuote,
   SolverStats,
   PaginatedRecentSwaps,
   RecentSwap,
@@ -11,6 +25,11 @@ import type {
   OrderStatus,
   OrderTransaction,
 } from './types';
+
+// Standard deterministic mock test key for local mock signing (never used for real funds)
+const MOCK_SOLVER_KEY =
+  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80' as const;
+const mockSolverAccount = privateKeyToAccount(MOCK_SOLVER_KEY);
 
 // 25 realistic mock swaps for testing pagination (10 per page => 3 pages)
 const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
@@ -186,11 +205,11 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
     id: 'mock-13',
     timestampSeconds: 1731625000,
     fromToken: 'tPUSD',
-    fromAmount: 40.0,
+    fromAmount: 35.0,
     fromChain: 'Bitcoin Cash Chipnet',
     toToken: 'USDC',
-    toAmount: 39.79,
-    toChain: 'Arbitrum Sepolia',
+    toAmount: 34.81,
+    toChain: 'Base Sepolia',
     durationSeconds: 37,
     sourceTxHash: 'mockbcha1b2c3d4e5f613',
     targetTxHash: '0xmocka1b2c3d4e5f613',
@@ -205,7 +224,7 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
     toToken: 'tPUSD',
     toAmount: 15.89,
     toChain: 'Bitcoin Cash Chipnet',
-    durationSeconds: 49,
+    durationSeconds: 50,
     sourceTxHash: '0xmocka1b2c3d4e5f614',
     targetTxHash: 'mockbcha1b2c3d4e5f614',
     isMock: true,
@@ -214,8 +233,8 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
     id: 'mock-15',
     timestampSeconds: 1731617000,
     fromToken: 'USDT',
-    fromChain: 'BNB Smart Chain Testnet',
     fromAmount: 19.0,
+    fromChain: 'BNB Smart Chain Testnet',
     toToken: 'tMUSD',
     toAmount: 18.87,
     toChain: 'Bitcoin Cash Chipnet',
@@ -228,12 +247,12 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
     id: 'mock-16',
     timestampSeconds: 1731613000,
     fromToken: 'USDC',
-    fromAmount: 11.0,
-    fromChain: 'Base Sepolia',
+    fromAmount: 40.0,
+    fromChain: 'Arbitrum Sepolia',
     toToken: 'tPUSD',
-    toAmount: 10.91,
+    toAmount: 39.79,
     toChain: 'Bitcoin Cash Chipnet',
-    durationSeconds: 38,
+    durationSeconds: 34,
     sourceTxHash: '0xmocka1b2c3d4e5f616',
     targetTxHash: 'mockbcha1b2c3d4e5f616',
     isMock: true,
@@ -241,13 +260,13 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
   {
     id: 'mock-17',
     timestampSeconds: 1731609000,
-    fromToken: 'tMUSD',
-    fromAmount: 24.0,
+    fromToken: 'tPUSD',
+    fromAmount: 60.0,
     fromChain: 'Bitcoin Cash Chipnet',
-    toToken: 'USDT',
-    toAmount: 23.85,
-    toChain: 'BSC Testnet',
-    durationSeconds: 52,
+    toToken: 'USDC',
+    toAmount: 59.71,
+    toChain: 'Base Sepolia',
+    durationSeconds: 38,
     sourceTxHash: 'mockbcha1b2c3d4e5f617',
     targetTxHash: '0xmocka1b2c3d4e5f617',
     isMock: true,
@@ -257,11 +276,11 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
     timestampSeconds: 1731605000,
     fromToken: 'USDC',
     fromAmount: 7.0,
-    fromChain: 'Arbitrum Sepolia',
+    fromChain: 'Base Sepolia',
     toToken: 'tPUSD',
     toAmount: 6.92,
     toChain: 'Bitcoin Cash Chipnet',
-    durationSeconds: 36,
+    durationSeconds: 42,
     sourceTxHash: '0xmocka1b2c3d4e5f618',
     targetTxHash: 'mockbcha1b2c3d4e5f618',
     isMock: true,
@@ -269,13 +288,13 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
   {
     id: 'mock-19',
     timestampSeconds: 1731601000,
-    fromToken: 'USDC',
-    fromAmount: 32.0,
-    fromChain: 'Base Sepolia',
-    toToken: 'tPUSD',
-    toAmount: 31.82,
+    fromToken: 'USDT',
+    fromAmount: 11.0,
+    fromChain: 'BSC Testnet',
+    toToken: 'tMUSD',
+    toAmount: 10.91,
     toChain: 'Bitcoin Cash Chipnet',
-    durationSeconds: 44,
+    durationSeconds: 45,
     sourceTxHash: '0xmocka1b2c3d4e5f619',
     targetTxHash: 'mockbcha1b2c3d4e5f619',
     isMock: true,
@@ -283,13 +302,13 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
   {
     id: 'mock-20',
     timestampSeconds: 1731597000,
-    fromToken: 'tPUSD',
-    fromAmount: 13.0,
+    fromToken: 'tMUSD',
+    fromAmount: 25.0,
     fromChain: 'Bitcoin Cash Chipnet',
-    toToken: 'USDC',
-    toAmount: 12.9,
-    toChain: 'Base Sepolia',
-    durationSeconds: 40,
+    toToken: 'USDT',
+    toAmount: 24.85,
+    toChain: 'BNB Smart Chain Testnet',
+    durationSeconds: 43,
     sourceTxHash: 'mockbcha1b2c3d4e5f620',
     targetTxHash: '0xmocka1b2c3d4e5f620',
     isMock: true,
@@ -368,9 +387,19 @@ const SAMPLE_MOCK_SWAPS: readonly RecentSwap[] = [
 
 export class MockSolverClient implements SolverClient {
   private readonly emptyStats: boolean;
+  private readonly orders: Map<string, SwapOrder> = new Map();
+  private mockRefusal?: QuoteRefusal | undefined;
 
-  constructor(options?: { emptyStats?: boolean }) {
+  constructor(options?: {
+    emptyStats?: boolean;
+    mockRefusal?: QuoteRefusal | undefined;
+  }) {
     this.emptyStats = options?.emptyStats ?? true; // Honest empty stats by default
+    this.mockRefusal = options?.mockRefusal;
+  }
+
+  setMockRefusal(refusal: QuoteRefusal | undefined): void {
+    this.mockRefusal = refusal;
   }
 
   isLive(): boolean {
@@ -379,6 +408,42 @@ export class MockSolverClient implements SolverClient {
 
   getLabel(): string {
     return 'Mock interface, no funds move';
+  }
+
+  async getLiquidity(): Promise<LiquidityResponse> {
+    const now = Math.floor(Date.now() / 1000);
+    return {
+      routes: [
+        {
+          route: 'base:USDC->PUSD',
+          asset: 'PUSD',
+          decimals: 2,
+          available: '500000', // 5,000.00 PUSD
+          inventory: '600000',
+          exposure: '50000',
+          reserved: '50000',
+        },
+        {
+          route: 'bch:PUSD->USDC',
+          asset: 'USDC',
+          decimals: 6,
+          available: '5000000000', // 5,000.00 USDC
+          inventory: '6000000000',
+          exposure: '500000000',
+          reserved: '500000000',
+        },
+        {
+          route: 'base:USDC->MUSD',
+          asset: 'MUSD',
+          decimals: 2,
+          available: '250000', // 2,500.00 MUSD
+          inventory: '300000',
+          exposure: '25000',
+          reserved: '25000',
+        },
+      ],
+      asOf: now,
+    };
   }
 
   async getQuote(req: QuoteRequest): Promise<QuoteResponse> {
@@ -390,7 +455,124 @@ export class MockSolverClient implements SolverClient {
       req.fromAmount > 0 ? Number((toAmount / req.fromAmount).toFixed(4)) : 1;
     const estimatedSeconds = req.lane === 'fast' ? 45 : 600;
 
-    return {
+    // Check custom mock refusal or liquidity limits
+    let refusal: QuoteRefusal | undefined = this.mockRefusal;
+    if (!refusal) {
+      if (req.fromAmount > 10000) {
+        refusal = {
+          reason: 'OVER_MAX_SWAP',
+          maxAmount: '10000.00',
+          asset: req.toToken,
+          message: `Swap exceeds the 10000.00 ${req.toToken} maximum; try 10000.00 or less`,
+        };
+      } else if (req.fromAmount > 5000) {
+        refusal = {
+          reason: 'INSUFFICIENT_LIQUIDITY',
+          maxAmount: '5000.00',
+          asset: req.toToken,
+          message: `Only 5000.00 ${req.toToken} available; try 5000.00 or less`,
+        };
+      }
+    }
+
+    // Direction and token mapping
+    const isForward =
+      req.fromToken.toUpperCase().includes('USD') &&
+      !req.fromToken.toUpperCase().includes('PUSD') &&
+      !req.fromToken.toUpperCase().includes('MUSD');
+    const direction: 'EVM_TO_BCH' | 'BCH_TO_EVM' = isForward
+      ? 'EVM_TO_BCH'
+      : 'BCH_TO_EVM';
+    const bchToken: 'PUSD' | 'MUSD' =
+      req.toToken.toUpperCase().includes('MUSD') ||
+      req.fromToken.toUpperCase().includes('MUSD')
+        ? 'MUSD'
+        : 'PUSD';
+
+    const now = Math.floor(Date.now() / 1000);
+    const pricing: PricingEvidence = {
+      refs: [
+        {
+          asset: bchToken,
+          usdPrice: bchToken === 'PUSD' ? '0.998' : '1.000',
+          source: 'Cauldron',
+          asOf: now,
+        },
+        {
+          asset: 'USDC',
+          usdPrice: '1.000',
+          source: 'Chainlink',
+          asOf: now,
+        },
+      ],
+      spreadBps: SPREAD_BPS,
+      fixedFeeBase: 0n,
+      rounding: 'floor',
+    };
+
+    const bchAmount = BigInt(
+      Math.max(
+        1,
+        Math.round(
+          (direction === 'EVM_TO_BCH' ? toAmount : req.fromAmount) * 100,
+        ),
+      ),
+    );
+    const evmAmount = BigInt(
+      Math.max(
+        1,
+        Math.round(
+          (direction === 'EVM_TO_BCH' ? req.fromAmount : toAmount) * 1_000_000,
+        ),
+      ),
+    );
+
+    const userEvm =
+      req.userAddress && /^0x[0-9a-fA-F]{40}$/.test(req.userAddress)
+        ? (req.userAddress.toLowerCase() as Hex)
+        : ('0x1111111111111111111111111111111111111111' as Hex);
+
+    const terms: OrderTerms = {
+      version: 1,
+      direction,
+      bchToken,
+      bchTokenCategory:
+        '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex32,
+      bchTokenAmount: bchAmount,
+      evmAmount,
+      evmToken: '0x036cbd53842c5426634e7929541ec2318f3dcf7e' as Hex,
+      evmChainId: 84532,
+      evmHtlc: '0x2222222222222222222222222222222222222222' as Hex,
+      userEvmAddress: userEvm,
+      userBchLockingBytecode:
+        '0x76a914111111111111111111111111111111111111111188ac' as Hex,
+      solverEvmAddress: mockSolverAccount.address,
+      solverBchLockingBytecode:
+        '0x76a914222222222222222222222222222222222222222288ac' as Hex,
+      hashLock:
+        '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef' as Hex32,
+      evmDeadline: now + 3600,
+      bchRefundHeight: 120100,
+      bchCarrySats: 1000n,
+      bchMaxFee: 500n,
+      quoteId: `quote-${now}`,
+      quoteExpiry: now + 60,
+      pricing,
+    };
+
+    const id = computeOrderId(terms);
+    const signature = await signOrderId(id, mockSolverAccount);
+
+    const signedQuote: SignedQuote = {
+      orderId: id,
+      terms,
+      signature,
+      signerAddress: mockSolverAccount.address,
+    };
+
+    const formattedPricingEvidence = formatPricingEvidence(pricing);
+
+    const quoteRes: QuoteResponse = {
       fromToken: req.fromToken,
       toToken: req.toToken,
       fromAmount: req.fromAmount,
@@ -399,12 +581,120 @@ export class MockSolverClient implements SolverClient {
       spreadBps: SPREAD_BPS,
       estimatedSeconds,
       expiresInSeconds: 60,
+      signedQuote,
+      formattedPricingEvidence,
+      ...(refusal ? { refusal } : {}),
     };
+
+    return quoteRes;
+  }
+
+  async getQuoteWithResult(req: QuoteRequest): Promise<QuoteResult> {
+    const quote = await this.getQuote(req);
+    if (quote.refusal) {
+      return { ok: false, refusal: quote.refusal };
+    }
+    return { ok: true, quote };
+  }
+
+  async createOrder(
+    quote: SignedQuote,
+    userAddress?: string,
+  ): Promise<SwapOrder> {
+    const terms = quote.terms;
+    const now = Math.floor(Date.now() / 1000);
+    const fromAmount =
+      terms.direction === 'EVM_TO_BCH'
+        ? Number(terms.evmAmount) / 1_000_000
+        : Number(terms.bchTokenAmount) / 100;
+    const toAmount =
+      terms.direction === 'EVM_TO_BCH'
+        ? Number(terms.bchTokenAmount) / 100
+        : Number(terms.evmAmount) / 1_000_000;
+
+    const fromToken =
+      terms.direction === 'EVM_TO_BCH' ? 'USDC' : terms.bchToken;
+    const toToken = terms.direction === 'EVM_TO_BCH' ? terms.bchToken : 'USDC';
+
+    const order: SwapOrder = {
+      id: quote.orderId,
+      mode: 'swap',
+      status: 'USER_LOCK_SEEN',
+      lane: 'fast',
+      fromToken,
+      toToken,
+      fromAmount,
+      toAmount,
+      fromChain:
+        terms.direction === 'EVM_TO_BCH'
+          ? 'Base Sepolia'
+          : 'Bitcoin Cash Chipnet',
+      toChain:
+        terms.direction === 'EVM_TO_BCH'
+          ? 'Bitcoin Cash Chipnet'
+          : 'Base Sepolia',
+      userAddress: userAddress || terms.userEvmAddress,
+      recipientAddress: terms.userBchLockingBytecode,
+      solverAddress: terms.solverEvmAddress,
+      currentConfirmations: 0,
+      requiredConfirmations: 1,
+      estimatedSecondsRemaining: 45,
+      elapsedSeconds: 5,
+      waitDescription:
+        terms.direction === 'EVM_TO_BCH'
+          ? 'Waiting for user lock confirmation on Base Sepolia…'
+          : 'Waiting for user lock confirmation on Bitcoin Cash…',
+      transactions: [
+        {
+          id: 'user-lock-tx',
+          label: 'User Lock Transaction',
+          actor: 'user',
+          chainName:
+            terms.direction === 'EVM_TO_BCH'
+              ? 'Base Sepolia'
+              : 'Bitcoin Cash Chipnet',
+          hash: '0xmocklocktx' + quote.orderId.slice(2, 10),
+          isMock: true,
+        },
+      ],
+      createdAtSeconds: now,
+      updatedAtSeconds: now,
+      isMock: true,
+      signedQuote: quote,
+    };
+
+    this.orders.set(quote.orderId, order);
+    return order;
+  }
+
+  async submitLock(orderId: string, txHash: string): Promise<SwapOrder> {
+    const existing = await this.getOrder(orderId);
+    if (!existing) {
+      throw new Error(`Order ${orderId} not found`);
+    }
+    const updated: SwapOrder = {
+      ...existing,
+      status: 'SOLVER_LOCK_SEEN',
+      waitDescription: 'Waiting for solver counter-lock on target chain…',
+      transactions: [
+        ...existing.transactions,
+        {
+          id: 'user-broadcast-tx',
+          label: 'User Lock Confirmed',
+          actor: 'user',
+          chainName: existing.fromChain,
+          hash: txHash,
+          isMock: true,
+        },
+      ],
+      updatedAtSeconds: Math.floor(Date.now() / 1000),
+    };
+    this.orders.set(orderId, updated);
+    return updated;
   }
 
   async getStats(): Promise<SolverStats> {
     if (this.emptyStats) {
-      // Rule: Never show fake stats as real; an empty state is shown honestly
       return {
         completedSwaps: 0,
         totalVolumeUsd: 0,
@@ -461,6 +751,10 @@ export class MockSolverClient implements SolverClient {
   async getOrder(orderId: string): Promise<SwapOrder | null> {
     if (orderId === 'not-found') {
       return null;
+    }
+
+    if (this.orders.has(orderId)) {
+      return this.orders.get(orderId)!;
     }
 
     const mode: 'swap' | 'pay-link' | 'send-link' = orderId.includes('paylink')
@@ -581,6 +875,7 @@ export class MockSolverClient implements SolverClient {
       );
     }
 
+    const now = Math.floor(Date.now() / 1000);
     return {
       id: orderId,
       mode,
@@ -592,17 +887,17 @@ export class MockSolverClient implements SolverClient {
       toAmount: 19.87,
       fromChain: 'Base Sepolia',
       toChain: 'Bitcoin Cash Chipnet',
-      userAddress: '0x71C95911E9A5D330f4D621842EC243EE1343292e',
+      userAddress: '0x1111222233334444555566667777888899990000',
       recipientAddress: 'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk',
-      solverAddress: '0x3333333333333333333333333333333333333333',
+      solverAddress: '0xsolver111122223333444455556666777788889999',
       currentConfirmations,
       requiredConfirmations,
       estimatedSecondsRemaining,
       elapsedSeconds,
       waitDescription,
       transactions,
-      createdAtSeconds: 1731670000,
-      updatedAtSeconds: 1731670042,
+      createdAtSeconds: now - elapsedSeconds,
+      updatedAtSeconds: now,
       isMock: true,
     };
   }

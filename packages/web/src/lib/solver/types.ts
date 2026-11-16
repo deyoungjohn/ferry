@@ -1,3 +1,11 @@
+import type {
+  Hex,
+  Hex32,
+  LiquidityResponse,
+  OrderTerms,
+  QuoteRefusal,
+} from '@ferry/core';
+
 export type SwapLane = 'fast' | 'safe';
 
 export type OrderStatus =
@@ -19,6 +27,15 @@ export interface QuoteRequest {
   readonly toChain: string;
   readonly fromAmount: number;
   readonly lane: SwapLane;
+  readonly userAddress?: string | undefined;
+  readonly recipientAddress?: string | undefined;
+}
+
+export interface SignedQuote {
+  readonly orderId: Hex32;
+  readonly terms: OrderTerms;
+  readonly signature: Hex;
+  readonly signerAddress: Hex;
 }
 
 export interface QuoteResponse {
@@ -30,7 +47,14 @@ export interface QuoteResponse {
   readonly spreadBps: number;
   readonly estimatedSeconds: number;
   readonly expiresInSeconds: number;
+  readonly signedQuote?: SignedQuote | undefined;
+  readonly formattedPricingEvidence?: string | undefined;
+  readonly refusal?: QuoteRefusal | undefined;
 }
+
+export type QuoteResult =
+  | { readonly ok: true; readonly quote: QuoteResponse }
+  | { readonly ok: false; readonly refusal: QuoteRefusal };
 
 export interface SolverStats {
   readonly completedSwaps: number;
@@ -75,8 +99,8 @@ export interface OrderTransaction {
   readonly actor: 'user' | 'solver';
   readonly chainName: string;
   readonly hash: string;
-  readonly explorerUrl?: string;
-  readonly isMock?: boolean;
+  readonly explorerUrl?: string | undefined;
+  readonly isMock?: boolean | undefined;
 }
 
 export interface SwapOrder {
@@ -102,14 +126,19 @@ export interface SwapOrder {
   readonly createdAtSeconds: number;
   readonly updatedAtSeconds: number;
   readonly isMock: boolean;
+  readonly signedQuote?: SignedQuote | undefined;
 }
 
 export interface SolverClient {
   isLive(): boolean;
   getLabel(): string;
   getQuote(request: QuoteRequest): Promise<QuoteResponse>;
+  getQuoteWithResult?(request: QuoteRequest): Promise<QuoteResult>;
+  getLiquidity(): Promise<LiquidityResponse>;
   getStats(): Promise<SolverStats>;
   getRecentSwaps(page: number, pageSize: number): Promise<PaginatedRecentSwaps>;
   getPegPrices(): Promise<readonly PegPrice[]>;
   getOrder(orderId: string): Promise<SwapOrder | null>;
+  createOrder?(quote: SignedQuote, userAddress?: string): Promise<SwapOrder>;
+  submitLock?(orderId: string, txHash: string): Promise<SwapOrder>;
 }

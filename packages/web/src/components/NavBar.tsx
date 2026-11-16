@@ -38,14 +38,32 @@ export function NavBar() {
           </Link>
 
           <div className="hidden items-center gap-6 md:flex">
+            <Link
+              to="/pay-links"
+              className="text-sm text-text-muted transition-colors hover:text-text"
+            >
+              Pay links
+            </Link>
+            <Link
+              to="/activity"
+              className="text-sm text-text-muted transition-colors hover:text-text"
+            >
+              My Activity
+            </Link>
+            <Link
+              to="/recover"
+              className="text-sm text-text-muted transition-colors hover:text-text"
+            >
+              Recover a swap
+            </Link>
             <a
-              href="#how-it-works"
+              href="/#how-it-works"
               className="text-sm text-text-muted transition-colors hover:text-text"
             >
               How it works
             </a>
             <a
-              href="#faq"
+              href="/#faq"
               className="text-sm text-text-muted transition-colors hover:text-text"
             >
               FAQ

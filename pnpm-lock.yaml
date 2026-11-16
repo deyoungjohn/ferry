@@ -279,9 +279,15 @@ importers:
       '@bitauth/libauth':
         specifier: 3.0.0
         version: 3.0.0
+      '@ferry/chain-config':
+        specifier: workspace:*
+        version: link:../chain-config
       '@ferry/core':
         specifier: workspace:*
         version: link:../core
+      '@ferry/htlc-bch':
+        specifier: workspace:*
+        version: link:../htlc-bch
       '@fontsource-variable/inter':
         specifier: 5.3.0
         version: 5.3.0
