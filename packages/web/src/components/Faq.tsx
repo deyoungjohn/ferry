@@ -25,7 +25,7 @@ const FAQ_ITEMS = [
   {
     question: 'Can I recover my funds if this website goes offline?',
     answer:
-      'Yes. When you initiate a swap, your browser generates a standalone recovery file containing the contract parameters and secret preimage. A standalone HTML recovery tool can claim or refund directly via public RPC nodes without using Ferry servers.',
+      'Yes. When you initiate a swap, you can download a standalone recovery file before locking funds. Even if this site and the solver go offline, you can claim or refund directly using our standalone recovery page or the @ferry/recover-cli terminal recovery tool (pnpm -w recover) via public RPC nodes without using Ferry servers.',
   },
 ] as const;
 

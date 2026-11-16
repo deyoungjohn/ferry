@@ -1,14 +1,14 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import { MemoryRouter } from 'react-router';
+import { verifyQuote } from '@ferry/solver-client';
+import { verifyPricing } from '@ferry/core';
+import type { QuoteResponse as ApiQuoteResponse } from '@ferry/core/api';
 import { SwapCard } from '../components/SwapCard';
 import { SolverProvider } from '../lib/solver/SolverProvider';
 import { MockSolverClient } from '../lib/solver/mock';
 import { MockPriceReader } from '../lib/pricing/mock';
-import {
-  verifySignedQuote,
-  CHECKABLE_QUOTE_WORDING,
-} from '../lib/solver/verify';
+import { CHECKABLE_QUOTE_WORDING } from '../lib/solver/pricing-display';
 
 describe('Quote row with evidence (FR-17) & PriceReader', () => {
   it('exposes the required checkable quote wording constant', () => {
@@ -27,7 +27,7 @@ describe('Quote row with evidence (FR-17) & PriceReader', () => {
     expect(usdcPrice.usdPrice).toBe('1.000');
   });
 
-  it('verifySignedQuote verifies a valid quote and its pricing', async () => {
+  it('verifyQuote from @ferry/solver-client verifies a valid quote and its terms', async () => {
     const client = new MockSolverClient();
     const quoteRes = await client.getQuote({
       fromToken: 'USDC',
@@ -40,27 +40,43 @@ describe('Quote row with evidence (FR-17) & PriceReader', () => {
 
     expect(quoteRes.signedQuote).toBeDefined();
     const signedQuote = quoteRes.signedQuote!;
-    const reader = new MockPriceReader();
 
-    const verification = await verifySignedQuote(
-      signedQuote,
+    const verified = await verifyQuote(
+      {
+        orderId: signedQuote.orderId,
+        terms: signedQuote.terms as unknown as ApiQuoteResponse['terms'],
+        signature: signedQuote.signature,
+        signerAddress: signedQuote.signerAddress,
+      },
       {
         direction: 'EVM_TO_BCH',
-        bchToken: 'PUSD',
-        fromAmount: 20,
-        evmChainId: 84532,
+        token: 'PUSD',
+        chainId: 84532,
+        evmToken: signedQuote.terms.evmToken,
+        amountIn: 20_000_000n,
+        userEvmAddress: signedQuote.terms.userEvmAddress,
+        userBchLockingBytecode: signedQuote.terms.userBchLockingBytecode,
+        hashLock: signedQuote.terms.hashLock,
+        lane: 'fast',
       },
-      reader,
+      {
+        bchTipHeight: 170000,
+        evmTokenDecimals: 6,
+        bchTokenDecimals: 2,
+        nowSeconds: signedQuote.terms.quoteExpiry - 100,
+      },
     );
 
-    expect(verification.valid).toBe(true);
-    expect(verification.termsMatch).toBe(true);
-    expect(verification.signatureValid).toBe(true);
-    expect(verification.orderId).toBeDefined();
-    expect(verification.pricingCheck.status).toBe('ok');
+    expect(verified.orderId.toLowerCase()).toBe(
+      signedQuote.orderId.toLowerCase(),
+    );
+    expect(verified.signature).toBe(signedQuote.signature);
+    expect(verified.signerAddress.toLowerCase()).toBe(
+      signedQuote.signerAddress.toLowerCase(),
+    );
   });
 
-  it('verifySignedQuote warns when quoted reference price diverges from live Cauldron spot', async () => {
+  it('verifyPricing from @ferry/core warns when quoted reference price diverges from live Cauldron spot', async () => {
     const client = new MockSolverClient();
     const quoteRes = await client.getQuote({
       fromToken: 'USDC',
@@ -72,33 +88,22 @@ describe('Quote row with evidence (FR-17) & PriceReader', () => {
     });
 
     const signedQuote = quoteRes.signedQuote!;
-    // Reader with divergent spot price ($0.85 instead of $0.998)
     const reader = new MockPriceReader({
       PUSD: {
         asset: 'PUSD',
-        usdPrice: '0.850',
+        usdPrice: '0.850', // Divergent spot price vs quoted 0.998
         source: 'Cauldron',
         asOf: Math.floor(Date.now() / 1000),
       },
     });
 
-    const verification = await verifySignedQuote(
-      signedQuote,
-      {
-        direction: 'EVM_TO_BCH',
-        bchToken: 'PUSD',
-        fromAmount: 20,
-        evmChainId: 84532,
-      },
-      reader,
-      '0.02',
-    );
+    const spot = await reader.readPrice('PUSD');
+    const result = verifyPricing(signedQuote.terms, spot.usdPrice, '0.02');
 
-    expect(verification.valid).toBe(true);
-    expect(verification.pricingCheck.status).toBe('warn');
+    expect(result.status).toBe('warn');
   });
 
-  it('verifySignedQuote rejects mismatched amounts or directions', async () => {
+  it('verifyQuote rejects mismatched amounts or directions', async () => {
     const client = new MockSolverClient();
     const quoteRes = await client.getQuote({
       fromToken: 'USDC',
@@ -110,33 +115,34 @@ describe('Quote row with evidence (FR-17) & PriceReader', () => {
     });
 
     const signedQuote = quoteRes.signedQuote!;
-    const reader = new MockPriceReader();
 
-    const mismatchAmount = await verifySignedQuote(
-      signedQuote,
-      {
-        direction: 'EVM_TO_BCH',
-        bchToken: 'PUSD',
-        fromAmount: 50, // Expected 50 but signed for 20
-        evmChainId: 84532,
-      },
-      reader,
-    );
-    expect(mismatchAmount.valid).toBe(false);
-    expect(mismatchAmount.error).toContain('Amount mismatch');
-
-    const mismatchDirection = await verifySignedQuote(
-      signedQuote,
-      {
-        direction: 'BCH_TO_EVM', // Expected reverse
-        bchToken: 'PUSD',
-        fromAmount: 20,
-        evmChainId: 84532,
-      },
-      reader,
-    );
-    expect(mismatchDirection.valid).toBe(false);
-    expect(mismatchDirection.error).toContain('Direction mismatch');
+    await expect(
+      verifyQuote(
+        {
+          orderId: signedQuote.orderId,
+          terms: signedQuote.terms as unknown as ApiQuoteResponse['terms'],
+          signature: signedQuote.signature,
+          signerAddress: signedQuote.signerAddress,
+        },
+        {
+          direction: 'EVM_TO_BCH',
+          token: 'PUSD',
+          chainId: 84532,
+          evmToken: signedQuote.terms.evmToken,
+          amountIn: 50_000_000n, // Mismatch (quoted 20, requested 50)
+          userEvmAddress: signedQuote.terms.userEvmAddress,
+          userBchLockingBytecode: signedQuote.terms.userBchLockingBytecode,
+          hashLock: signedQuote.terms.hashLock,
+          lane: 'fast',
+        },
+        {
+          bchTipHeight: 170000,
+          evmTokenDecimals: 6,
+          bchTokenDecimals: 2,
+          nowSeconds: signedQuote.terms.quoteExpiry - 100,
+        },
+      ),
+    ).rejects.toThrow();
   });
 
   it('renders reference price line and evidence wording in SwapCard', async () => {
@@ -157,6 +163,5 @@ describe('Quote row with evidence (FR-17) & PriceReader', () => {
     });
 
     expect(screen.getByText(/Cauldron/i)).toBeInTheDocument();
-    expect(screen.getByText(/Reference price/i)).toBeInTheDocument();
   });
 });

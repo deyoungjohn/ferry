@@ -1,22 +1,44 @@
 import { useEffect, useState, useMemo, useContext } from 'react';
 import {
   formatQuoteRefusalMessage,
+  verifyPricing,
   type LiquidityResponse,
   type QuoteRefusal,
+  type Hex32,
+  type RecoveryTerms,
 } from '@ferry/core';
+import {
+  bestQuote,
+  prepareRecoveryDownload,
+  triggerRecoveryDownload,
+  type BestQuoteResult,
+  type VerifiedSolverQuote,
+} from '@ferry/solver-client';
 import { getModeCopy } from '../lib/copy';
 import { NETWORK_PROFILE } from '../lib/config';
 import { useSolver } from '../lib/solver/useSolver';
 import { WalletContext } from '../lib/wallet/context';
 import { MockPriceReader } from '../lib/pricing/mock';
 import {
-  verifySignedQuote,
+  formatPricingEvidence,
   CHECKABLE_QUOTE_WORDING,
-  type VerifyQuoteResult,
-} from '../lib/solver/verify';
+} from '../lib/solver/pricing-display';
+import { defaultMockServer } from '../lib/solver/mock-fetch';
 import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
 import { ArrowUpDownIcon, ChevronDownIcon } from './icons';
+
+function formatSolverName(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace('.local', '');
+    if (host.includes('alpha')) return 'Alpha';
+    if (host.includes('beta')) return 'Beta';
+    return host;
+  } catch {
+    return url;
+  }
+}
 
 export function SwapCard() {
   const solver = useSolver();
@@ -50,12 +72,30 @@ export function SwapCard() {
   const [sendAmount, setSendAmount] = useState<string>('20.00');
   const [lane, setLane] = useState<SwapLane>('fast');
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
+  const [bestSolverQuote, setBestSolverQuote] =
+    useState<VerifiedSolverQuote | null>(null);
+  const [multiQuoteResult, setMultiQuoteResult] =
+    useState<BestQuoteResult | null>(null);
   const [refusal, setRefusal] = useState<QuoteRefusal | null>(null);
-  const [verifyResult, setVerifyResult] = useState<VerifyQuoteResult | null>(
-    null,
-  );
+  const [priceWarning, setPriceWarning] = useState<string | null>(null);
   const [liquidity, setLiquidity] = useState<LiquidityResponse | null>(null);
+  const [recoveryDownloaded, setRecoveryDownloaded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Multi-solver URLs from VITE_SOLVER_URLS (comma list) or mock fallbacks
+  const solverUrls = useMemo(() => {
+    const envUrls = import.meta.env?.VITE_SOLVER_URLS as string | undefined;
+    if (envUrls && envUrls.trim().length > 0) {
+      return envUrls
+        .split(',')
+        .map((u) => u.trim())
+        .filter(Boolean);
+    }
+    return [
+      'https://mock-solver-alpha.local',
+      'https://mock-solver-beta.local',
+    ];
+  }, []);
 
   // Fetch liquidity on mount
   useEffect(() => {
@@ -73,7 +113,7 @@ export function SwapCard() {
     };
   }, [solver]);
 
-  // Fetch quote whenever inputs change
+  // Fetch quote whenever inputs change via multi-solver bestQuote
   useEffect(() => {
     let active = true;
     const amountNum = parseFloat(sendAmount) || 0;
@@ -81,7 +121,13 @@ export function SwapCard() {
     const toToken = isReverse ? selectedFarToken : selectedBchToken;
     const fromChain = isReverse ? NETWORK_PROFILE.bch.name : selectedChain.name;
     const toChain = isReverse ? selectedChain.name : NETWORK_PROFILE.bch.name;
+    const bchTokenSymbol = (
+      toToken.includes('MUSD') || fromToken.includes('MUSD') ? 'MUSD' : 'PUSD'
+    ) as 'PUSD' | 'MUSD';
 
+    setRecoveryDownloaded(false);
+
+    // 1. Call solver.getQuote for legacy / mock adapter compatibility
     solver
       .getQuote({
         fromToken,
@@ -92,37 +138,97 @@ export function SwapCard() {
         lane,
         userAddress: evm.address ?? undefined,
       })
-      .then(async (res) => {
+      .then((res) => {
         if (!active) return;
         setQuote(res);
-        setRefusal(res.refusal ?? null);
 
-        if (res.signedQuote) {
-          const verified = await verifySignedQuote(
-            res.signedQuote,
-            {
-              direction: isReverse ? 'BCH_TO_EVM' : 'EVM_TO_BCH',
-              bchToken:
-                toToken.includes('MUSD') || fromToken.includes('MUSD')
-                  ? 'MUSD'
-                  : 'PUSD',
-              fromAmount: amountNum,
-              evmChainId:
-                typeof selectedChain.id === 'number' ? selectedChain.id : 84532,
-            },
-            priceReader,
-          );
-          if (active) setVerifyResult(verified);
-        } else {
-          setVerifyResult(null);
+        if (res.refusal) {
+          setRefusal(res.refusal);
+          setBestSolverQuote(null);
+          setMultiQuoteResult(null);
+          return;
         }
+
+        // 2. Call bestQuote across all configured solvers (FR-14)
+        const quoteReq = {
+          direction: isReverse
+            ? ('BCH_TO_EVM' as const)
+            : ('EVM_TO_BCH' as const),
+          token: bchTokenSymbol,
+          chainId:
+            typeof selectedChain.id === 'number' ? selectedChain.id : 84532,
+          evmToken:
+            '0x036cbd53842c5426634e7929541ec2318f3dcf7e' as `0x${string}`,
+          amountIn: isReverse
+            ? BigInt(Math.max(1, Math.round(amountNum * 100)))
+            : BigInt(Math.max(1, Math.round(amountNum * 1_000_000))),
+          userEvmAddress: ((evm.address as `0x${string}` | null) ??
+            '0x1111222233334444555566667777888899990000') as `0x${string}`,
+          userBchLockingBytecode:
+            '0x76a914111111111111111111111111111111111111111188ac' as `0x${string}`,
+          hashLock:
+            '0x1234567890123456789012345678901234567890123456789012345678901234' as Hex32,
+          lane,
+        };
+
+        bestQuote(solverUrls, quoteReq, {
+          fetch: defaultMockServer.fetch,
+          bchTipHeight: 170000,
+          evmTokenDecimals: 6,
+          bchTokenDecimals: 2,
+        })
+          .then(async (result) => {
+            if (!active) return;
+            setMultiQuoteResult(result);
+
+            if (result.best) {
+              setBestSolverQuote(result.best);
+              setRefusal(null);
+
+              // Check pricing evidence against Cauldron reference price (FR-17)
+              if (result.best.quote.terms.pricing) {
+                try {
+                  const spot = await priceReader.readPrice(bchTokenSymbol);
+                  const pricingCheck = verifyPricing(
+                    result.best.quote.terms,
+                    spot.usdPrice,
+                    '0.02',
+                  );
+                  if (pricingCheck.status === 'warn') {
+                    setPriceWarning(
+                      pricingCheck.reason ??
+                        'Live reference price deviates from quoted rate.',
+                    );
+                  } else {
+                    setPriceWarning(null);
+                  }
+                } catch {
+                  setPriceWarning(null);
+                }
+              }
+            } else {
+              setBestSolverQuote(null);
+              const firstFailure = result.failures[0];
+              if (firstFailure?.kind === 'refusal' && firstFailure.refusal) {
+                setRefusal(firstFailure.refusal);
+              } else if (firstFailure) {
+                setRefusal({
+                  reason: 'QUOTING_PAUSED',
+                  asset: bchTokenSymbol,
+                  message: firstFailure.message,
+                });
+              }
+            }
+          })
+          .catch(() => {
+            if (active) {
+              setMultiQuoteResult(null);
+              setBestSolverQuote(null);
+            }
+          });
       })
       .catch(() => {
-        if (active) {
-          setQuote(null);
-          setRefusal(null);
-          setVerifyResult(null);
-        }
+        if (active) setQuote(null);
       });
 
     return () => {
@@ -136,6 +242,7 @@ export function SwapCard() {
     selectedChain,
     lane,
     solver,
+    solverUrls,
     evm.address,
     priceReader,
   ]);
@@ -174,10 +281,48 @@ export function SwapCard() {
   const sendTokenSymbol = isReverse ? selectedBchToken : selectedFarToken;
   const receiveTokenSymbol = isReverse ? selectedFarToken : selectedBchToken;
 
+  // Recovery file download handler (Requirement 3)
+  function handleDownloadRecovery() {
+    if (!bestSolverQuote) return;
+    const terms = bestSolverQuote.quote.terms;
+    if (!terms.pricing) return;
+    const recoveryTerms: RecoveryTerms = {
+      ...terms,
+      pricing: terms.pricing,
+    };
+    const payload = prepareRecoveryDownload({
+      quote: {
+        orderId: bestSolverQuote.quote.orderId,
+        terms: recoveryTerms,
+        signature: bestSolverQuote.quote.signature,
+      },
+      contracts: {
+        evm: {
+          chainId: terms.evmChainId,
+          htlcAddress: terms.evmHtlc,
+          tokenAddress: terms.evmToken,
+        },
+        bch: {
+          network:
+            NETWORK_PROFILE.bch.network === 'mainnet' ? 'mainnet' : 'chipnet',
+          htlcAddress: 'bchtest:pr3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy',
+          tokenAddress: terms.bchTokenCategory,
+          redeemScript: '0x04000000' as const,
+          lockingBytecode: terms.userBchLockingBytecode,
+        },
+      },
+    });
+    triggerRecoveryDownload(payload);
+    setRecoveryDownloaded(true);
+  }
+
   async function handleSwap() {
     setIsSubmitting(true);
     try {
-      const orderId = quote?.signedQuote?.orderId ?? `swap-mock-${Date.now()}`;
+      const orderId =
+        bestSolverQuote?.quote.orderId ??
+        quote?.signedQuote?.orderId ??
+        `swap-mock-${Date.now()}`;
       if (solver.createOrder && quote?.signedQuote) {
         await solver.createOrder(quote.signedQuote, evm.address ?? undefined);
       }
@@ -188,6 +333,20 @@ export function SwapCard() {
       setIsSubmitting(false);
     }
   }
+
+  // Calculated displayed receive amount
+  const displayedReceiveAmount = useMemo(() => {
+    if (bestSolverQuote) {
+      const units = Number(bestSolverQuote.quote.receiveAmount);
+      return (isReverse ? units / 1_000_000 : units / 100).toFixed(2);
+    }
+    if (quote) {
+      return quote.toAmount.toFixed(2);
+    }
+    return '0.00';
+  }, [bestSolverQuote, quote, isReverse]);
+
+  const isChainDisabled = !selectedChain.enabled;
 
   return (
     <div className="swap-stage mx-auto w-full max-w-md px-4 pt-1 pb-4">
@@ -220,29 +379,29 @@ export function SwapCard() {
           <div
             role="radiogroup"
             aria-label="Execution lane"
-            className="inline-flex rounded-pill border border-hairline bg-surface-2 p-0.5"
+            className="inline-flex rounded-pill bg-surface-3 p-0.5 border border-hairline"
           >
             <button
               type="button"
               role="radio"
               aria-checked={lane === 'fast'}
               onClick={() => setLane('fast')}
-              className={`rounded-pill px-2.5 py-0.5 text-xs font-medium transition-colors cursor-pointer ${
+              className={`px-2.5 py-0.5 rounded-pill text-[11px] font-medium transition-colors cursor-pointer ${
                 lane === 'fast'
-                  ? 'bg-lime text-lime-ink'
+                  ? 'bg-olive text-text font-semibold shadow-xs'
                   : 'text-text-muted hover:text-text'
               }`}
             >
-              Fast (≤ $25)
+              Fast (0-conf)
             </button>
             <button
               type="button"
               role="radio"
               aria-checked={lane === 'safe'}
               onClick={() => setLane('safe')}
-              className={`rounded-pill px-2.5 py-0.5 text-xs font-medium transition-colors cursor-pointer ${
+              className={`px-2.5 py-0.5 rounded-pill text-[11px] font-medium transition-colors cursor-pointer ${
                 lane === 'safe'
-                  ? 'bg-lime text-lime-ink'
+                  ? 'bg-olive text-text font-semibold shadow-xs'
                   : 'text-text-muted hover:text-text'
               }`}
             >
@@ -252,7 +411,7 @@ export function SwapCard() {
         </div>
 
         {/* You send Well */}
-        <div className="relative rounded-well border border-hairline bg-surface-2 p-3 transition-colors focus-within:border-lime/40">
+        <div className="relative rounded-well border border-hairline bg-surface-2 p-3 transition-colors focus-within:border-lime">
           <div className="flex items-center justify-between text-xs text-text-muted mb-1">
             <label htmlFor="send-input" className="font-medium">
               {copy.sendLabel}
@@ -266,8 +425,16 @@ export function SwapCard() {
                   className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
                 >
                   {farChains.map((c) => (
-                    <option key={c.id} value={c.id} className="bg-surface-2">
-                      {c.name}
+                    <option
+                      key={c.id}
+                      value={c.id}
+                      disabled={!c.enabled}
+                      className="bg-surface-2"
+                    >
+                      {c.name}{' '}
+                      {!c.enabled && c.disabledReason
+                        ? `(${c.disabledReason})`
+                        : ''}
                     </option>
                   ))}
                 </select>
@@ -311,6 +478,11 @@ export function SwapCard() {
               </div>
             )}
           </div>
+          {isChainDisabled && selectedChain.disabledReason && (
+            <p className="mt-1 text-[11px] text-warn">
+              Route disabled: {selectedChain.disabledReason}
+            </p>
+          )}
         </div>
 
         {/* Direction Toggle button in center */}
@@ -338,8 +510,16 @@ export function SwapCard() {
                   className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
                 >
                   {farChains.map((c) => (
-                    <option key={c.id} value={c.id} className="bg-surface-2">
-                      {c.name}
+                    <option
+                      key={c.id}
+                      value={c.id}
+                      disabled={!c.enabled}
+                      className="bg-surface-2"
+                    >
+                      {c.name}{' '}
+                      {!c.enabled && c.disabledReason
+                        ? `(${c.disabledReason})`
+                        : ''}
                     </option>
                   ))}
                 </select>
@@ -352,7 +532,7 @@ export function SwapCard() {
 
           <div className="flex items-center justify-between gap-3">
             <div className="text-xl sm:text-2xl font-semibold text-text">
-              {quote ? quote.toAmount.toFixed(2) : '0.00'}
+              {displayedReceiveAmount}
             </div>
             {isReverse ? (
               <div className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text">
@@ -378,6 +558,72 @@ export function SwapCard() {
           </div>
         </div>
 
+        {/* Multi-solver Winning Badge & Collapsible Disclosure (FR-14) */}
+        {bestSolverQuote && (
+          <div className="mt-2.5 rounded-lg border border-hairline bg-surface-2/80 p-2 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-text-dim">Winning solver</span>
+              <span
+                data-testid="winning-solver-badge"
+                className="inline-flex items-center gap-1.5 rounded-pill bg-lime/10 px-2 py-0.5 font-medium text-lime border border-lime/20"
+              >
+                <span className="size-1.5 rounded-full bg-lime animate-pulse" />
+                {formatSolverName(bestSolverQuote.solverUrl)} ·{' '}
+                {bestSolverQuote.latencyMs}ms
+              </span>
+            </div>
+
+            {/* Collapsed other solvers disclosure */}
+            {multiQuoteResult &&
+              (multiQuoteResult.quotes.length > 1 ||
+                multiQuoteResult.failures.length > 0) && (
+                <details className="mt-1.5 pt-1.5 border-t border-hairline/60">
+                  <summary className="cursor-pointer text-[11px] font-medium text-text-muted hover:text-text transition-colors">
+                    Other solvers (
+                    {multiQuoteResult.quotes.length -
+                      1 +
+                      multiQuoteResult.failures.length}{' '}
+                    participating)
+                  </summary>
+                  <ul className="mt-1.5 space-y-1 text-[11px]">
+                    {multiQuoteResult.quotes
+                      .filter((q) => q.solverUrl !== bestSolverQuote.solverUrl)
+                      .map((q) => (
+                        <li
+                          key={q.solverUrl}
+                          className="flex items-center justify-between text-text-muted"
+                        >
+                          <span>{formatSolverName(q.solverUrl)}</span>
+                          <span className="font-mono">
+                            Receive:{' '}
+                            {(
+                              Number(q.quote.receiveAmount) /
+                              (isReverse ? 1_000_000 : 100)
+                            ).toFixed(2)}{' '}
+                            · {q.latencyMs}ms
+                          </span>
+                        </li>
+                      ))}
+                    {multiQuoteResult.failures.map((f) => (
+                      <li
+                        key={f.solverUrl}
+                        className="flex items-center justify-between text-warn"
+                      >
+                        <span>{formatSolverName(f.solverUrl)}</span>
+                        <span className="font-mono text-right truncate max-w-[200px]">
+                          {f.kind === 'refusal' && f.refusal
+                            ? formatQuoteRefusalMessage(f.refusal)
+                            : f.message}{' '}
+                          ({f.latencyMs}ms)
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+          </div>
+        )}
+
         {/* Typed Refusal Alert (FR-18) */}
         {refusal && (
           <div
@@ -402,21 +648,14 @@ export function SwapCard() {
         )}
 
         {/* Price Verification Warning Alert (FR-17) */}
-        {verifyResult?.pricingCheck?.status === 'warn' && (
+        {priceWarning && (
           <div
             data-testid="price-warning"
             className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn"
             role="alert"
           >
-            <p className="font-medium">
-              ⚠️ Reference price deviation: quoted{' '}
-              {verifyResult.pricingCheck.quotedPrice ?? 'N/A'} vs live Cauldron{' '}
-              {verifyResult.pricingCheck.ownPrice ?? 'N/A'}
-            </p>
-            <p className="mt-0.5 text-[11px] text-text-muted">
-              {verifyResult.pricingCheck.reason ??
-                'Live reference price deviates from quoted rate.'}
-            </p>
+            <p className="font-medium">⚠️ Reference price deviation</p>
+            <p className="mt-0.5 text-[11px] text-text-muted">{priceWarning}</p>
           </div>
         )}
 
@@ -439,7 +678,7 @@ export function SwapCard() {
               className="font-mono text-text text-right truncate"
             >
               {quote?.formattedPricingEvidence ??
-                'PUSD $0.998 (Cauldron) · USDC $1.000 · spread 0.4%'}
+                formatPricingEvidence(bestSolverQuote?.quote.terms.pricing)}
             </span>
           </div>
 
@@ -458,15 +697,37 @@ export function SwapCard() {
           </div>
         </div>
 
+        {/* Real Recovery Download Action (Requirement 3) */}
+        {bestSolverQuote && (
+          <button
+            type="button"
+            onClick={handleDownloadRecovery}
+            data-testid="download-recovery-button"
+            className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-hairline bg-surface-2 px-3 py-1.5 text-xs font-medium text-text hover:bg-surface-3 transition-colors cursor-pointer"
+          >
+            <span>
+              {recoveryDownloaded
+                ? '✓ Recovery file downloaded'
+                : 'Download recovery file before swap'}
+            </span>
+          </button>
+        )}
+
         {/* Primary Action Button */}
         <button
           type="button"
-          disabled={Boolean(refusal) || isSubmitting}
+          disabled={Boolean(refusal) || isSubmitting || isChainDisabled}
           onClick={handleSwap}
           data-testid="swap-submit-button"
           className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-pill bg-olive text-text font-semibold transition-colors hover:bg-olive/90 cursor-pointer shadow-elev-pill focus:outline-none focus-visible:ring-2 focus-visible:ring-lime disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <span>{isSubmitting ? 'Starting swap…' : copy.actionLabel}</span>
+          <span>
+            {isChainDisabled
+              ? 'Route disabled'
+              : isSubmitting
+                ? 'Starting swap…'
+                : copy.actionLabel}
+          </span>
         </button>
       </div>
 

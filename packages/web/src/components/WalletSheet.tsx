@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { GlassModal } from './GlassModal';
 import { useWallets } from '../lib/wallet/context';
 import { NETWORK_PROFILE, REOWN_PROJECT_ID } from '../lib/config';
@@ -15,6 +16,12 @@ function truncateMiddle(str: string, head = 8, tail = 6): string {
 
 export function WalletSheet({ open, onClose }: WalletSheetProps) {
   const { evm, bch, usingMocks } = useWallets();
+
+  useEffect(() => {
+    if (open && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('ferry:activate-wallets'));
+    }
+  }, [open]);
 
   return (
     <GlassModal
