@@ -113,7 +113,18 @@ export class SolverEngine {
    * Quoting is allowed ONLY when BCH quorum is healthy and quoting is enabled.
    */
   isQuotingEnabled(): boolean {
+    if (this.db.isQuotingPaused()) {
+      return false;
+    }
     return this.bchPort.isQuorumHealthy() && this.bchPort.isQuotingEnabled();
+  }
+
+  pauseQuoting(): void {
+    this.db.setQuotingPaused(true);
+  }
+
+  resumeQuoting(): void {
+    this.db.setQuotingPaused(false);
   }
 
   async start(): Promise<void> {

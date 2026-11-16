@@ -1,3 +1,14 @@
+import {
+  existsSync,
+  mkdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  openSync,
+  closeSync,
+  writeSync,
+} from 'node:fs';
+import { dirname } from 'node:path';
 import { Writable } from 'node:stream';
 import pino, { type Logger } from 'pino';
 
@@ -69,9 +80,86 @@ export function createConsoleStream(
   });
 }
 
+/**
+ * Rotating file stream that rotates logs when file size reaches maxBytes.
+ * Keeps up to maxFiles previous rotated logs (e.g. log.1, log.2, etc.).
+ */
+export function createRotatingFileStream(
+  filePath: string,
+  maxBytes: number = 10 * 1024 * 1024, // 10 MB
+  maxFiles: number = 5,
+): Writable {
+  mkdirSync(dirname(filePath), { recursive: true });
+
+  let currentFd = openSync(filePath, 'a');
+  let currentSize = 0;
+  try {
+    currentSize = statSync(filePath).size;
+  } catch {
+    currentSize = 0;
+  }
+
+  const rotate = () => {
+    closeSync(currentFd);
+    for (let i = maxFiles - 1; i >= 1; i--) {
+      const src = `${filePath}.${i}`;
+      const dst = `${filePath}.${i + 1}`;
+      if (existsSync(src)) {
+        if (i === maxFiles - 1 && existsSync(dst)) {
+          try {
+            unlinkSync(dst);
+          } catch {
+            // ignore
+          }
+        }
+        try {
+          renameSync(src, dst);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    const firstRotated = `${filePath}.1`;
+    if (existsSync(filePath)) {
+      try {
+        renameSync(filePath, firstRotated);
+      } catch {
+        // ignore
+      }
+    }
+    currentFd = openSync(filePath, 'a');
+    currentSize = 0;
+  };
+
+  return new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      try {
+        if (currentSize + chunk.length > maxBytes) {
+          rotate();
+        }
+        writeSync(currentFd, chunk);
+        currentSize += chunk.length;
+        callback();
+      } catch (err) {
+        callback(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+    final(callback) {
+      try {
+        closeSync(currentFd);
+        callback();
+      } catch (err) {
+        callback(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+  });
+}
+
 export interface LoggerOptions {
   logFilePath?: string | undefined;
   minLevel?: pino.Level | undefined;
+  maxLogBytes?: number | undefined;
+  maxLogFiles?: number | undefined;
 }
 
 export function createSolverLogger(options: LoggerOptions = {}): Logger {
@@ -80,12 +168,15 @@ export function createSolverLogger(options: LoggerOptions = {}): Logger {
     [{ level: 'warn', stream: consoleStream }];
 
   if (options.logFilePath) {
-    const fileStream = pino.destination({
-      dest: options.logFilePath,
-      sync: false,
-      mkdir: true,
+    const rotatingStream = createRotatingFileStream(
+      options.logFilePath,
+      options.maxLogBytes,
+      options.maxLogFiles,
+    );
+    streams.push({
+      level: options.minLevel ?? 'debug',
+      stream: rotatingStream,
     });
-    streams.push({ level: options.minLevel ?? 'debug', stream: fileStream });
   }
 
   return pino(

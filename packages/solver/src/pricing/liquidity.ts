@@ -12,6 +12,7 @@ export interface QuoteReservation {
   userIp: string;
   asset: string;
   amount: bigint;
+  amountMicros?: bigint | undefined;
   reservedUntil: number; // Unix timestamp in seconds
 }
 
@@ -100,7 +101,7 @@ export class LiquidityManager {
         res.reservedUntil > nowSeconds &&
         res.userAddress.toLowerCase() === norm
       ) {
-        total += res.amount;
+        total += res.amountMicros ?? res.amount;
       }
     }
     return total;
@@ -110,7 +111,7 @@ export class LiquidityManager {
     let total = 0n;
     for (const res of this.reservations.values()) {
       if (res.reservedUntil > nowSeconds && res.userIp === userIp) {
-        total += res.amount;
+        total += res.amountMicros ?? res.amount;
       }
     }
     return total;
@@ -250,6 +251,7 @@ export class LiquidityManager {
     userIp: string;
     asset: string;
     amount: bigint;
+    amountMicros?: bigint | undefined;
     currentInventory: bigint;
     openExposure: bigint;
     nowSeconds: number;
@@ -262,6 +264,7 @@ export class LiquidityManager {
       userIp,
       asset,
       amount,
+      amountMicros,
       currentInventory,
       openExposure,
       nowSeconds,
@@ -285,11 +288,12 @@ export class LiquidityManager {
       };
     }
 
+    const effectiveMicros = amountMicros ?? amount;
     const addrReserved = this.getActiveReservationsForAddress(
       userAddress,
       nowSeconds,
     );
-    if (addrReserved + amount > this.maxReservedPerAddress) {
+    if (addrReserved + effectiveMicros > this.maxReservedPerAddress) {
       return {
         success: false,
         reason: 'Address active reservation cap exceeded',
@@ -301,7 +305,7 @@ export class LiquidityManager {
     }
 
     const ipReserved = this.getActiveReservationsForIp(userIp, nowSeconds);
-    if (ipReserved + amount > this.maxReservedPerIp) {
+    if (ipReserved + effectiveMicros > this.maxReservedPerIp) {
       return {
         success: false,
         reason: 'IP active reservation cap exceeded',
@@ -318,6 +322,7 @@ export class LiquidityManager {
       userIp,
       asset,
       amount,
+      amountMicros: effectiveMicros,
       reservedUntil: nowSeconds + ttlSeconds,
     });
 

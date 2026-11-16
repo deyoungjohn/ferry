@@ -45,6 +45,9 @@ export interface BuildQuoteParams {
   quotingEnabled?: boolean;
   skewBps?: number | undefined;
   minSwapUsdMicros?: bigint | undefined;
+  inputDecimals?: number | undefined;
+  outputDecimals?: number | undefined;
+  fixedFeeUsdMicros?: bigint | undefined;
   termsTemplate: Omit<
     OrderTerms,
     | 'direction'
@@ -54,6 +57,32 @@ export interface BuildQuoteParams {
     | 'quoteExpiry'
     | 'pricing'
   >;
+}
+
+export function tokenAmountToUsdMicros(
+  amount: bigint,
+  decimals: number,
+): bigint {
+  if (decimals === 6) return amount;
+  if (decimals > 6) {
+    const scale = 10n ** BigInt(decimals - 6);
+    return amount / scale;
+  }
+  const scale = 10n ** BigInt(6 - decimals);
+  return amount * scale;
+}
+
+export function usdMicrosToTokenAmount(
+  micros: bigint,
+  decimals: number,
+): bigint {
+  if (decimals === 6) return micros;
+  if (decimals > 6) {
+    const scale = 10n ** BigInt(decimals - 6);
+    return micros * scale;
+  }
+  const scale = 10n ** BigInt(6 - decimals);
+  return micros / scale;
 }
 
 export function formatUsdMicrosToDecimal(micros: bigint): string {
@@ -85,10 +114,12 @@ export class QuoteBuilder {
     }
 
     // 2. Bounds check ($1.00 to $50.00)
-    const amountInMicros =
-      params.direction === 'EVM_TO_BCH'
-        ? params.amountIn // EVM USDC (6 decimals) is already in micros
-        : params.amountIn * 10_000n; // PUSD (2 decimals) -> 6 decimals
+    const inDecimals =
+      params.inputDecimals ?? (params.direction === 'EVM_TO_BCH' ? 6 : 2);
+    const outDecimals =
+      params.outputDecimals ?? (params.direction === 'EVM_TO_BCH' ? 2 : 6);
+
+    const amountInMicros = tokenAmountToUsdMicros(params.amountIn, inDecimals);
 
     const minSwap = params.minSwapUsdMicros ?? MIN_SWAP_USD_MICROS;
     if (minSwap > 0n && amountInMicros < minSwap) {
@@ -96,7 +127,7 @@ export class QuoteBuilder {
         ok: false,
         reason: 'ROUTE_DISABLED',
         asset: params.payAsset,
-        message: 'Amount is below minimum swap of $1.00',
+        message: `Amount is below minimum swap of $${formatUsdMicrosToDecimal(minSwap)}`,
       };
     }
     if (amountInMicros >= 999_999_999_999_999n) {
@@ -168,20 +199,22 @@ export class QuoteBuilder {
         ? Math.max(0, this.policy.spreadBps + skew)
         : Math.max(0, this.policy.spreadBps - skew);
 
+    const fixedFeeUsdMicros =
+      params.fixedFeeUsdMicros ?? this.policy.fixedFeeUsdMicros ?? 0n;
+    const fixedFeeBase = usdMicrosToTokenAmount(fixedFeeUsdMicros, outDecimals);
+
     const pricingEvidence: PricingEvidence = {
       refs,
       spreadBps: effectiveSpreadBps,
-      fixedFeeBase: 0n,
+      fixedFeeBase,
       rounding: 'floor',
     };
 
     // 6. Calculate receive amount with floor rounding using @ferry/core quoteOut
-    const fromDecimals = params.direction === 'EVM_TO_BCH' ? 6 : 2;
-    const toDecimals = params.direction === 'EVM_TO_BCH' ? 2 : 6;
     const receiveAmount = quoteOut(
       params.amountIn,
-      fromDecimals,
-      toDecimals,
+      inDecimals,
+      outDecimals,
       pricingEvidence,
     );
 
@@ -192,6 +225,7 @@ export class QuoteBuilder {
       userIp: params.userIp,
       asset: params.receiveAsset,
       amount: receiveAmount,
+      amountMicros: tokenAmountToUsdMicros(receiveAmount, outDecimals),
       currentInventory: params.currentInventory,
       openExposure: params.openExposure,
       nowSeconds: params.nowSeconds,

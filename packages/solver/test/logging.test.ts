@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createConsoleStream, formatConsoleLine } from '../src/logging.js';
+import { existsSync } from 'node:fs';
+import {
+  createConsoleStream,
+  createRotatingFileStream,
+  formatConsoleLine,
+} from '../src/logging.js';
 
 describe('Quiet logging formatting', () => {
   it('turns a 20 KB error object into one short line', () => {
@@ -52,5 +57,18 @@ describe('Quiet logging formatting', () => {
     stream.write(record.slice(0, 15));
     stream.write(`${record.slice(15)}\n`);
     expect(lines).toEqual(['00:00:00 WARN  split message across chunks']);
+  });
+
+  it('rotates log file when size threshold is reached', () => {
+    const tmpDir = `/tmp/test-solver-logging-${Date.now()}`;
+    const logPath = `${tmpDir}/solver.log`;
+    const rotatingStream = createRotatingFileStream(logPath, 100, 3);
+
+    // Write chunks that exceed 100 bytes
+    rotatingStream.write(Buffer.from('A'.repeat(60)));
+    rotatingStream.write(Buffer.from('B'.repeat(60)));
+
+    expect(existsSync(logPath)).toBe(true);
+    expect(existsSync(`${logPath}.1`)).toBe(true);
   });
 });

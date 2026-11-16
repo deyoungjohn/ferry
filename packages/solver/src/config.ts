@@ -74,6 +74,11 @@ export const SolverConfigSchema = z
       ),
     allowMockPaylinkSignatures: z.coerce.boolean().default(false),
     allowDevKeys: z.coerce.boolean().default(false),
+    allowedOrigins: z.string().default('*'),
+    logLevel: z
+      .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+      .default('info'),
+    logFilePath: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.network === 'mainnet') {
@@ -182,7 +187,10 @@ export function loadConfigFromEnv(
     bchElectrumUrls,
     baseRpcUrl: env.BASE_RPC_URL,
     baseChainId: env.BASE_CHAIN_ID,
-    baseHtlcAddress: env.BASE_FERRY_HTLC_ADDRESS || env.FERRY_HTLC_ADDRESS,
+    baseHtlcAddress:
+      env.BASE_FERRY_HTLC_ADDRESS ||
+      env.BASE_HTLC_ADDRESS ||
+      env.FERRY_HTLC_ADDRESS,
     baseUsdcAddress: env.BASE_USDC_ADDRESS || env.USDC_ADDRESS,
     solverEvmPrivateKey,
     solverBchWif: env.SOLVER_BCH_WIF || undefined,
@@ -198,7 +206,9 @@ export function loadConfigFromEnv(
     trustedProxy:
       env.TRUSTED_PROXY !== undefined
         ? env.TRUSTED_PROXY === '1' || env.TRUSTED_PROXY === 'true'
-        : undefined,
+        : env.TRUST_PROXY !== undefined
+          ? env.TRUST_PROXY === '1' || env.TRUST_PROXY === 'true'
+          : undefined,
     rateLimitWindowMs: env.RATE_LIMIT_WINDOW_MS,
     rateLimitMaxPerAddress: env.RATE_LIMIT_MAX_PER_ADDRESS,
     rateLimitMaxPerIp: env.RATE_LIMIT_MAX_PER_IP,
@@ -224,6 +234,9 @@ export function loadConfigFromEnv(
       env.ALLOW_MOCK_PAYLINK_SIGNATURES === 'true' ||
       allowDevKeys,
     allowDevKeys,
+    allowedOrigins: env.ALLOWED_ORIGINS,
+    logLevel: env.LOG_LEVEL?.toLowerCase(),
+    logFilePath: env.LOG_FILE_PATH,
   });
 }
 

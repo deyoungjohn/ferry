@@ -220,7 +220,8 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(body.signerAddress).toBe(solverAccount.address.toLowerCase());
       expect(body.terms.pricing).toBeDefined();
       expect(body.terms.pricing.refs.length).toBe(2);
-      expect(body.terms.bchTokenAmount).toBe('2490'); // 24.90 PUSD
+      expect(body.terms.pricing.fixedFeeBase).toBe('1'); // $0.01 Base fixed fee in 2-decimal PUSD
+      expect(body.terms.bchTokenAmount).toBe('2489'); // 24.89 PUSD ($25.00 - 0.4% spread - $0.01 fixed fee)
 
       // Verify solver signature
       const validSig = await verifyOrderSignature(
