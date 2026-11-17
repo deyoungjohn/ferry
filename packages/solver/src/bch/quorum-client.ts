@@ -34,6 +34,7 @@ export class BchQuorumClient implements DSProofWatcher {
     Set<(status: string | null) => void>
   >();
   private knownHistory = new Map<string, Set<string>>();
+  private droppedReasons = new Map<string, string>();
 
   constructor(
     serverUrlsOrTransports: string[] | ElectrumTransport[],
@@ -111,18 +112,30 @@ export class BchQuorumClient implements DSProofWatcher {
         }
 
         if (!hash) {
+          this.droppedReasons.set(
+            transport.url,
+            'missing genesis hash in server.features',
+          );
           dropped.push(transport);
           transport.close();
           continue;
         }
 
         if (hash.toLowerCase() !== expectedHash) {
+          this.droppedReasons.set(
+            transport.url,
+            `genesis mismatch: expected ${expectedHash}, got ${hash.toLowerCase()}`,
+          );
           dropped.push(transport);
           transport.close();
         } else {
           verified.push(transport);
         }
-      } catch {
+      } catch (err) {
+        this.droppedReasons.set(
+          transport.url,
+          `connection error: ${err instanceof Error ? err.message : String(err)}`,
+        );
         dropped.push(transport);
         transport.close();
       }
@@ -134,14 +147,20 @@ export class BchQuorumClient implements DSProofWatcher {
     if (this.network === 'mainnet' && this.activeTransports.length < 2) {
       // In mainnet, having fewer than 2 valid servers on connect is a critical refusal
       const totalProvided = this.transports.length;
+      const failedHosts = Array.from(this.droppedReasons.entries())
+        .map(([url, reason]) => `${url} (${reason})`)
+        .join(', ');
       throw new Error(
-        `Genesis hash verification failed: ${this.activeTransports.length} valid server(s) remaining out of ${totalProvided}. Mainnet requires at least two independent healthy servers on the correct chain.`,
+        `Genesis hash verification failed: ${this.activeTransports.length} valid server(s) remaining out of ${totalProvided}. Mainnet requires at least two independent healthy servers on the correct chain. Failed hosts: ${failedHosts}`,
       );
     }
 
     if (this.activeTransports.length === 0) {
+      const failedHosts = Array.from(this.droppedReasons.entries())
+        .map(([url, reason]) => `${url} (${reason})`)
+        .join(', ');
       throw new Error(
-        `All servers failed genesis verification for network ${this.network}. Expected genesis hash ${expectedHash}.`,
+        `All servers failed genesis verification for network ${this.network}. Expected genesis hash ${expectedHash}. Failed hosts: ${failedHosts}`,
       );
     }
   }
@@ -178,14 +197,14 @@ export class BchQuorumClient implements DSProofWatcher {
 
     for (const transport of this.activeTransports) {
       if (transport.isConnected()) {
-        const { height, timestamp } = transport.getTip();
+        const tip = transport.getTip();
         const lastConfirmed = transport.getLastConfirmedAt();
-        if (height > 0) {
-          tips[transport.url] = height;
-          if (height < minTip) minTip = height;
-          if (height > maxTip) maxTip = height;
-          if (timestamp > newestTimestamp) newestTimestamp = timestamp;
-          if (lastConfirmed > newestConfirmedAt)
+        if (tip && tip.height > 0) {
+          tips[transport.url] = tip.height;
+          if (tip.height < minTip) minTip = tip.height;
+          if (tip.height > maxTip) maxTip = tip.height;
+          if (tip.timestamp > newestTimestamp) newestTimestamp = tip.timestamp;
+          if (lastConfirmed && lastConfirmed > newestConfirmedAt)
             newestConfirmedAt = lastConfirmed;
           connectedCount++;
         }
@@ -233,6 +252,44 @@ export class BchQuorumClient implements DSProofWatcher {
       quotingAllowed = false;
     }
 
+    const failedHosts: Record<string, string> = {};
+    for (const transport of this.transports) {
+      if (!this.activeTransports.includes(transport)) {
+        failedHosts[transport.url] =
+          this.droppedReasons.get(transport.url) ?? 'dropped';
+      } else if (!transport.isConnected()) {
+        const lastErr =
+          'getLastError' in transport &&
+          typeof transport.getLastError === 'function'
+            ? transport.getLastError()
+            : null;
+        failedHosts[transport.url] = lastErr ? lastErr.message : 'disconnected';
+      } else {
+        const lastErr =
+          'getLastError' in transport &&
+          typeof transport.getLastError === 'function'
+            ? transport.getLastError()
+            : null;
+        const tip = transport.getTip();
+        if (lastErr) {
+          failedHosts[transport.url] = lastErr.message;
+        } else if (!tip || tip.height <= 0) {
+          failedHosts[transport.url] = 'no valid tip received';
+        }
+      }
+    }
+
+    let quorumFailureMessage: string | undefined;
+    if (!isQuorumHealthy) {
+      const failedEntries = Object.entries(failedHosts).map(
+        ([h, r]) => `${h} (${r})`,
+      );
+      quorumFailureMessage =
+        failedEntries.length > 0
+          ? `BCH quorum unhealthy: ${connectedCount}/${this.transports.length} servers live. Failed hosts: ${failedEntries.join('; ')}`
+          : `BCH quorum unhealthy (${quotingState})`;
+    }
+
     return {
       quorumTip: minTip === Infinity ? 0 : minTip,
       tips,
@@ -244,6 +301,8 @@ export class BchQuorumClient implements DSProofWatcher {
       healthyServersCount: connectedCount,
       quotingAllowed,
       quotingState,
+      failedHosts,
+      quorumFailureMessage,
     };
   }
 
@@ -259,18 +318,33 @@ export class BchQuorumClient implements DSProofWatcher {
     operation: (transport: ElectrumTransport) => Promise<T>,
   ): Promise<T> {
     let lastError: unknown;
+    const failures: string[] = [];
     for (const transport of this.activeTransports) {
       if (transport.isConnected()) {
         try {
           return await operation(transport);
         } catch (err) {
           lastError = err;
+          failures.push(
+            `${transport.url} (${err instanceof Error ? err.message : String(err)})`,
+          );
         }
+      } else {
+        const lastErr =
+          'getLastError' in transport &&
+          typeof transport.getLastError === 'function'
+            ? transport.getLastError()
+            : null;
+        failures.push(
+          `${transport.url} (${lastErr ? lastErr.message : 'disconnected'})`,
+        );
       }
     }
-    throw (
-      lastError ||
-      new Error('All active Electrum servers failed to execute request')
+    const failureMsg =
+      failures.length > 0 ? `. Failed hosts: ${failures.join('; ')}` : '';
+    throw new Error(
+      `All active Electrum servers failed to execute request${failureMsg}`,
+      { cause: lastError },
     );
   }
 

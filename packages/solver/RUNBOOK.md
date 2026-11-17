@@ -42,6 +42,7 @@ Every configurable environment variable is listed below. Corresponding template 
 Every enabled chain's RPC endpoints, deployed HTLC addresses, token addresses, and decimal parameters are automatically derived from `@ferry/chain-config` facts, removing the need for a separate environment variable block per chain.
 
 - `BCH_ELECTRUM_URLS`: Comma-separated Electrum WebSocket URLs. **Mainnet requires at least two independent hosts.**
+  > **Note on Proxies and BCH Transport:** `WebSocketElectrumTransport` imports `ws` directly and ignores `HTTPS_PROXY` / `HTTP_PROXY`. Behind a proxy the BCH servers are unreachable. The deployment server (e.g. AWS Lightsail) requires direct internet egress without an outbound proxy for Electrum WebSocket traffic. Quorum failure messages will explicitly report which hosts failed and why.
 - `BCH_CHIPNET_ELECTRUM_URLS`: Electrum URLs used when running in testnet profile.
 - `SOLVER_BCH_WIF`: Bitcoin Cash WIF private key for counter-locking CashTokens. Must be a mainnet key on mainnet.
 - `SOLVER_EVM_PRIVATE_KEY`: 0x-prefixed 32-byte hex private key for EVM transactions across all enabled EVM chains.
@@ -59,6 +60,10 @@ Every enabled chain's RPC endpoints, deployed HTLC addresses, token addresses, a
 - `RATE_LIMIT_MAX_PER_ADDRESS`: Max quote requests per address per window (default `10`).
 - `RATE_LIMIT_MAX_PER_IP`: Max quote requests per IP per window (default `30`).
 - `SPREAD_BPS`: Base swap spread in basis points (default `40` = 0.40%).
+- `PEG_TOLERANCE_USD_MICROS`: Maximum allowed primary price deviation from $1.00 in USD micros (default `10000` = 1.00%). Quotes refuse with `PEG_GUARD` if the primary price (Cauldron on-chain spot for PUSD/MUSD, Chainlink for EVM) deviates beyond this limit.
+- `SOURCE_DISAGREEMENT_WARN_USD_MICROS`: Source disagreement warning threshold between primary (Cauldron) and secondary (Paryon) in USD micros (default `10000` = 1.00%). Disagreements above this threshold trigger operator warnings and are noted in quote evidence.
+- `SOURCE_DISAGREEMENT_REFUSE_USD_MICROS`: Source disagreement refusal threshold in USD micros (default `20000` = 2.00%). Disagreements above this threshold refuse quotes with `PEG_GUARD`.
+- `PARYON_MAX_AGE_SECONDS`: Maximum age for secondary Paryon stats in seconds (default `7200` = 2 hours). A stale secondary never refuses a quote; it is marked as unavailable in quote evidence and `/v1/operator/routes`.
 - `FIXED_FEE_USD_MICROS`: Global fixed fee override in USD micros. By default, route-specific fixed fees are applied to cover relay gas at minimum swap sizes:
   - Base: 10,000 micros ($0.01) (min swap $1.00)
   - Arbitrum: 20,000 micros ($0.02) (min swap $1.00)

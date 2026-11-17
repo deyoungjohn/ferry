@@ -19,6 +19,7 @@ export interface ElectrumTransport {
   getTip(): { height: number; timestamp: number };
   getLastConfirmedAt(): number;
   ping(timeoutMs?: number): Promise<boolean>;
+  getLastError?(): Error | null;
 
   onTipUpdate?: (height: number) => void;
   onScriptHashNotification?: (scriptHash: string, status: string) => void;
@@ -45,6 +46,7 @@ export class WebSocketElectrumTransport implements ElectrumTransport {
   private isPinging = false;
   private scriptSubscriptions = new Set<string>();
   private genesisHash: string | null = null;
+  private lastError: Error | null = null;
 
   public onTipUpdate?: (height: number) => void;
   public onScriptHashNotification?: (
@@ -58,6 +60,10 @@ export class WebSocketElectrumTransport implements ElectrumTransport {
 
   getLastConfirmedAt(): number {
     return this.lastConfirmedAt;
+  }
+
+  getLastError(): Error | null {
+    return this.lastError;
   }
 
   setLastConfirmedAt(ts: number): void {
@@ -177,15 +183,20 @@ export class WebSocketElectrumTransport implements ElectrumTransport {
       });
 
       ws.on('error', (err) => {
+        this.lastError = err instanceof Error ? err : new Error(String(err));
         if (!resolved) {
           resolved = true;
           reject(err);
         }
       });
 
-      ws.on('close', () => {
+      ws.on('close', (code, reason) => {
         this.connected = false;
         this.stopPingTimer();
+        const reasonStr = reason ? reason.toString() : '';
+        this.lastError = new Error(
+          `Connection closed (code: ${code}${reasonStr ? `, reason: ${reasonStr}` : ''})`,
+        );
         if (this.onDisconnect) this.onDisconnect();
         this.failPendingRequests(new Error('Connection closed'));
         if (this.shouldReconnect) {

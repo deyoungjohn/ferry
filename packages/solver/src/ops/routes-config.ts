@@ -19,7 +19,12 @@ import type { PublicClient } from 'viem';
 import type { SolverConfig } from '../config.js';
 import type { BchQuorumClient } from '../bch/quorum-client.js';
 import type { EvmChainAdapter } from '@ferry/chain-evm';
-import type { PriceSource } from '../pricing/price-source.js';
+import {
+  absDiff,
+  formatUsdMicrosToDecimal,
+  type DetailedAssetPriceReading,
+  type PriceSource,
+} from '../pricing/price-source.js';
 
 /**
  * Route-specific fixed fees in USD micros from Agent 2's rehearsal measurements:
@@ -77,6 +82,18 @@ export interface RouteReadinessCheck {
   reason: string;
 }
 
+export interface SourceInfo {
+  source: string;
+  asset: string;
+  role: 'primary' | 'secondary';
+  value: string;
+  usdPrice?: string | undefined;
+  asOf: number;
+  age: number;
+  status: 'ok' | 'warn' | 'refuse' | 'unavailable';
+  refusalRule: string;
+}
+
 export interface RouteReadiness {
   route: string;
   chain: string;
@@ -89,11 +106,13 @@ export interface RouteReadiness {
     inventoryAboveFloor: RouteReadinessCheck;
     quorumHealthy: RouteReadinessCheck;
   };
+  sources?: SourceInfo[] | undefined;
   details: {
     htlcAddress?: string | null | undefined;
     rpcUrl?: string | undefined;
     logMaxRange?: number | undefined;
     price?: { usdPrice: string; asOf: number; source: string } | undefined;
+    sources?: SourceInfo[] | undefined;
     inventory?: { balance: string; floor: string } | undefined;
     quorumTip?: number | undefined;
   };
@@ -280,40 +299,148 @@ export async function checkRouteReadiness(params: {
     };
   }
 
-  // 3. Price sources fresh
+  // 3. Price sources fresh & Per-Source Operator View
   let priceFresh: RouteReadinessCheck;
   let priceDetails:
     { usdPrice: string; asOf: number; source: string } | undefined;
+  const sources: SourceInfo[] = [];
+  const now = Math.floor(Date.now() / 1000);
+
+  // 3a. Primary EVM Asset Reading
+  let evmReading: DetailedAssetPriceReading | undefined;
   try {
-    const reading = await priceSource.getPrice(route.asset);
-    const now = Math.floor(Date.now() / 1000);
-    const age = now - reading.asOf;
-    const maxAge = reading.heartbeatSeconds
-      ? reading.heartbeatSeconds + 300
+    const rawReading = priceSource.getDetailedPrice
+      ? await priceSource.getDetailedPrice(route.asset, route.chain)
+      : await priceSource.getPrice(route.asset, route.chain);
+    evmReading = rawReading as DetailedAssetPriceReading;
+    const age = now - evmReading.asOf;
+    const maxAge = evmReading.heartbeatSeconds
+      ? evmReading.heartbeatSeconds + 300
       : 60;
-    if (age <= maxAge && reading.usdPrice > 0n) {
-      priceFresh = {
-        ok: true,
-        status: 'green',
-        reason: `Price fresh from ${reading.source} ($${(Number(reading.usdPrice) / 1_000_000).toFixed(6)}, ${age}s old)`,
-      };
-      priceDetails = {
-        usdPrice: reading.usdPrice.toString(),
-        asOf: reading.asOf,
-        source: reading.source,
-      };
-    } else {
-      priceFresh = {
-        ok: false,
-        status: 'red',
-        reason: `Price reading is stale (${age}s old, max ${maxAge}s) from ${reading.source}`,
-      };
+    const isStale = age < 0 || age > maxAge;
+    const pegDev = absDiff(evmReading.usdPrice, 1_000_000n);
+    const isPegRefuse = pegDev > 10_000n; // > 1%
+
+    sources.push({
+      source: evmReading.source,
+      asset: route.asset,
+      role: 'primary',
+      value: `$${formatUsdMicrosToDecimal(evmReading.usdPrice)}`,
+      usdPrice: evmReading.usdPrice.toString(),
+      asOf: evmReading.asOf,
+      age,
+      status: isStale ? 'unavailable' : isPegRefuse ? 'refuse' : 'ok',
+      refusalRule:
+        'peg_guard (refuse when primary price > 1.00% / 10000 micros from $1.00)',
+    });
+    priceDetails = {
+      usdPrice: evmReading.usdPrice.toString(),
+      asOf: evmReading.asOf,
+      source: evmReading.source,
+    };
+  } catch {
+    sources.push({
+      source: `chainlink-${route.chain}`,
+      asset: route.asset,
+      role: 'primary',
+      value: 'unavailable',
+      asOf: now,
+      age: -1,
+      status: 'unavailable',
+      refusalRule:
+        'peg_guard (refuse when primary price > 1.00% / 10000 micros from $1.00)',
+    });
+  }
+
+  // 3b. Counterpart BCH Asset Readings (PUSD Primary Cauldron + Secondary Paryon)
+  try {
+    const bchRaw = priceSource.getDetailedPrice
+      ? await priceSource.getDetailedPrice('PUSD')
+      : await priceSource.getPrice('PUSD');
+    const bchDetailed = bchRaw as DetailedAssetPriceReading;
+    const primary = bchDetailed.primary ?? bchRaw;
+    const age = now - primary.asOf;
+    const isStale = age < 0 || age > 300;
+    const pegDev = absDiff(primary.usdPrice, 1_000_000n);
+    const isPegRefuse = pegDev > 10_000n;
+
+    sources.push({
+      source: primary.source,
+      asset: 'PUSD',
+      role: 'primary',
+      value: `$${formatUsdMicrosToDecimal(primary.usdPrice)}`,
+      usdPrice: primary.usdPrice.toString(),
+      asOf: primary.asOf,
+      age,
+      status: isStale ? 'unavailable' : isPegRefuse ? 'refuse' : 'ok',
+      refusalRule:
+        'peg_guard (refuse when primary price > 1.00% / 10000 micros from $1.00)',
+    });
+
+    if (bchDetailed.secondary) {
+      const sec = bchDetailed.secondary;
+      const secAge = sec.asOf > 0 ? now - sec.asOf : -1;
+      sources.push({
+        source: sec.source,
+        asset: 'PUSD',
+        role: 'secondary',
+        value: sec.available
+          ? `$${formatUsdMicrosToDecimal(sec.usdPrice)}`
+          : 'unavailable',
+        usdPrice: sec.available ? sec.usdPrice.toString() : undefined,
+        asOf: sec.asOf,
+        age: secAge,
+        status: sec.status,
+        refusalRule:
+          sec.refusalRule ??
+          'source_disagreement (warn > 1.00% / 10000 micros, refuse > 2.00% / 20000 micros)',
+      });
     }
-  } catch (err) {
+  } catch {
+    // If PUSD not available on priceSource (e.g. single-asset test mock), ignore
+  }
+
+  // Evaluate priceFresh check based on primary and secondary health
+  const primarySources = sources.filter((s) => s.role === 'primary');
+  const secondarySources = sources.filter((s) => s.role === 'secondary');
+  const anyPrimaryUnavailable = primarySources.some(
+    (s) => s.status === 'unavailable',
+  );
+  const anyPrimaryRefused = primarySources.some((s) => s.status === 'refuse');
+  const anySecondaryRefused = secondarySources.some(
+    (s) => s.status === 'refuse',
+  );
+
+  if (anyPrimaryUnavailable || primarySources.length === 0) {
+    const failedNames = primarySources
+      .filter((s) => s.status === 'unavailable')
+      .map((s) => s.source)
+      .join(', ');
     priceFresh = {
       ok: false,
       status: 'red',
-      reason: `Price source unavailable: ${err instanceof Error ? err.message : String(err)}`,
+      reason: `Primary price source unavailable or stale: ${failedNames || route.asset}`,
+    };
+  } else if (anyPrimaryRefused) {
+    priceFresh = {
+      ok: false,
+      status: 'red',
+      reason: 'Primary price exceeded peg tolerance (> 1.00% from $1.00)',
+    };
+  } else if (anySecondaryRefused) {
+    priceFresh = {
+      ok: false,
+      status: 'red',
+      reason: 'Source disagreement between primary and secondary exceeds 2.00%',
+    };
+  } else {
+    const summary = primarySources
+      .map((s) => `${s.source} (${s.value}, ${s.age}s old)`)
+      .join(', ');
+    priceFresh = {
+      ok: true,
+      status: 'green',
+      reason: `Price sources healthy: ${summary}`,
     };
   }
 
@@ -339,10 +466,15 @@ export async function checkRouteReadiness(params: {
       reason: `BCH Electrum quorum healthy (${liveServers}/${totalServers} servers, tip: ${quorumStatus.quorumTip})`,
     };
   } else {
+    const failedDetails = quorumStatus.failedHosts
+      ? Object.entries(quorumStatus.failedHosts)
+          .map(([h, r]) => `${h}: ${r}`)
+          .join('; ')
+      : '';
     quorumHealthy = {
       ok: false,
       status: 'red',
-      reason: `BCH Electrum quorum unhealthy (${liveServers}/${totalServers} servers live, tip: ${quorumStatus.quorumTip})`,
+      reason: `BCH Electrum quorum unhealthy (${liveServers}/${totalServers} servers live, tip: ${quorumStatus.quorumTip}, state: ${quorumStatus.quotingState})${failedDetails ? ` [failed hosts: ${failedDetails}]` : ''}`,
     };
   }
 
@@ -369,10 +501,12 @@ export async function checkRouteReadiness(params: {
       inventoryAboveFloor,
       quorumHealthy,
     },
+    sources,
     details: {
       htlcAddress: route.htlcAddress,
       logMaxRange: route.logMaxRange,
       price: priceDetails,
+      sources,
       quorumTip: quorumStatus.quorumTip,
     },
   };

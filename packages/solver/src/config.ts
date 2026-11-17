@@ -62,6 +62,10 @@ export const SolverConfigSchema = z
     bchCarrySats: z.coerce.bigint().default(3000n),
     bchMaxFeeSats: z.coerce.bigint().default(1500n),
     skewMaxBps: z.coerce.number().default(50),
+    pegToleranceUsdMicros: z.coerce.bigint().default(10000n),
+    sourceDisagreementWarnUsdMicros: z.coerce.bigint().default(10000n),
+    sourceDisagreementRefuseUsdMicros: z.coerce.bigint().default(20000n),
+    paryonMaxAgeSeconds: z.coerce.number().default(7200),
     tpusdCategory: z
       .string()
       .default(
@@ -227,6 +231,13 @@ export function loadConfigFromEnv(
     bchCarrySats: env.BCH_CARRY_SATS,
     bchMaxFeeSats: env.BCH_MAX_FEE_SATS,
     skewMaxBps: env.SKEW_MAX_BPS,
+    pegToleranceUsdMicros: env.PEG_TOLERANCE_USD_MICROS || env.PEG_TOLERANCE,
+    sourceDisagreementWarnUsdMicros:
+      env.SOURCE_DISAGREEMENT_WARN_USD_MICROS || env.SOURCE_DISAGREEMENT_WARN,
+    sourceDisagreementRefuseUsdMicros:
+      env.SOURCE_DISAGREEMENT_REFUSE_USD_MICROS ||
+      env.SOURCE_DISAGREEMENT_REFUSE,
+    paryonMaxAgeSeconds: env.PARYON_MAX_AGE_SECONDS || env.PARYON_MAX_AGE,
     tpusdCategory: env.TPUSD_CATEGORY,
     tmusdCategory: env.TMUSD_CATEGORY,
     allowMockPaylinkSignatures:
