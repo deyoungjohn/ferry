@@ -17,6 +17,8 @@ describe('Caddy configuration', () => {
     expect(caddy).toContain('root * /var/www/ferry/dist');
     expect(caddy).toContain('reverse_proxy 127.0.0.1:8787');
     expect(caddy).toContain('try_files {path} /index.html');
+    expect(caddy).toContain('/swap/<hash>');
+    expect(caddy).not.toContain('handle /swap/*');
     expect(caddy).toContain('file_server');
     expect(caddy).toContain('encode zstd gzip');
     expect(caddy.indexOf('handle /v1/*')).toBeLessThan(

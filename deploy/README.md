@@ -1,13 +1,17 @@
 # Ferry server bootstrap
 
-One Ubuntu 24.04 Lightsail instance runs the solver and the static web build.
-Caddy is the only public origin: it serves the Vite `dist` and proxies `/v1/*`
-to the solver on `127.0.0.1:8787`. `trusted_proxies` is intentionally unset, so
-Caddy does not trust an inbound CDN or proxy. The solver sets `TRUSTED_PROXY=true`
-only because Caddy is the sole local caller on `127.0.0.1`.
+One Ubuntu 24.04 Lightsail instance runs the solver and one single-page app at
+the domain root. The landing, features, proof, guides, swap, pay and send pages
+are all inside the app; there is no `/swap/` sub-path and no separate landing
+folder. Caddy is the only public origin: it serves the Vite `dist` and proxies
+`/v1/*` to the solver on `127.0.0.1:8787`. `trusted_proxies` is intentionally
+unset, so Caddy does not trust an inbound CDN or proxy. The solver sets
+`TRUSTED_PROXY=true` only because Caddy is the sole local caller on
+`127.0.0.1`.
 
-The examples use `example.org` and `203.0.113.10`. Replace them with your real
-domain and static IP. No file in this folder contains a secret.
+The examples use `example.org` and `203.0.113.10`. The launch domain is
+`ferry.incepture.dev`; replace the example in the committed Caddyfile and in the
+commands below. No file in this folder contains a secret.
 
 ## 1. Create the instance
 
@@ -40,6 +44,13 @@ If you use a different admin key, add it to `~/.ssh/authorized_keys` first and
 test it.
 
 ## 3. Clone and bootstrap
+
+There are **two clones on purpose**:
+
+- `/home/ubuntu/ferry` is the admin checkout. Use it only to run
+  `deploy/bootstrap.sh` and the one-off server setup.
+- `/home/ferry/ferry` is the service-user checkout. Build and run everything
+  there with `sudo -u ferry ...`.
 
 ```bash
 git clone https://github.com/deyoungjohn/ferry.git /home/ubuntu/ferry
@@ -78,14 +89,13 @@ sudo -u ferry nano /home/ferry/ferry/packages/web/.env.production
 The required production values are:
 
 - `VITE_NETWORK=mainnet`
-- `VITE_SOLVER_URLS=https://example.org` for the same-origin solver (or leave it
-  empty; both resolve to `/v1/*` on this host)
+- `VITE_SOLVER_URLS=https://ferry.incepture.dev` for the same-origin solver
 - `VITE_REOWN_PROJECT_ID=<your Reown project id>`
 - `VITE_MOCK=` (empty; never `1` in production)
 - `VITE_PRIOR_REPO_URL` for the banner, plus the optional banner variables in
   `packages/web/.env.example`
 
-Build and publish the static files:
+Build and publish the single-page app at the domain root:
 
 ```bash
 sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm --filter @ferry/web build'
@@ -188,9 +198,18 @@ The root `pnpm preflight` alias is not present; the filtered command above is
 the supported form in this checkout. A `GO for mainnet launch` line is required
 before the first swap.
 
+After the site is live, verify that the public URL really serves the solver API:
+
+```bash
+pnpm --dir scripts/preflight preflight -- --url https://ferry.incepture.dev
+```
+
+It GETs `/v1/health` and fails with `this URL is not a Ferry solver (it returned
+HTML)` when the URL is a static page or any other non-JSON response.
+
 ## 7. Set the domain and start services
 
-Replace `example.org` in `/etc/caddy/Caddyfile` with the real domain:
+Replace `example.org` in `/etc/caddy/Caddyfile` with `ferry.incepture.dev`:
 
 ```bash
 sudo nano /etc/caddy/Caddyfile
@@ -210,8 +229,9 @@ sudo systemctl start ferry-backup.timer ferry-health.timer
 Check the public site and the solver:
 
 ```bash
-curl -fsS https://example.org/v1/health
-curl -fsS https://example.org/status
+curl -fsS https://ferry.incepture.dev/v1/health
+curl -fsS https://ferry.incepture.dev/swap
+curl -fsS https://ferry.incepture.dev/
 sudo systemctl status ferry-solver.service --no-pager
 ```
 
@@ -324,7 +344,7 @@ root-only hook or in a root-only environment file; never in this repository.
 bash -n deploy/bootstrap.sh deploy/backup.sh deploy/healthcheck.sh
 shellcheck deploy/bootstrap.sh deploy/backup.sh deploy/healthcheck.sh
 systemd-analyze verify deploy/systemd/*.service deploy/systemd/*.timer
-pnpm exec vitest run scripts/preflight/deploy-config.test.ts
+pnpm exec vitest run scripts/preflight
 ```
 
 Install `shellcheck` locally if it is missing (`apt-get install shellcheck`, or
