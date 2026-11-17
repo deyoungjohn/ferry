@@ -45,16 +45,15 @@ test it.
 
 ## 3. Clone and bootstrap
 
-There are **two clones on purpose**:
-
-- `/home/ubuntu/ferry` is the admin checkout. Use it only to run
-  `deploy/bootstrap.sh` and the one-off server setup.
-- `/home/ferry/ferry` is the service-user checkout. Build and run everything
-  there with `sudo -u ferry ...`.
+There is **one clone**, at `/opt/ferry`. You (the `ubuntu` admin user) own it and
+run every build and update there directly, with no `sudo -u`. The `ferry` service
+user only reads the built files and runs the solver; it never needs a login or a
+copy of its own.
 
 ```bash
-git clone https://github.com/deyoungjohn/ferry.git /home/ubuntu/ferry
-cd /home/ubuntu/ferry
+sudo install -d -o ubuntu -g ubuntu /opt/ferry
+git clone https://github.com/deyoungjohn/ferry.git /opt/ferry
+cd /opt/ferry
 sudo ADMIN_IP=203.0.113.10 bash deploy/bootstrap.sh
 ```
 
@@ -64,26 +63,20 @@ the `packageManager` version, Caddy from its official apt repository, the
 directories, the units and the helper scripts. It does not start the solver and
 does not read a secret.
 
-Create the service checkout as the service user:
-
-```bash
-sudo -u ferry git clone https://github.com/deyoungjohn/ferry.git /home/ferry/ferry
-```
-
 ## 4. Build the solver and web
 
-Run these as `ferry`:
+Run these as `ubuntu`, in `/opt/ferry`:
 
 ```bash
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm install --frozen-lockfile'
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && for package in @ferry/core @ferry/chain-config @ferry/chain-evm @ferry/solver; do pnpm --filter "$package" build; done'
+cd /opt/ferry && pnpm install --frozen-lockfile
+cd /opt/ferry && for package in @ferry/core @ferry/chain-config @ferry/chain-evm @ferry/solver; do pnpm --filter "$package" build; done
 ```
 
 Create the production web environment file from the example and fill it in:
 
 ```bash
-sudo -u ferry cp /home/ferry/ferry/packages/web/.env.example /home/ferry/ferry/packages/web/.env.production
-sudo -u ferry nano /home/ferry/ferry/packages/web/.env.production
+cp /opt/ferry/packages/web/.env.example /opt/ferry/packages/web/.env.production
+nano /opt/ferry/packages/web/.env.production
 ```
 
 The required production values are:
@@ -98,8 +91,8 @@ The required production values are:
 Build and publish the single-page app at the domain root:
 
 ```bash
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm --filter @ferry/web build'
-sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/dist/
+cd /opt/ferry && pnpm --filter @ferry/web build
+sudo rsync -a --delete /opt/ferry/packages/web/dist/ /var/www/ferry/dist/
 sudo chown -R root:root /var/www/ferry/dist
 sudo find /var/www/ferry/dist -type d -exec chmod 0755 {} +
 sudo find /var/www/ferry/dist -type f -exec chmod 0644 {} +
@@ -188,10 +181,10 @@ Use the public preflight addresses and the RPC names the preflight reads. Keep
 paid RPC values in the environment; do not print them.
 
 ```bash
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && \
+cd /opt/ferry && \
   ENABLED_ROUTES=usdc:base \
   PREFLIGHT_ADDRESSES="deployer=0x...,solver=0x...,bch=bitcoincash:..." \
-  pnpm --filter @ferry/chain-config preflight --strict'
+  pnpm --filter @ferry/chain-config preflight --strict
 ```
 
 The root `pnpm preflight` alias is not present; the filtered command above is
@@ -246,9 +239,9 @@ when either check fails.
 Take a Lightsail snapshot before every change. Then:
 
 ```bash
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && git pull --ff-only && pnpm install --frozen-lockfile && for package in @ferry/core @ferry/chain-config @ferry/chain-evm @ferry/solver; do pnpm --filter "$package" build; done'
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm --filter @ferry/web build'
-sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/dist/
+cd /opt/ferry && git pull --ff-only && pnpm install --frozen-lockfile && for package in @ferry/core @ferry/chain-config @ferry/chain-evm @ferry/solver; do pnpm --filter "$package" build; done
+cd /opt/ferry && pnpm --filter @ferry/web build
+sudo rsync -a --delete /opt/ferry/packages/web/dist/ /var/www/ferry/dist/
 sudo chown -R root:root /var/www/ferry/dist
 sudo systemctl restart ferry-solver.service
 sudo systemctl reload caddy.service
@@ -264,9 +257,9 @@ Preferred: restore the Lightsail snapshot from before the change. If you are
 rolling back only the code and have a clean previous commit:
 
 ```bash
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && git switch --detach <previous-commit> && pnpm install --frozen-lockfile && for package in @ferry/core @ferry/chain-config @ferry/chain-evm @ferry/solver; do pnpm --filter "$package" build; done'
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm --filter @ferry/web build'
-sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/dist/
+cd /opt/ferry && git switch --detach <previous-commit> && pnpm install --frozen-lockfile && for package in @ferry/core @ferry/chain-config @ferry/chain-evm @ferry/solver; do pnpm --filter "$package" build; done
+cd /opt/ferry && pnpm --filter @ferry/web build
+sudo rsync -a --delete /opt/ferry/packages/web/dist/ /var/www/ferry/dist/
 sudo systemctl restart ferry-solver.service
 sudo systemctl reload caddy.service
 ```
