@@ -19,10 +19,32 @@ import {
 } from './schema.js';
 import { predictHtlcAddress } from './htlc.js';
 
+export interface ImmutableSlot {
+  start: number;
+  length: number;
+}
+
 export interface DeploymentArtifact {
   deployedBytecode: {
     object: Hex;
+    /** Byte ranges that hold constructor-time immutable values in the runtime code. */
+    immutableReferences?: readonly ImmutableSlot[];
   };
+}
+
+/** Zero the immutable slots so on-chain code and the build artifact can be compared. */
+export function maskImmutableSlots(
+  bytecode: Hex,
+  slots: readonly ImmutableSlot[] = [],
+): string {
+  const chars = bytecode.toLowerCase().replace(/^0x/, '').split('');
+  for (const slot of slots) {
+    const end = (slot.start + slot.length) * 2;
+    for (let i = slot.start * 2; i < end && i < chars.length; i += 1) {
+      chars[i] = '0';
+    }
+  }
+  return chars.join('');
 }
 
 export interface DeploymentClient {
@@ -61,7 +83,10 @@ export function loadDeploymentArtifact(
 ): DeploymentArtifact | null {
   try {
     const raw = JSON.parse(readFileSync(path, 'utf8')) as {
-      deployedBytecode?: { object?: unknown };
+      deployedBytecode?: {
+        object?: unknown;
+        immutableReferences?: Record<string, ImmutableSlot[]>;
+      };
     };
     if (
       raw.deployedBytecode === undefined ||
@@ -69,7 +94,15 @@ export function loadDeploymentArtifact(
     ) {
       return null;
     }
-    return { deployedBytecode: { object: raw.deployedBytecode.object as Hex } };
+    const immutableReferences = Object.values(
+      raw.deployedBytecode.immutableReferences ?? {},
+    ).flat();
+    return {
+      deployedBytecode: {
+        object: raw.deployedBytecode.object as Hex,
+        immutableReferences,
+      },
+    };
   } catch {
     return null;
   }
@@ -134,9 +167,18 @@ export async function recordDeployment(
     }
   }
 
+  const slots = options.artifact.deployedBytecode.immutableReferences ?? [];
   const codeHash = keccak256(atBlock);
+  const maskedCode = maskImmutableSlots(atBlock, slots);
+  const maskedArtifact = maskImmutableSlots(
+    options.artifact.deployedBytecode.object,
+    slots,
+  );
   const artifactHash = keccak256(options.artifact.deployedBytecode.object);
-  if (codeHash !== artifactHash) {
+  if (
+    maskedCode.length !== maskedArtifact.length ||
+    maskedCode !== maskedArtifact
+  ) {
     throw new DeploymentRecordError(
       `Runtime bytecode hash ${codeHash} does not match the build artifact ${artifactHash}.`,
     );
