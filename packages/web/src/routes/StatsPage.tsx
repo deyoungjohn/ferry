@@ -1,6 +1,9 @@
 import { listDeployedContracts } from '@ferry/chain-config/browser';
 import chainsData from '../../../chain-config/src/data/chains.json';
 import { BANNER_CONFIG } from '../lib/config';
+import { PegCards } from '../components/PegCards';
+import { RecentSwapsTable } from '../components/RecentSwapsTable';
+import { StatsRow } from '../components/StatsRow';
 
 const deployed = listDeployedContracts(chainsData);
 
@@ -34,18 +37,24 @@ const NOT_YET = [
   'The solver must be online to quote. Refunds and recovery do not need it.',
 ] as const;
 
-export function ProofPage() {
+export function StatsPage() {
   const repo = BANNER_CONFIG.repoUrl;
   return (
     <div className="pb-16">
       <section className="mx-auto max-w-3xl px-4 pt-14 pb-6 text-center sm:px-6">
         <h1 className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-5xl">
-          Proof
+          Stats
         </h1>
         <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-text-muted sm:text-base">
-          What is deployed, what we tested, and what we have not done. Figures
-          are as of 17 November 2026.
+          Live numbers from the solver, then what is deployed, what we tested,
+          and what we have not done. Test figures are as of 17 November 2026.
         </p>
+      </section>
+
+      <section aria-label="Live numbers" className="mx-auto mt-2 max-w-6xl">
+        <StatsRow />
+        <RecentSwapsTable />
+        <PegCards />
       </section>
 
       <section
