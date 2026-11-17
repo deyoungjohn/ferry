@@ -2,7 +2,6 @@ import {
   binToHex,
   hexToBin,
   lockingBytecodeToCashAddress,
-  sha256,
 } from '@bitauth/libauth';
 import {
   compileCashAssemblyString,
@@ -11,6 +10,7 @@ import {
 } from '@xo-cash/utils';
 import type { XOTemplate } from '@xo-cash/types';
 import { ferryHtlcTemplate } from './ferry-htlc.template.js';
+import { p2sh32LockingBytecodeFor } from '../src/p2sh32.js';
 import type { BchHtlcParameters, CashAddressNetwork } from '../src/types.js';
 
 export { ferryHtlcTemplate };
@@ -45,8 +45,7 @@ export function deriveXoHtlcRedeemScript(
 
 export function deriveXoHtlcLockingBytecode(params: BchHtlcParameters): string {
   const redeemBytes = deriveXoHtlcRedeemScript(params);
-  const hash256 = sha256.hash(sha256.hash(redeemBytes));
-  return binToHex(new Uint8Array([0xaa, 0x20, ...hash256, 0x87]));
+  return binToHex(p2sh32LockingBytecodeFor(redeemBytes));
 }
 
 export interface XoLockInvitation {
