@@ -59,6 +59,16 @@ describe('systemd units', () => {
   const health = read('deploy/systemd/ferry-health.service');
   const healthTimer = read('deploy/systemd/ferry-health.timer');
 
+  it('runs the solver from source in the one clone, the way the tests run it', () => {
+    expect(solver).toMatch(
+      /^WorkingDirectory=\/opt\/ferry\/packages\/solver$/m,
+    );
+    expect(solver).toMatch(
+      /^ExecStart=\/usr\/local\/bin\/node --conditions=ferry-source --import tsx src\/main\.ts$/m,
+    );
+    expect(solver).not.toContain('/home/');
+  });
+
   it('runs the solver as ferry with a strict sandbox and graceful stop', () => {
     expect(solver).toMatch(/^User=ferry$/m);
     expect(solver).toMatch(/^Group=ferry$/m);

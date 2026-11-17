@@ -9,10 +9,10 @@ StartLimitBurst=5
 Type=simple
 User=ferry
 Group=ferry
-WorkingDirectory=/opt/ferry
+WorkingDirectory=/opt/ferry/packages/solver
 EnvironmentFile=/etc/ferry/solver.env
 Environment=NODE_ENV=production
-ExecStart=/usr/local/bin/node /opt/ferry/packages/solver/dist/main.js
+ExecStart=/usr/local/bin/node --conditions=ferry-source --import tsx src/main.ts
 Restart=on-failure
 RestartSec=5s
 RestartSteps=10
