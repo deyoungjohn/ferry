@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { BANNER_CONFIG, NETWORK_LABEL, IS_MAINNET } from '../lib/config';
+import {
+  BANNER_CONFIG,
+  NETWORK_LABEL,
+  IS_MAINNET,
+  LANDING_URL,
+} from '../lib/config';
 import { GlassNav } from './GlassNav';
 import { GlassPopover } from './GlassPopover';
 import { WalletSheet } from './WalletSheet';
@@ -29,13 +34,13 @@ export function NavBar() {
         className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6"
       >
         <div className="flex items-center gap-8">
-          <Link
-            to="/"
-            aria-label="Ferry home"
+          <a
+            href={LANDING_URL}
+            aria-label="Ferry landing page"
             className="text-[1.35rem] font-semibold tracking-[-0.04em] text-text hover:text-lime transition-colors"
           >
             Ferry<span className="text-lime">.</span>
-          </Link>
+          </a>
 
           <div className="hidden items-center gap-6 md:flex">
             <Link

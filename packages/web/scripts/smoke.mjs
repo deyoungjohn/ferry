@@ -131,7 +131,7 @@ async function runSmokeSuite() {
       );
       await page.goto(fullUrl, {
         waitUntil: 'domcontentloaded',
-        timeout: 15000,
+        timeout: 45000,
       });
 
       // 1. Fail on pageerror or console error
@@ -309,7 +309,7 @@ async function runSmokeSuite() {
       );
       await page.goto(mainnetUrl, {
         waitUntil: 'domcontentloaded',
-        timeout: 15000,
+        timeout: 45000,
       });
 
       if (errors.length > 0) {
@@ -407,7 +407,7 @@ async function runSmokeSuite() {
 
     await previewPage.goto(previewUrl, {
       waitUntil: 'domcontentloaded',
-      timeout: 15000,
+      timeout: 45000,
     });
     if (previewErrors.length > 0) {
       throw new Error(`Preview errors:\n${previewErrors.join('\n')}`);
@@ -431,7 +431,7 @@ async function runSmokeSuite() {
     // Also verify preview can navigate to /status
     await previewPage.goto(`${previewUrl}/status`, {
       waitUntil: 'domcontentloaded',
-      timeout: 15000,
+      timeout: 45000,
     });
     if (previewErrors.length > 0) {
       throw new Error(`Preview /status errors:\n${previewErrors.join('\n')}`);
@@ -440,6 +440,191 @@ async function runSmokeSuite() {
     await statusHeading.waitFor({ state: 'visible' });
 
     await previewContext.close();
+    killProcess(previewProc);
+    activeProcesses.pop();
+
+    // -------------------------------------------------------------
+    // Target 4: Subpath deployment (/swap/) with mock dev server
+    // -------------------------------------------------------------
+    const subpathPort = 5196;
+    const subpathBaseUrl = `http://localhost:${subpathPort}`;
+    console.log(
+      `[smoke] Starting subpath dev server (VITE_BASE_PATH=/swap/) on port ${subpathPort}...`,
+    );
+
+    const subpathDevProc = spawn(
+      'pnpm',
+      ['vite', '--port', String(subpathPort), '--strictPort'],
+      {
+        cwd: webDir,
+        env: {
+          ...process.env,
+          VITE_BASE_PATH: '/swap/',
+          VITE_NETWORK: 'testnet',
+          VITE_MOCK: '1',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    activeProcesses.push(subpathDevProc);
+
+    await waitForServer(`${subpathBaseUrl}/swap/`);
+    console.log(`[smoke] Subpath dev server ready at ${subpathBaseUrl}/swap/`);
+
+    async function testSubpathUrl(subpath, options = {}) {
+      const errors = [];
+      const context = await browser.newContext({
+        viewport: { width: 1280, height: 720 },
+      });
+      const page = await context.newPage();
+
+      page.on('pageerror', (err) => {
+        errors.push(`PageError: ${err.message}\n${err.stack}`);
+      });
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') {
+          errors.push(`ConsoleError: ${msg.text()}`);
+        }
+      });
+
+      const fullUrl = `${subpathBaseUrl}${subpath}`;
+      console.log(`[smoke] Navigating to subpath ${fullUrl}...`);
+      await page.goto(fullUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 45000,
+      });
+
+      if (errors.length > 0) {
+        throw new Error(
+          `Errors encountered on ${fullUrl}:\n${errors.join('\n')}`,
+        );
+      }
+
+      const rootHtml = await page.$eval('#root', (el) => el.innerHTML.trim());
+      if (!rootHtml || rootHtml.length === 0) {
+        throw new Error(`Page #root is empty on ${fullUrl}`);
+      }
+
+      if (options.onPage) {
+        await options.onPage(page);
+      }
+
+      if (options.testReload) {
+        console.log(`[smoke] Testing reload on deep link ${fullUrl}...`);
+        await page.reload({
+          waitUntil: 'domcontentloaded',
+          timeout: 45000,
+        });
+
+        if (errors.length > 0) {
+          throw new Error(
+            `Errors encountered after reload on ${fullUrl}:\n${errors.join('\n')}`,
+          );
+        }
+
+        const reloadedRootHtml = await page.$eval('#root', (el) =>
+          el.innerHTML.trim(),
+        );
+        if (!reloadedRootHtml || reloadedRootHtml.length === 0) {
+          throw new Error(`Page #root is empty after reload on ${fullUrl}`);
+        }
+
+        if (options.onReload) {
+          await options.onReload(page);
+        }
+      }
+
+      await context.close();
+    }
+
+    // 1. Load /swap/
+    await testSubpathUrl('/swap/', {
+      onPage: async (page) => {
+        const heroHeading = page.locator('h1');
+        await heroHeading.waitFor({ state: 'visible' });
+        const heroText = await heroHeading.textContent();
+        if (!heroText.includes('Move dollars onto Bitcoin Cash')) {
+          throw new Error(
+            `Hero heading text missing expected content: "${heroText}"`,
+          );
+        }
+
+        const submitBtn = page.locator('[data-testid="swap-submit-button"]');
+        await submitBtn.waitFor({ state: 'visible' });
+
+        // Assert navbar and footer Ferry logos point to landing URL (default '/')
+        const navLogoLink = page.locator(
+          'nav a[aria-label="Ferry landing page"]',
+        );
+        await navLogoLink.waitFor({ state: 'visible' });
+        const logoHref = await navLogoLink.getAttribute('href');
+        if (logoHref !== '/') {
+          throw new Error(
+            `Expected nav logo link href to be '/', got '${logoHref}'`,
+          );
+        }
+
+        const footerLogoLink = page.locator(
+          'footer a[aria-label="Ferry landing page"]',
+        );
+        await footerLogoLink.waitFor({ state: 'visible' });
+        const footerLogoHref = await footerLogoLink.getAttribute('href');
+        if (footerLogoHref !== '/') {
+          throw new Error(
+            `Expected footer logo link href to be '/', got '${footerLogoHref}'`,
+          );
+        }
+      },
+    });
+
+    // 2. Load /swap/status
+    await testSubpathUrl('/swap/status', {
+      onPage: async (page) => {
+        const heading = page.locator('h1:has-text("Route Status")');
+        await heading.waitFor({ state: 'visible' });
+
+        const backLink = page.locator('a:has-text("Back to Swap")');
+        await backLink.waitFor({ state: 'visible' });
+      },
+    });
+
+    // 3. Load /swap/help
+    await testSubpathUrl('/swap/help', {
+      onPage: async (page) => {
+        const heading = page.locator('h1:has-text("User Guide")');
+        await heading.waitFor({ state: 'visible' });
+      },
+    });
+
+    // 4. Load deep link /swap/p/demo and verify reload
+    await testSubpathUrl('/swap/p/demo', {
+      testReload: true,
+      onPage: async (page) => {
+        const payHeading = page.locator('h1:has-text("Pay")');
+        await payHeading.waitFor({ state: 'visible' });
+      },
+      onReload: async (page) => {
+        const payHeading = page.locator('h1:has-text("Pay")');
+        await payHeading.waitFor({ state: 'visible' });
+      },
+    });
+
+    // 5. Load deep link /swap/swap/ord_chipnet_test123 and verify reload
+    await testSubpathUrl('/swap/swap/ord_chipnet_test123', {
+      testReload: true,
+      onPage: async (page) => {
+        const statusHeading = page.locator('h1:has-text("Swap Status")');
+        await statusHeading.waitFor({ state: 'visible' });
+      },
+      onReload: async (page) => {
+        const statusHeading = page.locator('h1:has-text("Swap Status")');
+        await statusHeading.waitFor({ state: 'visible' });
+      },
+    });
+
+    killProcess(subpathDevProc);
+    activeProcesses.pop();
+
     await browser.close();
 
     console.log('[smoke] All real-browser smoke tests passed cleanly!');

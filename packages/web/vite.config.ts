@@ -53,8 +53,24 @@ const mockAliases =
       ]
     : [];
 
+export function resolveViteBase(env: {
+  VITE_ROUTER?: string;
+  VITE_BASE_PATH?: string;
+}): string {
+  // Relative base for IPFS hash router builds: base: './'
+  if (env.VITE_ROUTER === 'hash') {
+    return './';
+  }
+  const raw = env.VITE_BASE_PATH?.trim();
+  if (!raw || raw === '/') {
+    return '/';
+  }
+  const withLeading = raw.startsWith('/') ? raw : `/${raw}`;
+  return withLeading.endsWith('/') ? withLeading : `${withLeading}/`;
+}
+
 export default defineConfig({
-  base: './',
+  base: resolveViteBase(process.env), // base: './'
   plugins: [react(), tailwindcss()],
   resolve: {
     conditions: sourceConditions,

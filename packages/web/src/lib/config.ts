@@ -83,3 +83,21 @@ export const FIXED_FEE_USD = 0.05; // $0.05 fixed network cost offset
 
 export const REOWN_PROJECT_ID =
   (import.meta.env?.VITE_REOWN_PROJECT_ID as string | undefined) ?? '';
+
+export const LANDING_URL =
+  (import.meta.env?.VITE_LANDING_URL as string | undefined)?.trim() || '/';
+
+export const BASE_PATH =
+  (import.meta.env?.VITE_BASE_PATH as string | undefined)?.trim() || '/';
+
+/**
+ * Parses configured solver origins from VITE_SOLVER_URLS.
+ * Normalizes origins by stripping trailing slashes and any /v1 suffix.
+ */
+export function parseSolverOrigins(envUrls?: string): readonly string[] {
+  if (!envUrls || !envUrls.trim()) return [];
+  return envUrls
+    .split(',')
+    .map((s) => s.trim().replace(/\/+$/, '').replace(/\/v1$/, ''))
+    .filter(Boolean);
+}

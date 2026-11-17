@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Link } from 'react-router';
 import { useSolver } from '../lib/solver/useSolver';
 import { NETWORK_PROFILE } from '../lib/config';
 import { ROUTE_STATUS_COPY } from '../lib/copy';
@@ -41,6 +42,7 @@ export function RouteStatusPage() {
   const [health, setHealth] = useState<SolverHealthResponse | null>(null);
   const [liquidity, setLiquidity] = useState<LiquidityResponse | null>(null);
   const [solverReachable, setSolverReachable] = useState<boolean | null>(null);
+  const [solverError, setSolverError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   // In-memory operator token (never stored in localStorage, sessionStorage, or URL)
@@ -94,6 +96,7 @@ export function RouteStatusPage() {
   // Fetch initial system telemetry
   const refreshTelemetry = useCallback(async () => {
     setLoading(true);
+    setSolverError(null);
     try {
       if (solver.getHealth) {
         const h = await solver.getHealth();
@@ -107,9 +110,11 @@ export function RouteStatusPage() {
         });
         setSolverReachable(true);
       }
-    } catch {
+    } catch (err) {
       setHealth(null);
       setSolverReachable(false);
+      const msg = err instanceof Error ? err.message : String(err);
+      setSolverError(msg);
     }
 
     try {
@@ -258,6 +263,13 @@ export function RouteStatusPage() {
     route: RouteStatusItem,
     testResult?: RouteTestResult,
   ): { isGreen: boolean; reason: string } => {
+    if (solverError?.includes('this URL is not a Ferry solver')) {
+      return {
+        isGreen: false,
+        reason:
+          'this URL is not a Ferry solver (returned HTML instead of JSON at /v1/health)',
+      };
+    }
     if (!solverReachable) {
       return {
         isGreen: false,
@@ -310,9 +322,17 @@ export function RouteStatusPage() {
       {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-text">
-            {ROUTE_STATUS_COPY.title}
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight text-text">
+              {ROUTE_STATUS_COPY.title}
+            </h1>
+            <Link
+              to="/"
+              className="rounded-pill border border-hairline bg-surface-2 px-3 py-1 text-xs font-semibold text-text hover:bg-surface-3 transition-colors"
+            >
+              ← Back to Swap
+            </Link>
+          </div>
           <p className="text-xs text-text-muted mt-1">
             {ROUTE_STATUS_COPY.description}
           </p>
@@ -323,17 +343,27 @@ export function RouteStatusPage() {
           <span
             data-testid="solver-health-badge"
             className={`inline-flex items-center gap-1.5 rounded-pill px-3 py-1 text-xs font-semibold ${
-              solverReachable
-                ? 'bg-ok/10 text-ok border border-ok/30'
-                : 'bg-danger/10 text-danger border border-danger/30'
+              solverError?.includes('this URL is not a Ferry solver')
+                ? 'bg-danger/10 text-danger border border-danger/30'
+                : solverReachable
+                  ? 'bg-ok/10 text-ok border border-ok/30'
+                  : 'bg-danger/10 text-danger border border-danger/30'
             }`}
           >
             <span
               className={`size-2 rounded-full ${
-                solverReachable ? 'bg-ok' : 'bg-danger'
+                solverError?.includes('this URL is not a Ferry solver')
+                  ? 'bg-danger'
+                  : solverReachable
+                    ? 'bg-ok'
+                    : 'bg-danger'
               }`}
             />
-            {solverReachable ? 'Solver Reachable' : 'Solver Unreachable'}
+            {solverError?.includes('this URL is not a Ferry solver')
+              ? 'this URL is not a Ferry solver'
+              : solverReachable
+                ? 'Solver Reachable'
+                : 'Solver Unreachable'}
           </span>
 
           <span
@@ -355,6 +385,33 @@ export function RouteStatusPage() {
           </span>
         </div>
       </div>
+
+      {/* Prominent maintainer alert if configured solver returned HTML */}
+      {solverError?.includes('this URL is not a Ferry solver') && (
+        <div
+          data-testid="solver-not-ferry-alert"
+          className="mb-6 rounded-card border border-danger/40 bg-danger/10 p-4 text-xs text-danger shadow-elev-card"
+          role="alert"
+        >
+          <div className="flex items-center gap-2 font-semibold text-sm">
+            <AlertTriangleIcon className="size-4 shrink-0 text-danger" />
+            <span>this URL is not a Ferry solver</span>
+          </div>
+          <p className="mt-1.5 text-text-muted leading-relaxed">
+            The configured solver URL returned HTML (such as a landing page or
+            404 page) instead of JSON at{' '}
+            <code className="font-mono text-danger">/v1/health</code>. Ensure{' '}
+            <code className="font-mono text-text">VITE_SOLVER_URLS</code> points
+            to the Ferry solver origin (for example{' '}
+            <code className="font-mono text-text">
+              https://ferry.incepture.dev
+            </code>
+            ) and that requests to{' '}
+            <code className="font-mono text-text">/v1/*</code> are properly
+            reverse-proxied to the Ferry solver API.
+          </p>
+        </div>
+      )}
 
       {loading && (
         <div className="mb-4 text-center text-xs text-text-muted">

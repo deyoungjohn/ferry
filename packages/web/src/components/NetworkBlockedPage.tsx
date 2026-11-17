@@ -1,15 +1,21 @@
 import { Link, useInRouterContext } from 'react-router';
 import { MAINNET_CHAINS_FROM_FACTS } from '../lib/network';
-import { NETWORK_LABEL, BANNER_CONFIG, getBannerWarnings } from '../lib/config';
+import {
+  NETWORK_LABEL,
+  BANNER_CONFIG,
+  getBannerWarnings,
+  parseSolverOrigins,
+} from '../lib/config';
+import { withBasePath } from '../lib/base-path';
 import { PREDICTED_FERRY_HTLC_ADDRESS } from '@ferry/chain-config/browser';
 import { AlertTriangleIcon, ExternalLinkIcon, CheckIcon, XIcon } from './icons';
 
 export function NetworkBlockedPage() {
   const inRouter = useInRouterContext();
-  const solverUrls = (
-    import.meta.env?.VITE_SOLVER_URLS as string | undefined
-  )?.trim();
-  const isSolverConfigured = Boolean(solverUrls && solverUrls.length > 0);
+  const solverOrigins = parseSolverOrigins(
+    import.meta.env?.VITE_SOLVER_URLS as string | undefined,
+  );
+  const isSolverConfigured = solverOrigins.length > 0;
   const bannerWarnings = getBannerWarnings(BANNER_CONFIG);
   const mainnetChains = MAINNET_CHAINS_FROM_FACTS;
 
@@ -51,7 +57,7 @@ export function NetworkBlockedPage() {
           </Link>
         ) : (
           <a
-            href="/status"
+            href={withBasePath('/status')}
             data-testid="link-to-status"
             className={statusLinkClass}
           >
@@ -81,7 +87,7 @@ export function NetworkBlockedPage() {
             <div>
               <span className="font-semibold text-text">Solver URL: </span>
               {isSolverConfigured ? (
-                <span className="text-lime">{solverUrls}</span>
+                <span className="text-lime">{solverOrigins.join(', ')}</span>
               ) : (
                 <span className="text-warn font-mono">
                   Unset (VITE_SOLVER_URLS environment variable is missing)

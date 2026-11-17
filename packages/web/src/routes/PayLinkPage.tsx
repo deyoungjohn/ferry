@@ -6,6 +6,7 @@ import { NETWORK_PROFILE } from '../lib/config';
 import { useSolver } from '../lib/solver/useSolver';
 import { WalletContext } from '../lib/wallet/context';
 import { chunkCashaddr } from '../lib/paylink/link';
+import { payLinkUrl } from '../lib/base-path';
 import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse } from '../lib/solver/types';
 import { useToast } from '../lib/toast/ToastContext';
@@ -33,7 +34,7 @@ export function PayLinkPage() {
   const currentUrl =
     typeof window !== 'undefined'
       ? window.location.href
-      : `https://ferry.cash/p/${id ?? 'demo'}`;
+      : payLinkUrl(id ?? 'demo');
 
   // Payer options
   const farChains = NETWORK_PROFILE.farChains;

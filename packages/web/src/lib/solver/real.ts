@@ -23,7 +23,10 @@ export class RealSolverClient implements SolverClient {
         ? (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
         : undefined;
     const firstUrl = envUrls?.split(',')[0]?.trim();
-    this.baseUrl = (options?.baseUrl ?? firstUrl ?? '').replace(/\/+$/, '');
+    // VITE_SOLVER_URLS takes the origin only (e.g. https://ferry.incepture.dev); client adds /v1/...
+    this.baseUrl = (options?.baseUrl ?? firstUrl ?? '')
+      .replace(/\/+$/, '')
+      .replace(/\/v1$/, '');
     this.fetchFn =
       options?.fetch ??
       (typeof window !== 'undefined' ? window.fetch.bind(window) : fetch);
@@ -45,11 +48,35 @@ export class RealSolverClient implements SolverClient {
         timestamp: Math.floor(Date.now() / 1000),
       };
     }
-    const res = await this.fetchFn(`${this.baseUrl}/v1/health`);
+    const url = `${this.baseUrl}/v1/health`;
+    const res = await this.fetchFn(url);
+    const contentType = res.headers.get('content-type') || '';
+    const text = await res.text();
+
+    if (
+      contentType.includes('text/html') ||
+      text.trim().toLowerCase().startsWith('<!doctype') ||
+      text.trim().toLowerCase().startsWith('<html') ||
+      /<html[\s>]/i.test(text)
+    ) {
+      throw new Error(
+        `this URL is not a Ferry solver (returned HTML instead of JSON at ${url})`,
+      );
+    }
+
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(
+        `this URL is not a Ferry solver (returned invalid JSON at ${url})`,
+      );
+    }
+
     if (!res.ok) {
       throw new Error(`Solver health check returned status ${res.status}`);
     }
-    return (await res.json()) as SolverHealthResponse;
+    return data as SolverHealthResponse;
   }
 
   async getOperatorRoutes(
@@ -60,10 +87,15 @@ export class RealSolverClient implements SolverClient {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return [];
-    const data = (await res.json()) as {
-      routes?: readonly OperatorRouteInfo[];
-    };
-    return Array.isArray(data.routes) ? data.routes : [];
+    const text = await res.text();
+    try {
+      const data = JSON.parse(text) as {
+        routes?: readonly OperatorRouteInfo[];
+      };
+      return Array.isArray(data.routes) ? data.routes : [];
+    } catch {
+      return [];
+    }
   }
 
   async getLiquidity(): Promise<LiquidityResponse> {
@@ -75,7 +107,20 @@ export class RealSolverClient implements SolverClient {
     if (!res.ok) {
       return { asOf: now, routes: [] };
     }
-    return (await res.json()) as LiquidityResponse;
+    const text = await res.text();
+    const contentType = res.headers.get('content-type') || '';
+    if (
+      contentType.includes('text/html') ||
+      text.trim().toLowerCase().startsWith('<!doctype') ||
+      text.trim().toLowerCase().startsWith('<html')
+    ) {
+      return { asOf: now, routes: [] };
+    }
+    try {
+      return JSON.parse(text) as LiquidityResponse;
+    } catch {
+      return { asOf: now, routes: [] };
+    }
   }
 
   async getQuote(request: QuoteRequest): Promise<QuoteResponse> {
@@ -103,10 +148,38 @@ export class RealSolverClient implements SolverClient {
       body: JSON.stringify(request),
     });
 
-    if (!res.ok) {
-      const errorData = (await res.json().catch(() => ({}))) as {
-        message?: string;
+    const text = await res.text();
+    const contentType = res.headers.get('content-type') || '';
+    if (
+      contentType.includes('text/html') ||
+      text.trim().toLowerCase().startsWith('<!doctype') ||
+      text.trim().toLowerCase().startsWith('<html')
+    ) {
+      return {
+        fromToken: request.fromToken,
+        toToken: request.toToken,
+        fromAmount: request.fromAmount,
+        toAmount: 0,
+        exchangeRate: 0,
+        spreadBps: 40,
+        estimatedSeconds: 30,
+        expiresInSeconds: 60,
+        refusal: {
+          reason: 'ROUTE_DISABLED',
+          asset: request.fromToken,
+          message:
+            'this URL is not a Ferry solver (returned HTML instead of JSON)',
+        },
       };
+    }
+
+    if (!res.ok) {
+      let errorData: { message?: string } = {};
+      try {
+        errorData = JSON.parse(text) as { message?: string };
+      } catch {
+        // Ignored
+      }
       return {
         fromToken: request.fromToken,
         toToken: request.toToken,

@@ -6,6 +6,7 @@ import '@fontsource/instrument-serif';
 import './styles/index.css';
 import { App } from './App';
 import { SolverProvider } from './lib/solver/SolverProvider';
+import { getRouterBasename } from './lib/base-path';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -14,6 +15,7 @@ if (!rootElement) {
 
 // IPFS and standalone routing support (FR-16 stretch)
 const isHash = import.meta.env?.VITE_ROUTER === 'hash';
+const routerBasename = getRouterBasename();
 
 createRoot(rootElement).render(
   <StrictMode>
@@ -23,6 +25,12 @@ createRoot(rootElement).render(
           <App />
         </SolverProvider>
       </HashRouter>
+    ) : routerBasename ? (
+      <BrowserRouter basename={routerBasename}>
+        <SolverProvider>
+          <App />
+        </SolverProvider>
+      </BrowserRouter>
     ) : (
       <BrowserRouter>
         <SolverProvider>

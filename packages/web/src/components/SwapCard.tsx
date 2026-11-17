@@ -16,7 +16,8 @@ import {
   type VerifiedSolverQuote,
 } from '@ferry/solver-client';
 import { getModeCopy, FAILURE_COPY } from '../lib/copy';
-import { NETWORK_PROFILE } from '../lib/config';
+import { NETWORK_PROFILE, parseSolverOrigins } from '../lib/config';
+import { withBasePath } from '../lib/base-path';
 import { useSolver } from '../lib/solver/useSolver';
 import { WalletContext } from '../lib/wallet/context';
 import { RealPriceReader } from '../lib/pricing/real';
@@ -131,14 +132,9 @@ export function SwapCard({
 
   // Multi-solver URLs from VITE_SOLVER_URLS (comma list)
   const solverUrls = useMemo(() => {
-    const envUrls = import.meta.env?.VITE_SOLVER_URLS as string | undefined;
-    if (envUrls && envUrls.trim().length > 0) {
-      return envUrls
-        .split(',')
-        .map((u) => u.trim())
-        .filter(Boolean);
-    }
-    return [];
+    return parseSolverOrigins(
+      import.meta.env?.VITE_SOLVER_URLS as string | undefined,
+    );
   }, []);
 
   // Fetch liquidity on mount
@@ -434,7 +430,7 @@ export function SwapCard({
         );
       }
       if (typeof window !== 'undefined') {
-        window.location.assign(`/swap/${orderId}`);
+        window.location.assign(withBasePath(`/swap/${orderId}`));
       }
     } catch (err) {
       setIsSubmitting(false);

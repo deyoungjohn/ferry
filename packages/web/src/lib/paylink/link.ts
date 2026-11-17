@@ -36,16 +36,4 @@ export function chunkCashaddr(address: string): string {
   return address.match(/.{1,4}/g)?.join(' ') ?? address;
 }
 
-export function payLinkUrl(id: string): string {
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}/p/${id}`;
-  }
-  return `https://ferry.cash/p/${id}`;
-}
-
-export function sendLinkUrl(id: string): string {
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}/s/${id}`;
-  }
-  return `https://ferry.cash/s/${id}`;
-}
+export { payLinkUrl, sendLinkUrl } from '../base-path';
