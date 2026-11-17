@@ -48,7 +48,30 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
         ageSeconds: 15,
         lastConfirmedAt: Math.floor(Date.now() / 1000) - 15,
       }),
-      listUnspent: async () => [],
+      listUnspent: async () => [
+        {
+          height: 330000,
+          tx_hash: '11'.repeat(32),
+          tx_pos: 0,
+          value: 100000,
+          token_data: {
+            category:
+              'ec335fd3ffa45f80cef7217cf98e8adf562df5a3e33f354f69df2951703586ac',
+            amount: '100000000',
+          },
+        },
+        {
+          height: 330000,
+          tx_hash: '22'.repeat(32),
+          tx_pos: 0,
+          value: 100000,
+          token_data: {
+            category:
+              'c99627aec3e041f281068704c2609699d234586d5097301eff995f3bd00ac04d',
+            amount: '100000000',
+          },
+        },
+      ],
       getHistory: async () => [],
       broadcast: async () => '0xmock-bch-broadcast',
       subscribeScriptHash: async () => {},
@@ -66,6 +89,8 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
     fakeEvmAdapter = {
       id: 'base',
       address: solverAccount.address,
+      getTokenBalance: async () => 100_000_000_000n,
+      getNativeBalance: async () => 10_000_000_000_000_000_000n,
       getTip: async () => ({
         height: 1234567,
         ageSeconds: 5,

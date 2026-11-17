@@ -720,7 +720,7 @@ export class SolverDatabase {
           counterDecimals: 6,
           counterAmount: BigInt(terms.evmAmount || 0),
           bchSymbol: terms.bchToken || 'PUSD',
-          bchDecimals: terms.bchToken === 'MUSD' ? 8 : 2,
+          bchDecimals: 2,
           bchTokenAmount: BigInt(terms.bchTokenAmount || 0),
           durationSeconds,
           baseTxId,

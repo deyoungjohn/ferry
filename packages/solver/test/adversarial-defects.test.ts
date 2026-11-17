@@ -53,6 +53,19 @@ describe('B4-07 Adversarial Defect Fixes (Quoting & Operator Safety)', () => {
         quotingAllowed: true,
         quotingState: 'HEALTHY',
       }),
+      listUnspent: async () => [
+        {
+          height: 870_000,
+          tx_hash: '11'.repeat(32),
+          tx_pos: 0,
+          value: 100000,
+          token_data: {
+            category:
+              'ec335fd3ffa45f80cef7217cf98e8adf562df5a3e33f354f69df2951703586ac',
+            amount: '100000000',
+          },
+        },
+      ],
       waitForDoubleSpendProof: async () => ({ hasProof: false }),
       broadcastTransaction: async (txHex: string) => txHex,
       start: async () => {},
@@ -70,6 +83,8 @@ describe('B4-07 Adversarial Defect Fixes (Quoting & Operator Safety)', () => {
     const mockEvmAdapter = {
       id: 'base',
       chainId: 84532,
+      getTokenBalance: async () => 100_000_000_000n,
+      getNativeBalance: async () => 10_000_000_000_000_000_000n,
       getTip: async () => ({ height: 100, ageSeconds: 1 }),
       getLock: async () => ({ status: 'absent' }),
     } as unknown as EvmChainAdapter;
