@@ -3,12 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "preflight": "pnpm --dir ../.. --filter @ferry/chain-config preflight",
+    "preflight": "node --conditions=ferry-source --import tsx preflight.ts",
     "watch-chains": "pnpm --dir ../.. --filter @ferry/chain-config watch-chains",
     "measure-rpc": "pnpm --dir ../.. --filter @ferry/chain-config measure-rpc",
     "deploy-funding": "node --conditions=ferry-source --import tsx deploy-funding.ts",
     "typecheck": "pnpm --dir ../.. exec tsc --noEmit -p scripts/preflight/tsconfig.json",
     "bch-servers": "pnpm --dir ../.. --filter @ferry/chain-config bch-servers",
-    "test": "pnpm --dir ../.. exec vitest run scripts/preflight/deploy-config.test.ts"
+    "test": "pnpm --dir ../.. exec vitest run scripts/preflight"
   }
 }
