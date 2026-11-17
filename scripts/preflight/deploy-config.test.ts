@@ -12,16 +12,25 @@ function read(relative: string): string {
 describe('Caddy configuration', () => {
   const caddy = read('deploy/Caddyfile');
 
-  it('serves the web build and proxies the one-origin API', () => {
-    expect(caddy).toContain('example.org');
-    expect(caddy).toContain('root * /var/www/ferry/dist');
+  it('serves the landing page, the /swap/ app and the one-origin API', () => {
+    expect(caddy).toContain('{$FERRY_DOMAIN:example.org}');
+    expect(caddy).toContain('redir /swap /swap/ 308');
+    expect(caddy).toContain('handle /v1/*');
     expect(caddy).toContain('reverse_proxy 127.0.0.1:8787');
+    expect(caddy).toContain('handle /swap/*');
+    expect(caddy).toContain('root * /var/www/ferry');
+    expect(caddy).toContain('try_files {path} /swap/index.html');
+    expect(caddy).toContain('root * /var/www/ferry/landing');
     expect(caddy).toContain('try_files {path} /index.html');
     expect(caddy).toContain('file_server');
     expect(caddy).toContain('encode zstd gzip');
-    expect(caddy.indexOf('handle /v1/*')).toBeLessThan(
-      caddy.indexOf('handle {'),
-    );
+
+    const api = caddy.indexOf('handle /v1/*');
+    const swap = caddy.indexOf('handle /swap/*');
+    const catchAll = caddy.indexOf('handle {');
+    expect(api).toBeGreaterThan(-1);
+    expect(swap).toBeGreaterThan(api);
+    expect(catchAll).toBeGreaterThan(swap);
   });
 
   it('has the security headers and no CDN trust', () => {
@@ -30,9 +39,12 @@ describe('Caddy configuration', () => {
     expect(caddy).toContain('X-Content-Type-Options "nosniff"');
     expect(caddy).toContain('Referrer-Policy');
     expect(caddy).toContain('Permissions-Policy');
+    expect(caddy).toContain('@swap path /swap/*');
+    expect(caddy).toContain('header @swap');
     expect(caddy).toContain('Content-Security-Policy');
     expect(caddy).toContain("connect-src 'self'");
     expect(caddy).toContain("frame-ancestors 'none'");
+    expect(caddy).toContain('maintainer sets the landing policy here');
     expect(caddy).not.toContain('trusted_proxies');
     expect(caddy).not.toContain('solver.');
   });
@@ -44,6 +56,9 @@ describe('Caddy configuration', () => {
     expect(caddy).toContain('common_log delete');
     expect(caddy).toContain('ipv4 24');
     expect(caddy).toContain('ipv6 56');
+    expect(caddy).toContain('@swapHashedAssets path /swap/assets/*');
+    expect(caddy).toContain('@landingHashedAssets path /assets/*');
+    expect(caddy).toContain('@swapEntry path /swap /swap/ /swap/index.html');
     expect(caddy).not.toMatch(
       /\b(?!203\.0\.113\.10\b)\d{1,3}(?:\.\d{1,3}){3}\b.*example\.org/,
     );
@@ -89,6 +104,19 @@ describe('systemd units', () => {
   });
 });
 
+describe('README paths', () => {
+  const readme = read('deploy/README.md');
+
+  it('documents the two clones and the landing/swap split', () => {
+    expect(readme).toContain('/home/ubuntu/ferry');
+    expect(readme).toContain('/home/ferry/ferry');
+    expect(readme).toContain('VITE_BASE_PATH=/swap/');
+    expect(readme).toContain('/var/www/ferry/swap');
+    expect(readme).toContain('/var/www/ferry/landing');
+    expect(readme).toContain('ferry.incepture.dev');
+  });
+});
+
 describe('bootstrap and file safety', () => {
   const bootstrap = read('deploy/bootstrap.sh');
 
@@ -103,6 +131,8 @@ describe('bootstrap and file safety', () => {
     expect(bootstrap).toContain('chmod 0600 /etc/ferry/solver.env');
     expect(bootstrap).toContain('/var/lib/ferry');
     expect(bootstrap).toContain('/var/log/ferry');
+    expect(bootstrap).toContain('/var/www/ferry/swap');
+    expect(bootstrap).toContain('/var/www/ferry/landing');
   });
 
   it('contains no real key, WIF or non-example public IP', () => {

@@ -186,7 +186,7 @@ chown "$FERRY_USER:$FERRY_USER" /etc/ferry/solver.env
 chmod 0600 /etc/ferry/solver.env
 install -d -m 0750 -o "$FERRY_USER" -g "$FERRY_USER" /var/lib/ferry
 install -d -m 0750 -o "$FERRY_USER" -g "$FERRY_USER" /var/log/ferry
-install -d -m 0755 -o root -g root /var/www/ferry /var/www/ferry/dist
+install -d -m 0755 -o root -g root /var/www/ferry /var/www/ferry/swap /var/www/ferry/landing
 install -d -m 0750 -o caddy -g caddy /var/log/caddy
 
 log "Installing helper scripts and systemd units"
@@ -199,7 +199,7 @@ install -m 0644 "$REPO_ROOT/deploy/systemd/ferry-health.service" /etc/systemd/sy
 install -m 0644 "$REPO_ROOT/deploy/systemd/ferry-health.timer" /etc/systemd/system/ferry-health.timer
 
 log "Installing the Caddy configuration"
-if [ ! -f /etc/caddy/Caddyfile ] || ! grep -q '/var/www/ferry/dist' /etc/caddy/Caddyfile; then
+if [ ! -f /etc/caddy/Caddyfile ] || ! grep -q '/var/www/ferry/landing' /etc/caddy/Caddyfile; then
 	if [ -f /etc/caddy/Caddyfile ]; then
 		cp -a /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.before-ferry.$(date -u +%Y%m%dT%H%M%SZ)"
 	fi

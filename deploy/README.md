@@ -1,13 +1,15 @@
 # Ferry server bootstrap
 
-One Ubuntu 24.04 Lightsail instance runs the solver and the static web build.
-Caddy is the only public origin: it serves the Vite `dist` and proxies `/v1/*`
-to the solver on `127.0.0.1:8787`. `trusted_proxies` is intentionally unset, so
+One Ubuntu 24.04 Lightsail instance runs the solver, the Ferry app at `/swap/`
+and the maintainer's landing page at `/`. Caddy is the only public origin: it
+serves `/var/www/ferry/swap` and `/var/www/ferry/landing` and proxies `/v1/*` to
+the solver on `127.0.0.1:8787`. `trusted_proxies` is intentionally unset, so
 Caddy does not trust an inbound CDN or proxy. The solver sets `TRUSTED_PROXY=true`
 only because Caddy is the sole local caller on `127.0.0.1`.
 
-The examples use `example.org` and `203.0.113.10`. Replace them with your real
-domain and static IP. No file in this folder contains a secret.
+The examples use `example.org` and `203.0.113.10`. The launch domain is
+`ferry.incepture.dev`; replace the example in the committed Caddyfile and in the
+commands below. No file in this folder contains a secret.
 
 ## 1. Create the instance
 
@@ -41,6 +43,13 @@ test it.
 
 ## 3. Clone and bootstrap
 
+There are **two clones on purpose**:
+
+- `/home/ubuntu/ferry` is the admin checkout. Use it only to run
+  `deploy/bootstrap.sh` and the one-off server setup.
+- `/home/ferry/ferry` is the service-user checkout. Build the solver, app and
+  releases there with `sudo -u ferry ...`.
+
 ```bash
 git clone https://github.com/deyoungjohn/ferry.git /home/ubuntu/ferry
 cd /home/ubuntu/ferry
@@ -59,7 +68,7 @@ Create the service checkout as the service user:
 sudo -u ferry git clone https://github.com/deyoungjohn/ferry.git /home/ferry/ferry
 ```
 
-## 4. Build the solver and web
+## 4. Build the solver and the `/swap/` app
 
 Run these as `ferry`:
 
@@ -78,21 +87,31 @@ sudo -u ferry nano /home/ferry/ferry/packages/web/.env.production
 The required production values are:
 
 - `VITE_NETWORK=mainnet`
-- `VITE_SOLVER_URLS=https://example.org` for the same-origin solver (or leave it
-  empty; both resolve to `/v1/*` on this host)
+- `VITE_BASE_PATH=/swap/`
+- `VITE_SOLVER_URLS=https://ferry.incepture.dev` for the same-origin solver
 - `VITE_REOWN_PROJECT_ID=<your Reown project id>`
 - `VITE_MOCK=` (empty; never `1` in production)
 - `VITE_PRIOR_REPO_URL` for the banner, plus the optional banner variables in
   `packages/web/.env.example`
 
-Build and publish the static files:
+Build and publish the app under `/swap/`:
 
 ```bash
 sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm --filter @ferry/web build'
-sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/dist/
-sudo chown -R root:root /var/www/ferry/dist
-sudo find /var/www/ferry/dist -type d -exec chmod 0755 {} +
-sudo find /var/www/ferry/dist -type f -exec chmod 0644 {} +
+sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/swap/
+sudo chown -R root:root /var/www/ferry/swap
+sudo find /var/www/ferry/swap -type d -exec chmod 0755 {} +
+sudo find /var/www/ferry/swap -type f -exec chmod 0644 {} +
+```
+
+The landing page is the maintainer's content. Build it separately and publish it
+to `/var/www/ferry/landing`; do not edit it from this repository:
+
+```bash
+sudo rsync -a --delete /path/to/landing-build/ /var/www/ferry/landing/
+sudo chown -R root:root /var/www/ferry/landing
+sudo find /var/www/ferry/landing -type d -exec chmod 0755 {} +
+sudo find /var/www/ferry/landing -type f -exec chmod 0644 {} +
 ```
 
 ## 5. Install the solver environment
@@ -153,9 +172,18 @@ The root `pnpm preflight` alias is not present; the filtered command above is
 the supported form in this checkout. A `GO for mainnet launch` line is required
 before the first swap.
 
+After the site is live, verify that the public URL really serves the solver API:
+
+```bash
+pnpm --dir scripts/preflight preflight -- --url https://ferry.incepture.dev
+```
+
+It GETs `/v1/health` and fails with `this URL is not a Ferry solver (it returned
+HTML)` when the URL is a landing page or any other non-JSON response.
+
 ## 7. Set the domain and start services
 
-Replace `example.org` in `/etc/caddy/Caddyfile` with the real domain:
+Replace `example.org` in `/etc/caddy/Caddyfile` with `ferry.incepture.dev`:
 
 ```bash
 sudo nano /etc/caddy/Caddyfile
@@ -175,8 +203,9 @@ sudo systemctl start ferry-backup.timer ferry-health.timer
 Check the public site and the solver:
 
 ```bash
-curl -fsS https://example.org/v1/health
-curl -fsS https://example.org/status
+curl -fsS https://ferry.incepture.dev/v1/health
+curl -fsS https://ferry.incepture.dev/swap/ | head
+curl -fsS https://ferry.incepture.dev/ | head
 sudo systemctl status ferry-solver.service --no-pager
 ```
 
@@ -193,8 +222,8 @@ Take a Lightsail snapshot before every change. Then:
 ```bash
 sudo -u ferry bash -lc 'cd /home/ferry/ferry && git pull --ff-only && pnpm install --frozen-lockfile && for package in @ferry/core @ferry/chain-config @ferry/chain-evm @ferry/solver; do pnpm --filter "$package" build; done'
 sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm --filter @ferry/web build'
-sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/dist/
-sudo chown -R root:root /var/www/ferry/dist
+sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/swap/
+sudo chown -R root:root /var/www/ferry/swap
 sudo systemctl restart ferry-solver.service
 sudo systemctl reload caddy.service
 ```
@@ -211,7 +240,7 @@ rolling back only the code and have a clean previous commit:
 ```bash
 sudo -u ferry bash -lc 'cd /home/ferry/ferry && git switch --detach <previous-commit> && pnpm install --frozen-lockfile && for package in @ferry/core @ferry/chain-config @ferry/chain-evm @ferry/solver; do pnpm --filter "$package" build; done'
 sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm --filter @ferry/web build'
-sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/dist/
+sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/swap/
 sudo systemctl restart ferry-solver.service
 sudo systemctl reload caddy.service
 ```
@@ -280,7 +309,8 @@ root-only hook or in a root-only environment file; never in this repository.
 | generated solver file                 | `/etc/ferry/solver.env`                         | `0600 ferry:ferry` |
 | SQLite state                          | `/var/lib/ferry/solver.db`                      | `ferry:ferry`      |
 | solver logs                           | `/var/log/ferry`                                | `0750 ferry:ferry` |
-| static site                           | `/var/www/ferry/dist`                           | `0755 root:root`   |
+| swap app                              | `/var/www/ferry/swap`                           | `0755 root:root`   |
+| landing page                          | `/var/www/ferry/landing`                        | `0755 root:root`   |
 | Caddy access log                      | `/var/log/caddy/ferry-access.log`               | `0640 caddy:caddy` |
 
 ## 14. Local checks before a server change
@@ -289,7 +319,7 @@ root-only hook or in a root-only environment file; never in this repository.
 bash -n deploy/bootstrap.sh deploy/backup.sh deploy/healthcheck.sh
 shellcheck deploy/bootstrap.sh deploy/backup.sh deploy/healthcheck.sh
 systemd-analyze verify deploy/systemd/*.service deploy/systemd/*.timer
-pnpm exec vitest run scripts/preflight/deploy-config.test.ts
+pnpm exec vitest run scripts/preflight
 ```
 
 Install `shellcheck` locally if it is missing (`apt-get install shellcheck`, or
