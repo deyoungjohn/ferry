@@ -86,6 +86,11 @@ describe('@ferry/probe default ports and formatters', () => {
         writes.push(args.functionName);
         return `0x${'ab'.repeat(32)}` as Hex32;
       },
+      // The lock goes through the shared user-flow code, which sends encoded calls.
+      sendTransaction: async (args: { data: Hex }) => {
+        writes.push(args.data.startsWith('0x095ea7b3') ? 'approve' : 'lock');
+        return `0x${'ab'.repeat(32)}` as Hex32;
+      },
       signTypedData: async () => `0x${'11'.repeat(65)}` as Hex,
     } as unknown as WalletClient;
 
@@ -117,6 +122,49 @@ describe('@ferry/probe default ports and formatters', () => {
     const refundHash = await port.refund(SAMPLE_TERMS);
     expect(refundHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(writes).toEqual(['approve', 'lock', 'claim', 'refund']);
+  });
+
+  it('locks with a permit through the real adapter payload: two signatures, then the relay', async () => {
+    const signed: string[] = [];
+    const relayed: unknown[] = [];
+    const publicClient = {
+      readContract: async (args: { functionName: string }) =>
+        args.functionName === 'nonces' ? 0n : 'USD Coin',
+    } as unknown as PublicClient;
+    const walletClient = {
+      signTypedData: async (args: { primaryType: string }) => {
+        signed.push(args.primaryType);
+        return `0x${'11'.repeat(32)}${'22'.repeat(32)}1b` as Hex;
+      },
+    } as unknown as WalletClient;
+    const permitConfig: EvmChainConfig = {
+      ...CHAIN_CONFIG,
+      assets: CHAIN_CONFIG.assets.map((a) => ({ ...a, permit: true })),
+    };
+    const port = createDefaultEvmPort({
+      chainConfig: permitConfig,
+      publicClient,
+      walletClient,
+      userAddress: SAMPLE_TERMS.userEvmAddress,
+    });
+    const solver = {
+      relayLock: async (_orderId: Hex32, request: unknown) => {
+        relayed.push(request);
+        return { ok: true, orderId: _orderId, txHash: `0x${'cd'.repeat(32)}` };
+      },
+    };
+
+    const hash = await port.lock(SAMPLE_TERMS, solver as never);
+
+    expect(hash).toBe(`0x${'cd'.repeat(32)}`);
+    expect(signed).toEqual(['Permit', 'LockIntent']);
+    const request = relayed[0] as {
+      permit: { deadline: number; v: number };
+      intent: { deadline: number };
+    };
+    expect(request.permit.deadline).toBe(SAMPLE_TERMS.quoteExpiry + 3600);
+    expect(request.intent.deadline).toBe(SAMPLE_TERMS.quoteExpiry + 3600);
+    expect(request.permit.v).toBe(27);
   });
 
   it('exercises createDefaultBchPort tip, UTXO polling, and refund height polling', async () => {

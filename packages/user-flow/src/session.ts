@@ -29,8 +29,9 @@ import {
   type VerifiedQuote,
 } from '@ferry/solver-client';
 import { binToHex } from '@bitauth/libauth';
-import { encodeFunctionData, parseAbi, parseSignature, sha256 } from 'viem';
+import { sha256 } from 'viem';
 import { UserFlowError } from './errors.js';
+import { guardWallet, lockUserOnEvm } from './actions.js';
 import type {
   BchChainPort,
   BchSignerPort,
@@ -116,37 +117,10 @@ export interface WaitOptions {
 const ZERO_ADDRESS = `0x${'00'.repeat(20)}`;
 const DEFAULT_FEE_RATE_SAT_PER_BYTE = 1;
 
-const ERC20_APPROVE_ABI = parseAbi([
-  'function approve(address spender, uint256 amount) external returns (bool)',
-]);
-const HTLC_LOCK_ABI = parseAbi([
-  'function lock(address token, address recipient, uint256 amount, bytes32 hashLock, uint64 deadline) external returns (bytes32)',
-]);
-
 const WAITING = {
   counterLockEvm: "Waiting for the solver's lock on the EVM chain to confirm",
   counterLockBch: "Waiting for the solver's lock on Bitcoin Cash to confirm",
 } as const;
-
-interface PermitIntentPayload {
-  readonly mode: 'permit-intent';
-  readonly permitTypedData: { readonly message: { readonly deadline: bigint } };
-  readonly lockIntentTypedData: {
-    readonly message: { readonly intentDeadline: bigint };
-  };
-}
-interface ApproveLockPayload {
-  readonly mode: 'approve-lock';
-  readonly approve: {
-    readonly token: Hex;
-    readonly spender: Hex;
-    readonly amount: bigint;
-  };
-  readonly lockCall: {
-    readonly address: Hex;
-    readonly args: readonly [Hex, Hex, bigint, Hex32, bigint];
-  };
-}
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -569,61 +543,8 @@ export class UserSwapSession {
 
   // ---- locks -----------------------------------------------------------
 
-  private async lockOnEvm(terms: OrderTerms): Promise<string> {
-    const unsigned = await this.deps.evmChain.buildUserLock(terms);
-    const payload = unsigned.payload as
-      PermitIntentPayload | ApproveLockPayload;
-
-    if (payload.mode === 'permit-intent') {
-      const permitSig = await this.guardWallet(() =>
-        this.deps.evmSigner.signTypedData(payload.permitTypedData),
-      );
-      const intentSig = await this.guardWallet(() =>
-        this.deps.evmSigner.signTypedData(payload.lockIntentTypedData),
-      );
-      const permit = parseSignature(permitSig);
-      const response = await this.deps.solver.relayLock(unsigned.orderId, {
-        permit: {
-          value: terms.evmAmount,
-          deadline: Number(payload.permitTypedData.message.deadline),
-          v: Number(permit.v ?? 27n),
-          r: permit.r,
-          s: permit.s,
-        },
-        intent: {
-          orderId: unsigned.orderId,
-          deadline: Number(payload.lockIntentTypedData.message.intentDeadline),
-        },
-        signature: intentSig,
-      });
-      return response.txHash;
-    }
-
-    const approveHash = await this.guardWallet(() =>
-      this.deps.evmSigner.sendTransaction({
-        to: payload.approve.token,
-        data: encodeFunctionData({
-          abi: ERC20_APPROVE_ABI,
-          functionName: 'approve',
-          args: [payload.approve.spender, payload.approve.amount],
-        }),
-        chainId: terms.evmChainId,
-      }),
-    );
-    await this.deps.evmChain.waitForReceipt(approveHash);
-    const lockHash = await this.guardWallet(() =>
-      this.deps.evmSigner.sendTransaction({
-        to: payload.lockCall.address,
-        data: encodeFunctionData({
-          abi: HTLC_LOCK_ABI,
-          functionName: 'lock',
-          args: payload.lockCall.args,
-        }),
-        chainId: terms.evmChainId,
-      }),
-    );
-    await this.deps.evmChain.waitForReceipt(lockHash);
-    return lockHash;
+  private lockOnEvm(terms: OrderTerms): Promise<string> {
+    return lockUserOnEvm(this.deps, terms);
   }
 
   private async lockOnBch(terms: OrderTerms): Promise<string> {
@@ -639,7 +560,7 @@ export class UserSwapSession {
         this.deps.feeRateSatPerByte ?? DEFAULT_FEE_RATE_SAT_PER_BYTE,
     });
     const request = buildWizardConnectSignRequest({ lockTx: built });
-    const signedHex = await this.guardWallet(() =>
+    const signedHex = await guardWallet(() =>
       this.deps.bchSigner.signTransaction(request),
     );
     const report = inspectSignedTransaction(
@@ -799,18 +720,6 @@ export class UserSwapSession {
       );
     }
     return this.secret;
-  }
-
-  private async guardWallet<T>(action: () => Promise<T>): Promise<T> {
-    try {
-      return await action();
-    } catch (error) {
-      throw new UserFlowError(
-        'WALLET_REJECTED',
-        `The wallet did not complete the request: ${messageOf(error)}. Nothing was locked.`,
-        { cause: error },
-      );
-    }
   }
 
   private nowMs(): number {

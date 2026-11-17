@@ -22,6 +22,7 @@ import {
   type LockUtxo,
 } from '@ferry/htlc-bch';
 import { ferryHtlcAbi } from '@ferry/htlc-evm/abi';
+import { lockUserOnEvm } from '@ferry/user-flow';
 import {
   SolverClient,
   prepareRecoveryDownload,
@@ -29,7 +30,7 @@ import {
   type VerifiedQuote,
 } from '@ferry/solver-client';
 import type { Address, PublicClient, WalletClient } from 'viem';
-import { parseAbi, parseSignature, sha256 } from 'viem';
+import { sha256 } from 'viem';
 import {
   explorerTxUrl,
   type ProbeEvidence,
@@ -41,10 +42,6 @@ import {
   type ProbeKeys,
   type ProbeOptions,
 } from './safety.js';
-
-const ERC20_APPROVE_ABI = parseAbi([
-  'function approve(address spender, uint256 amount) external returns (bool)',
-]);
 
 const DEFAULT_EVM_TOKEN_BY_CHAIN: Readonly<Record<number, Hex>> = {
   8453: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
@@ -138,78 +135,37 @@ export function createDefaultEvmPort(
     },
 
     async lock(terms, solverClient) {
-      const unsigned = await adapter.buildUserLock(terms);
-      const payload = unsigned.payload as
-        | {
-            readonly mode: 'permit-intent';
-            readonly permitTypedData: unknown;
-            readonly intentTypedData: unknown;
-            readonly intentDeadline: bigint;
-            readonly permitDeadline: bigint;
-          }
-        | {
-            readonly mode: 'approve-lock';
-            readonly approve: {
-              readonly token: Address;
-              readonly spender: Address;
-              readonly amount: bigint;
-            };
-            readonly lockCall: {
-              readonly address: Address;
-              readonly functionName: 'lock';
-              readonly args: readonly [Address, Address, bigint, Hex32, bigint];
-            };
-          };
-
-      if (payload.mode === 'permit-intent') {
-        const permitSig = await opts.walletClient.signTypedData(
-          payload.permitTypedData as Parameters<
-            WalletClient['signTypedData']
-          >[0],
-        );
-        const parsedPermit = parseSignature(permitSig);
-        const intentSig = await opts.walletClient.signTypedData(
-          payload.intentTypedData as Parameters<
-            WalletClient['signTypedData']
-          >[0],
-        );
-        const res = await solverClient.relayLock(unsigned.orderId, {
-          permit: {
-            value: terms.evmAmount,
-            deadline: Number(payload.permitDeadline),
-            v: Number(parsedPermit.v ?? 27n),
-            r: parsedPermit.r,
-            s: parsedPermit.s,
+      return lockUserOnEvm(
+        {
+          evmSigner: {
+            getAddress: () => Promise.resolve(opts.userAddress),
+            getChainId: () => Promise.resolve(opts.chainConfig.chainId),
+            signTypedData: (typedData) =>
+              opts.walletClient.signTypedData(
+                typedData as Parameters<WalletClient['signTypedData']>[0],
+              ),
+            sendTransaction: (tx) =>
+              opts.walletClient.sendTransaction({
+                account: opts.userAddress,
+                chain: opts.walletClient.chain ?? null,
+                to: tx.to,
+                data: tx.data,
+                value: tx.value ?? 0n,
+              }),
           },
-          intent: {
-            orderId: unsigned.orderId,
-            deadline: Number(payload.intentDeadline),
+          evmChain: {
+            buildUserLock: (lockTerms) => adapter.buildUserLock(lockTerms),
+            getLock: (lockId) => adapter.getLock(lockId),
+            waitForReceipt: async (hash) => {
+              await opts.publicClient.waitForTransactionReceipt({ hash });
+            },
+            getBlockTimestamp: async () =>
+              Number((await opts.publicClient.getBlock()).timestamp),
           },
-          signature: intentSig,
-        });
-        return res.txHash;
-      }
-
-      const approveHash = await opts.walletClient.writeContract({
-        address: payload.approve.token,
-        abi: ERC20_APPROVE_ABI,
-        functionName: 'approve',
-        args: [payload.approve.spender, payload.approve.amount],
-        account: opts.userAddress,
-        chain: opts.walletClient.chain ?? null,
-      });
-      await opts.publicClient.waitForTransactionReceipt({ hash: approveHash });
-
-      const lockHash = await opts.walletClient.writeContract({
-        address: payload.lockCall.address,
-        abi: ferryHtlcAbi,
-        functionName: 'lock',
-        args: payload.lockCall.args,
-        account: opts.userAddress,
-        chain: opts.walletClient.chain ?? null,
-      });
-      await opts.publicClient.waitForTransactionReceipt({ hash: lockHash });
-      return lockHash;
+          solver: solverClient,
+        },
+        terms,
+      );
     },
 
     async waitForSolverLock(terms, pollOpts) {

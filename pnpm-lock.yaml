@@ -300,6 +300,9 @@ importers:
       '@ferry/solver-client':
         specifier: workspace:*
         version: link:../solver-client
+      '@ferry/user-flow':
+        specifier: workspace:*
+        version: link:../user-flow
       viem:
         specifier: 2.57.10
         version: 2.57.10(typescript@5.9.3)(zod@4.6.7)
