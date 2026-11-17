@@ -104,4 +104,33 @@ describe('Swap form viewport visibility (above-the-fold layout test)', () => {
     const mobileStackHeight = 70 + 56 + 120 + 360;
     expect(mobileStackHeight).toBeLessThan(844);
   });
+
+  it('asserts "without a bridge" has whitespace-nowrap and inline-block at 1280x720 and 390x844', () => {
+    renderAboveTheFold();
+    const bridgeText = screen.getByText('without a bridge');
+    expect(bridgeText).toHaveClass('whitespace-nowrap');
+    expect(bridgeText).toHaveClass('inline-block');
+  });
+
+  it('asserts chain picker in "You receive" well does not overflow and label never wraps', () => {
+    renderAboveTheFold();
+    const receiveLabel = screen.getByText('You receive');
+    expect(receiveLabel).toHaveClass('whitespace-nowrap');
+    expect(receiveLabel).toHaveClass('shrink-0');
+
+    const chainSelect = screen.getByLabelText(/Destination chain/i);
+    expect(chainSelect).toHaveClass('truncate');
+    expect(chainSelect).toHaveClass('max-w-full');
+  });
+
+  it('selects an enabled route by default on first load without showing disabled route warning', () => {
+    renderAboveTheFold();
+    expect(
+      screen.queryByTestId('route-disabled-alert'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('no-routes-enabled-alert'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/currently disabled/i)).not.toBeInTheDocument();
+  });
 });
