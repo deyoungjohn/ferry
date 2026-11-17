@@ -15,7 +15,7 @@ import {
   bsc,
   bscTestnet,
 } from 'viem/chains';
-import type { PublicClient } from 'viem';
+import type { Chain, PublicClient } from 'viem';
 import type { SolverConfig } from '../config.js';
 import type { BchQuorumClient } from '../bch/quorum-client.js';
 import type { EvmChainAdapter } from '@ferry/chain-evm';
@@ -60,7 +60,10 @@ export function routeMinSwapUsdMicros(fixedFeeUsdMicros: bigint): bigint {
   return minFromFee > 1_000_000n ? minFromFee : 1_000_000n;
 }
 
-export function getViemChain(chainId: string, network: 'mainnet' | 'testnet') {
+export function getViemChain(
+  chainId: string,
+  network: 'mainnet' | 'testnet',
+): Chain {
   const isMainnet = network === 'mainnet';
   switch (chainId.toLowerCase()) {
     case 'base':
