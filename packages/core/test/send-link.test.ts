@@ -8,6 +8,7 @@ import {
   parseSendLink,
   planSendLinkWindow,
 } from '../src/index.js';
+import { runs } from './support/runs.js';
 
 const ORDER_ID = `0x${'ab'.repeat(32)}` as const;
 const EVM_TOKEN = `0x${'11'.repeat(20)}` as const;
@@ -166,7 +167,7 @@ describe('SendLink schema and window planner', () => {
           }
         },
       ),
-      { numRuns: 25 },
+      { numRuns: runs(25) },
     );
   }, 30_000);
 });

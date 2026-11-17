@@ -23,7 +23,8 @@
     "fast:typecheck": "turbo run typecheck",
     "fast:lint": "turbo run lint",
     "fast:test": "turbo run test",
-    "verify:mutation": "node scripts/verify/run-mutation.mjs"
+    "verify:mutation": "node scripts/verify/run-mutation.mjs",
+    "verify:heavy": "node scripts/verify/run-heavy.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

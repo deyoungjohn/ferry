@@ -8,6 +8,7 @@ import {
   invariantR,
   planSendLinkWindow,
 } from '../src/index.js';
+import { runs } from './support/runs.js';
 
 describe('timing invariants F and R', () => {
   const t0 = 1_794_764_200;
@@ -106,7 +107,7 @@ describe('timing invariants F and R', () => {
           if (a.allowed) expect(b.allowed).toBe(true);
         },
       ),
-      { numRuns: 200 },
+      { numRuns: runs(200) },
     );
   });
 
