@@ -40,9 +40,9 @@ export function formatVerifyCommands(options?: {
         `--chain-id ${chain.chainId}`,
         '--compiler-version 0.8.28',
         '--evm-version cancun',
-        '--num-of-runs 200',
+        '--num-of-optimizations 200',
         '--via-ir',
-        '--constructor-args 0x',
+        '--etherscan-api-key "$ETHERSCAN_API_KEY"',
         '--watch',
       ].join(' ');
 
@@ -60,6 +60,9 @@ export function formatVerifyCommands(options?: {
 function main(): void {
   const networkArg = process.argv.includes('--testnet') ? 'testnet' : 'mainnet';
   const entries = formatVerifyCommands({ network: networkArg });
+  console.log(
+    "# Run each command from packages/htlc-evm (forge recompiles with that folder's foundry.toml, so the settings must match).\n# Export the explorer key first: export ETHERSCAN_API_KEY=...  (an Etherscan v2 key is meant to cover several chains; check the explorer's own page for Arc).\n",
+  );
   for (const entry of entries) {
     console.log(
       `# ${entry.chain} (${entry.network}, chainId=${entry.chainId}, explorer=${entry.explorerUrl})`,
