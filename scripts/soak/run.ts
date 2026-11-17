@@ -124,8 +124,10 @@ function percentile(values: readonly number[], p: number): number | null {
 function parseArgs(argv: readonly string[]): {
   minutes: number;
   outDir: string;
+  noFulcrum: boolean;
 } {
   let minutes = 120;
+  let noFulcrum = false;
   let outDir = resolve(fileURLToPath(new URL('.', import.meta.url)));
 
   for (let i = 0; i < argv.length; i++) {
@@ -140,9 +142,12 @@ function parseArgs(argv: readonly string[]): {
     } else if (arg === '--out' && argv[i + 1]) {
       outDir = resolve(argv[i + 1]!);
       i++;
+    } else if (arg === '--no-fulcrum') {
+      // For machines that cannot open wss connections: price and EVM sources only.
+      noFulcrum = true;
     }
   }
-  return { minutes, outDir };
+  return { minutes, outDir, noFulcrum };
 }
 
 function createStats(name: string, host: string): SourceStats {
@@ -213,7 +218,7 @@ function formatPct(ok: number, total: number): string {
 }
 
 async function main(): Promise<void> {
-  const { minutes, outDir } = parseArgs(process.argv.slice(2));
+  const { minutes, outDir, noFulcrum } = parseArgs(process.argv.slice(2));
   const startMs = Date.now();
   const deadlineMs = startMs + minutes * 60_000;
 
@@ -253,7 +258,7 @@ async function main(): Promise<void> {
   const pegDisagreements2Pct: PegDisagreementEvent[] = [];
 
   try {
-    await bchQuorum.connect();
+    if (!noFulcrum) await bchQuorum.connect();
     const dropped = bchQuorum.getDroppedTransports();
     for (const d of dropped) {
       genesisMismatches.push(
@@ -332,81 +337,83 @@ async function main(): Promise<void> {
   async function sampleBchAndBchPrices(): Promise<void> {
     const nowMs = Date.now();
 
-    // 1. BCH Quorum status + ping
-    const quorumStats = getStats('bch-quorum-tip', bchQuorumHosts);
-    try {
-      const t0 = performance.now();
-      await bchQuorum.pingAll();
-      const status = bchQuorum.getQuorumStatus();
-      const latency = performance.now() - t0;
+    if (!noFulcrum) {
+      // 1. BCH Quorum status + ping
+      const quorumStats = getStats('bch-quorum-tip', bchQuorumHosts);
+      try {
+        const t0 = performance.now();
+        await bchQuorum.pingAll();
+        const status = bchQuorum.getQuorumStatus();
+        const latency = performance.now() - t0;
 
-      const tips = Object.values(status.tips);
-      if (tips.length > 1) {
-        const spread = Math.max(...tips) - Math.min(...tips);
-        if (spread > 1) {
-          serverBehindCount++;
+        const tips = Object.values(status.tips);
+        if (tips.length > 1) {
+          const spread = Math.max(...tips) - Math.min(...tips);
+          if (spread > 1) {
+            serverBehindCount++;
+          }
         }
-      }
-      if (!status.isQuorumHealthy) {
-        quorumLostCount++;
-        recordFailure(
-          quorumStats,
-          new Error(`Quorum unhealthy: ${status.quotingState}`),
-          nowMs,
-        );
-      } else {
-        const stale = status.ageSeconds > 7200;
-        recordSuccess(quorumStats, latency, nowMs, stale);
-      }
-      if (status.quorumTip > 0) {
-        if (bchTipMin === null || status.quorumTip < bchTipMin) {
-          bchTipMin = status.quorumTip;
-        }
-        if (bchTipMax === null || status.quorumTip > bchTipMax) {
-          bchTipMax = status.quorumTip;
-        }
-        if (prevBchTip !== null && status.quorumTip < prevBchTip) {
-          tipMismatches.push(
-            `BCH quorum tip regressed from ${prevBchTip} to ${status.quorumTip}`,
+        if (!status.isQuorumHealthy) {
+          quorumLostCount++;
+          recordFailure(
+            quorumStats,
+            new Error(`Quorum unhealthy: ${status.quotingState}`),
+            nowMs,
           );
+        } else {
+          const stale = status.ageSeconds > 7200;
+          recordSuccess(quorumStats, latency, nowMs, stale);
         }
-        prevBchTip = status.quorumTip;
+        if (status.quorumTip > 0) {
+          if (bchTipMin === null || status.quorumTip < bchTipMin) {
+            bchTipMin = status.quorumTip;
+          }
+          if (bchTipMax === null || status.quorumTip > bchTipMax) {
+            bchTipMax = status.quorumTip;
+          }
+          if (prevBchTip !== null && status.quorumTip < prevBchTip) {
+            tipMismatches.push(
+              `BCH quorum tip regressed from ${prevBchTip} to ${status.quorumTip}`,
+            );
+          }
+          prevBchTip = status.quorumTip;
+        }
+        if (
+          Number.isFinite(status.ageSeconds) &&
+          status.ageSeconds > maxBchTipAgeSeconds
+        ) {
+          maxBchTipAgeSeconds = status.ageSeconds;
+        }
+        if (
+          Number.isFinite(status.livenessAgeSeconds) &&
+          status.livenessAgeSeconds > maxBchLivenessAgeSeconds
+        ) {
+          maxBchLivenessAgeSeconds = status.livenessAgeSeconds;
+        }
+      } catch (err) {
+        quorumLostCount++;
+        recordFailure(quorumStats, err, nowMs);
       }
-      if (
-        Number.isFinite(status.ageSeconds) &&
-        status.ageSeconds > maxBchTipAgeSeconds
-      ) {
-        maxBchTipAgeSeconds = status.ageSeconds;
-      }
-      if (
-        Number.isFinite(status.livenessAgeSeconds) &&
-        status.livenessAgeSeconds > maxBchLivenessAgeSeconds
-      ) {
-        maxBchLivenessAgeSeconds = status.livenessAgeSeconds;
-      }
-    } catch (err) {
-      quorumLostCount++;
-      recordFailure(quorumStats, err, nowMs);
-    }
 
-    // 2. Fulcrum history
-    const histStats = getStats('bch-fulcrum-history', bchQuorumHosts);
-    try {
-      const t0 = performance.now();
-      await bchQuorum.getHistory(pusdScripthash);
-      recordSuccess(histStats, performance.now() - t0, nowMs);
-    } catch (err) {
-      recordFailure(histStats, err, nowMs);
-    }
+      // 2. Fulcrum history
+      const histStats = getStats('bch-fulcrum-history', bchQuorumHosts);
+      try {
+        const t0 = performance.now();
+        await bchQuorum.getHistory(pusdScripthash);
+        recordSuccess(histStats, performance.now() - t0, nowMs);
+      } catch (err) {
+        recordFailure(histStats, err, nowMs);
+      }
 
-    // 3. Fulcrum listunspent
-    const utxoStats = getStats('bch-fulcrum-listunspent', bchQuorumHosts);
-    try {
-      const t0 = performance.now();
-      await bchQuorum.listUnspent(pusdScripthash, 'tokens_only');
-      recordSuccess(utxoStats, performance.now() - t0, nowMs);
-    } catch (err) {
-      recordFailure(utxoStats, err, nowMs);
+      // 3. Fulcrum listunspent
+      const utxoStats = getStats('bch-fulcrum-listunspent', bchQuorumHosts);
+      try {
+        const t0 = performance.now();
+        await bchQuorum.listUnspent(pusdScripthash, 'tokens_only');
+        recordSuccess(utxoStats, performance.now() - t0, nowMs);
+      } catch (err) {
+        recordFailure(utxoStats, err, nowMs);
+      }
     }
 
     // 4. BCH/USD spot
