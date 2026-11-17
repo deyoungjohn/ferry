@@ -19,6 +19,16 @@ want the short form:
 "preflight": "pnpm --dir scripts/preflight preflight"
 ```
 
+## Public URL check
+
+```bash
+pnpm --dir scripts/preflight preflight -- --url https://example.org
+```
+
+It GETs `/v1/health` and fails when the response is not JSON, including when a
+landing page returns HTML. The production layout is `/` for the landing page,
+`/swap/` for the app and `/v1/*` for the solver.
+
 ## Environment
 
 Values live in `.env.local` (gitignored). The scripts do **not** auto-load that
