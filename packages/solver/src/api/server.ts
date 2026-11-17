@@ -54,7 +54,6 @@ import {
   StatsResponseSchema,
   type ApiErrorCode,
 } from '@ferry/core/api';
-import { loadChainConfig } from '@ferry/chain-config';
 import {
   type EvmChainAdapter,
   type RelayLockPayload,
@@ -78,7 +77,11 @@ import type { SolverDatabase } from '../db/database.js';
 import type { PayLinkRecord } from '../db/types.js';
 import type { SolverEngine } from '../engine/runner.js';
 import { createLinkId, verifyPayLinksSignature } from '../paylink/link.js';
-import { LiquidityManager } from '../pricing/liquidity.js';
+import {
+  LiquidityManager,
+  type InventoryAssetView,
+} from '../pricing/liquidity.js';
+import { InventoryReader } from '../pricing/inventory-reader.js';
 import type { PriceSource } from '../pricing/price-source.js';
 import {
   QuoteBuilder,
@@ -130,6 +133,7 @@ export interface BuildServerOptions {
   logger?: pino.Logger | undefined;
   rateLimiter?: QuoteRateLimiter | undefined;
   publicClient?: PublicClient | undefined;
+  inventoryReader?: InventoryReader | undefined;
 }
 
 export function buildServer(options: BuildServerOptions): FastifyInstance {
@@ -240,10 +244,30 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       maxPerIp: config.rateLimitMaxPerIp,
     });
 
-  const liquidityManager = new LiquidityManager(
-    config.maxExposureUsdMicros,
-    config.maxExposureUsdMicros,
+  const solverAccount = privateKeyToAccount(
+    config.solverEvmPrivateKey as `0x${string}`,
   );
+
+  const maxReservationCap =
+    config.maxSwapUsdMicros * 2n < config.maxExposureUsdMicros
+      ? config.maxSwapUsdMicros * 2n
+      : config.maxExposureUsdMicros;
+
+  const liquidityManager = new LiquidityManager(
+    maxReservationCap,
+    maxReservationCap,
+  );
+
+  const inventoryReader =
+    options.inventoryReader ??
+    new InventoryReader({
+      config,
+      bchClient,
+      evmAdapter,
+      evmAdapters: options.evmAdapters,
+      evmClients: options.evmClients,
+      solverEvmAddress: solverAccount.address,
+    });
 
   const quoteBuilder = new QuoteBuilder(
     priceSource,
@@ -258,11 +282,24 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       refuseUsdMicros: config.sourceDisagreementRefuseUsdMicros,
       paryonMaxAgeSeconds: config.paryonMaxAgeSeconds,
     },
+    config.maxSwapUsdMicros,
   );
 
-  const solverAccount = privateKeyToAccount(
-    config.solverEvmPrivateKey as `0x${string}`,
-  );
+  if (options.logger) {
+    options.logger.info(
+      {
+        network: config.network,
+        minSwapUsd: (Number(config.minSwapUsdMicros) / 1e6).toFixed(2),
+        maxSwapUsd: (Number(config.maxSwapUsdMicros) / 1e6).toFixed(2),
+        maxExposureUsd: (Number(config.maxExposureUsdMicros) / 1e6).toFixed(2),
+        spreadBps: config.spreadBps,
+        fixedFeeUsd: (Number(config.fixedFeeUsdMicros) / 1e6).toFixed(2),
+        quoteTtlSeconds: config.quoteTtlSeconds,
+        skewMaxBps: config.skewMaxBps,
+      },
+      'Effective solver policy configured',
+    );
+  }
 
   const verifyOperatorAuth = async (
     req: { headers: Record<string, string | string[] | undefined> },
@@ -319,6 +356,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
 
     const raw = (req.body ?? {}) as Record<string, unknown>;
+    const isDryRun = Boolean(raw.dryRun);
     const token = (raw.token ?? raw.bchToken) as string | undefined;
     const chainId = (raw.chainId ??
       raw.evmChainId ??
@@ -379,15 +417,18 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       });
     }
 
-    // BCH health check
+    // BCH health check: refuse to quote when node tip is stale or unhealthy
     const quorum = bchClient.getQuorumStatus();
     const bchHealth = evaluateBchHealth(quorum, config);
     if (!bchHealth.isHealthy) {
-      return sendApiError(
-        reply,
-        'BCH_TIP_UNHEALTHY',
-        'Bitcoin Cash node tip is stale or unhealthy',
-      );
+      const refusal = {
+        reason: 'INSUFFICIENT_LIQUIDITY' as const,
+        maxAmount: '0',
+        asset: request.bchToken,
+        message: 'Bitcoin Cash node tip is stale or unhealthy',
+      };
+      QuoteRefusalSchema.parse(refusal);
+      return reply.status(422).send(refusal);
     }
 
     const routesCtx = options.routesContext ?? buildActiveRoutes(config);
@@ -556,7 +597,29 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       bchMaxFee: config.bchMaxFeeSats,
     };
 
-    const currentInventory = 100_000_000n;
+    const receiveAsset =
+      request.direction === 'EVM_TO_BCH'
+        ? request.bchToken
+        : (evmAsset?.symbol ?? 'USDC');
+
+    let currentInventory: bigint;
+    try {
+      currentInventory = await inventoryReader.getAssetInventory({
+        asset: receiveAsset,
+        chain: evmChainName,
+        tokenAddress: requestedToken,
+      });
+    } catch (err) {
+      const refusal = {
+        reason: 'INSUFFICIENT_LIQUIDITY' as const,
+        maxAmount: '0',
+        asset: receiveAsset,
+        message: `Inventory balance unavailable: ${err instanceof Error ? err.message : String(err)}`,
+      };
+      QuoteRefusalSchema.parse(refusal);
+      return reply.status(422).send(refusal);
+    }
+
     const openExposure = db.getOpenExposureUsdMicros();
 
     const quoteResult = await quoteBuilder.buildQuote({
@@ -566,15 +629,14 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         request.direction === 'EVM_TO_BCH'
           ? (evmAsset?.symbol ?? 'USDC')
           : request.bchToken,
-      receiveAsset:
-        request.direction === 'EVM_TO_BCH'
-          ? request.bchToken
-          : (evmAsset?.symbol ?? 'USDC'),
+      receiveAsset,
       amountIn: amountInBigInt,
       inputDecimals: inDecimals,
       outputDecimals: outDecimals,
       fixedFeeUsdMicros,
       minSwapUsdMicros,
+      maxSwapUsdMicros: config.maxSwapUsdMicros,
+      dryRun: isDryRun,
       userAddress: request.userEvmAddress,
       userIp: clientIp,
       currentInventory,
@@ -646,23 +708,25 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       terms.hashLock,
     );
 
-    db.saveOrder({
-      id: orderIdHex,
-      direction: terms.direction,
-      status: 'QUOTED',
-      userCounterAddress: terms.userEvmAddress,
-      lockId,
-      termsJson: JSON.stringify(terms, (_, v) =>
-        typeof v === 'bigint' ? v.toString() + 'n' : v,
-      ),
-      hashLock: terms.hashLock,
-      lane: request.lane,
-      fastOptIn: request.fastOptIn ?? false,
-      firstSeenAtMs: Date.now(),
-      needsAttention: false,
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (!isDryRun) {
+      db.saveOrder({
+        id: orderIdHex,
+        direction: terms.direction,
+        status: 'QUOTED',
+        userCounterAddress: terms.userEvmAddress,
+        lockId,
+        termsJson: JSON.stringify(terms, (_, v) =>
+          typeof v === 'bigint' ? v.toString() + 'n' : v,
+        ),
+        hashLock: terms.hashLock,
+        lane: request.lane,
+        fastOptIn: request.fastOptIn ?? false,
+        firstSeenAtMs: Date.now(),
+        needsAttention: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
 
     const response = {
       orderId: (orderIdHex.startsWith('0x')
@@ -1246,30 +1310,81 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const quorum = bchClient.getQuorumStatus();
     const bchHealth = evaluateBchHealth(quorum, config);
 
-    let evmTipStatus: { height: number; ageSeconds: number; stale: boolean };
+    const evmBlocks: Record<string, number> = {};
+    const evmSeconds: Record<string, number> = {};
+    let evmHealthy = true;
+
     try {
       const tip = await evmAdapter.getTip();
-      evmTipStatus = {
-        height: tip.height,
-        ageSeconds: Math.max(0, tip.ageSeconds),
-        stale: tip.ageSeconds > config.tipMaxAgeBaseSeconds,
-      };
+      const height = Math.max(0, tip.height);
+      const age = Math.max(0, tip.ageSeconds);
+      const chainKey = (evmAdapter.id ?? 'base').toLowerCase();
+      evmBlocks[chainKey] = height;
+      evmSeconds[chainKey] = age;
+      if (
+        (tip as { stale?: boolean }).stale ||
+        age > config.tipMaxAgeBaseSeconds ||
+        height <= 0
+      ) {
+        evmHealthy = false;
+      }
     } catch {
-      evmTipStatus = {
-        height: 0,
-        ageSeconds: config.tipMaxAgeBaseSeconds + 1,
-        stale: true,
-      };
+      const chainKey = (evmAdapter.id ?? 'base').toLowerCase();
+      evmBlocks[chainKey] = 0;
+      evmSeconds[chainKey] = config.tipMaxAgeBaseSeconds + 1;
+      evmHealthy = false;
     }
 
-    const isEvmHealthy = !evmTipStatus.stale && evmTipStatus.height > 0;
+    if (options.evmAdapters) {
+      for (const [key, adapter] of options.evmAdapters.entries()) {
+        const chainKey = key.toLowerCase();
+        if (evmBlocks[chainKey] !== undefined) continue;
+        try {
+          const tip = await adapter.getTip();
+          const height = Math.max(0, tip.height);
+          const age = Math.max(0, tip.ageSeconds);
+          evmBlocks[chainKey] = height;
+          evmSeconds[chainKey] = age;
+          if (
+            (tip as { stale?: boolean }).stale ||
+            age > config.tipMaxAgeBaseSeconds ||
+            height <= 0
+          ) {
+            evmHealthy = false;
+          }
+        } catch {
+          evmBlocks[chainKey] = 0;
+          evmSeconds[chainKey] = config.tipMaxAgeBaseSeconds + 1;
+          evmHealthy = false;
+        }
+      }
+    }
+
+    const bchHeight = Math.max(0, Math.floor(quorum.quorumTip ?? 0));
+    const bchSeconds = Math.max(
+      0,
+      Math.floor(
+        quorum.ageSeconds === Infinity || isNaN(quorum.ageSeconds)
+          ? 0
+          : quorum.ageSeconds,
+      ),
+    );
+
     const isQuotingActive = config.quotingEnabled && !db.isQuotingPaused();
-    const ok = bchHealth.isHealthy && isEvmHealthy && isQuotingActive;
+    const ok = bchHealth.isHealthy && evmHealthy && isQuotingActive;
 
     const response = {
       ok,
       quotingEnabled: isQuotingActive,
       timestamp: Math.floor(Date.now() / 1000),
+      tips: {
+        bchHeight,
+        evmBlocks,
+      },
+      tipAges: {
+        bchSeconds,
+        evmSeconds,
+      },
     };
 
     HealthResponseSchema.parse(response);
@@ -1281,9 +1396,20 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const now = Math.floor(Date.now() / 1000);
     const openExposure = db.getOpenExposureUsdMicros();
 
+    let pusdInventory: bigint;
+    let musdInventory: bigint;
+    try {
+      const bch = await inventoryReader.getBchInventory();
+      pusdInventory = bch.pusd;
+      musdInventory = bch.musd;
+    } catch {
+      pusdInventory = 0n;
+      musdInventory = 0n;
+    }
+
     const pusdData = liquidityManager.getLiquidityData(
       'PUSD',
-      100_000_000n,
+      pusdInventory,
       openExposure,
       2,
       now,
@@ -1292,9 +1418,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const musdData = liquidityManager.getLiquidityData(
       'MUSD',
-      100_000_000n,
+      musdInventory,
       openExposure,
-      8,
+      2,
       now,
       'base-usdc-to-bch-musd',
     );
@@ -1311,12 +1437,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   // 8. GET /v1/chains
   app.get('/v1/chains', async (_req, reply) => {
     try {
-      const chainConfig = loadChainConfig();
-      const chains = chainConfig.facts.map((facts) => {
-        const routes = chainConfig.routes.filter(
-          (route) => route.chain === facts.id,
+      const routesCtx = options.routesContext ?? buildActiveRoutes(config);
+      const chains = routesCtx.chainConfig.facts.map((facts) => {
+        const enabled = routesCtx.enabledRoutes.some(
+          (route) => route.chain.toLowerCase() === facts.id.toLowerCase(),
         );
-        const enabled = routes.some((route) => route.enabled);
         const tokens = facts.assets
           .filter(
             (asset) =>
@@ -1582,17 +1707,120 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     { preHandler: verifyOperatorAuth },
     async (_req, reply) => {
       const now = Math.floor(Date.now() / 1000);
-      const bchInventory = 100_000_000n;
-      const evmInventory = 100_000_000n;
       const openExposure = db.getOpenExposureUsdMicros();
 
+      let pusdBal = 0n;
+      let musdBal = 0n;
+      let bchSats = 0n;
+      try {
+        const bch = await inventoryReader.getBchInventory();
+        pusdBal = bch.pusd;
+        musdBal = bch.musd;
+        bchSats = bch.sats;
+      } catch {
+        // Leave at 0n if read fails
+      }
+
+      let evmUsdcBal = 0n;
+      let evmNativeBal = 0n;
+      try {
+        const evm = await inventoryReader.getEvmInventory('base');
+        evmNativeBal = evm.nativeWei;
+        const usdcKey = (config.baseUsdcAddress || '').toLowerCase();
+        evmUsdcBal = evm.tokens.get(usdcKey) ?? 0n;
+      } catch {
+        // Leave at 0n if read fails
+      }
+
+      const pusdReserved = liquidityManager.getActiveReservationsForAsset(
+        'PUSD',
+        now,
+      );
+      const musdReserved = liquidityManager.getActiveReservationsForAsset(
+        'MUSD',
+        now,
+      );
+      const usdcReserved = liquidityManager.getActiveReservationsForAsset(
+        'USDC',
+        now,
+      );
+
+      const bchExposure = openExposure / 10_000n;
+      const pusdAvailable = liquidityManager.getAvailableLiquidity(
+        'PUSD',
+        pusdBal,
+        bchExposure,
+        now,
+      );
+      const musdAvailable = liquidityManager.getAvailableLiquidity(
+        'MUSD',
+        musdBal,
+        bchExposure,
+        now,
+      );
+      const usdcAvailable = liquidityManager.getAvailableLiquidity(
+        'USDC',
+        evmUsdcBal,
+        openExposure,
+        now,
+      );
+
+      const assets: InventoryAssetView[] = [
+        {
+          chain: 'bch',
+          symbol: 'PUSD',
+          balance: pusdBal.toString(),
+          reserved: pusdReserved.toString(),
+          exposure: bchExposure.toString(),
+          available: pusdAvailable.toString(),
+        },
+        {
+          chain: 'bch',
+          symbol: 'MUSD',
+          balance: musdBal.toString(),
+          reserved: musdReserved.toString(),
+          exposure: bchExposure.toString(),
+          available: musdAvailable.toString(),
+        },
+        {
+          chain: 'bch',
+          symbol: 'BCH',
+          balance: bchSats.toString(),
+          reserved: '0',
+          exposure: '0',
+          available: bchSats.toString(),
+        },
+        {
+          chain: 'base',
+          symbol: 'USDC',
+          balance: evmUsdcBal.toString(),
+          reserved: usdcReserved.toString(),
+          exposure: openExposure.toString(),
+          available: usdcAvailable.toString(),
+        },
+        {
+          chain: 'base',
+          symbol: 'ETH',
+          balance: evmNativeBal.toString(),
+          reserved: '0',
+          exposure: '0',
+          available: evmNativeBal.toString(),
+        },
+      ];
+
+      const pusdUsdMicros = pusdBal * 10_000n;
+      const usdcUsdMicros = evmUsdcBal;
+
       const view = liquidityManager.getInventoryView({
-        bchInventory,
-        bchExposure: openExposure / 10_000n,
-        evmInventory,
+        bchInventory: pusdBal,
+        bchExposure,
+        evmInventory: evmUsdcBal,
         evmExposure: openExposure,
         skewMaxBps: config.skewMaxBps,
         nowSeconds: now,
+        assets,
+        bchUsdMicros: pusdUsdMicros,
+        evmUsdMicros: usdcUsdMicros,
       });
 
       return reply.status(200).send(view);
@@ -2007,9 +2235,23 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       const neededIn = quoteInForExactOut(
         targetAmountOut,
         6,
-        link.token === 'MUSD' ? 8 : 2,
+        2,
         pricingEvidence,
       );
+
+      let currentInventory: bigint;
+      try {
+        currentInventory = await inventoryReader.getAssetInventory({
+          asset: link.token,
+        });
+      } catch (err) {
+        return reply.status(422).send({
+          reason: 'INSUFFICIENT_LIQUIDITY',
+          maxAmount: '0',
+          asset: link.token,
+          message: `Inventory balance unavailable for link: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
 
       const quoteResult = await quoteBuilder.buildQuote({
         quoteId,
@@ -2019,11 +2261,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         amountIn: neededIn,
         userAddress: request.userEvmAddress,
         userIp: '127.0.0.1',
-        currentInventory: 100_000_000n,
+        currentInventory,
         openExposure: db.getOpenExposureUsdMicros(),
         nowSeconds: now,
         quotingEnabled: config.quotingEnabled,
         minSwapUsdMicros: 0n,
+        maxSwapUsdMicros: config.maxSwapUsdMicros,
         termsTemplate: {
           version: 1,
           bchToken: link.token,
@@ -2318,12 +2561,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     };
 
     const inAmount = BigInt(request.amountIn);
-    const amountOut = quoteOut(
-      inAmount,
-      request.token === 'MUSD' ? 8 : 2,
-      6,
-      pricingEvidence,
-    );
+    const amountOut = quoteOut(inAmount, 2, 6, pricingEvidence);
 
     const quoteId = `sq-${now}-${Math.random().toString(36).slice(2, 9)}`;
 
