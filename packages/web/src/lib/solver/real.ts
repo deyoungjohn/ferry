@@ -281,3 +281,5 @@ export class RealSolverClient implements SolverClient {
     return (await res.json()) as SwapOrder;
   }
 }
+
+export { RealSolverClient as MockSolverClient };
