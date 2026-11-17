@@ -101,26 +101,61 @@ Generate the keys offline as described in `preparation/KEYS.md`. Do not copy the
 deployer key to the server. Copy only the solver values into a solver-only file
 and keep the deployer key on the offline machine.
 
-The solver reads the variables in `packages/solver/src/config.ts` and
-`preparation/MAINNET_SOLVER_ENV.md`. The launch-critical values are:
+### Which file holds these values
+
+Two env files exist, in two places:
+
+| File                           | Where                                                                                                                                                             | Holds                                                  |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `solver.env`                   | Written on **your machine** (outside the repository, for example `~/ferry-solver.env`, `chmod 600`), then copied to `/etc/ferry/solver.env` on the server (below) | Every value in this section, including the solver keys |
+| `packages/web/.env.production` | On the server, in the `ferry` user's clone (section 4)                                                                                                            | Only public values for the web build (no keys)         |
+
+The names of every solver variable are listed, without values, in
+`packages/solver/.env.example`; where each value comes from is in
+`preparation/MAINNET_SOLVER_ENV.md`. Start your local file from this block and
+fill in the three `<…>` values yourself:
 
 ```dotenv
 NETWORK=mainnet
+FERRY_NETWORK=mainnet
+ENABLED_ROUTES=usdc:base
 HOST=127.0.0.1
 PORT=8787
 DATABASE_PATH=/var/lib/ferry/solver.db
 TRUSTED_PROXY=true
-BCH_ELECTRUM_URLS=<two or three mainnet Fulcrum hosts>
-BASE_RPC_URL=<Base JSON-RPC URL>
+
+BCH_ELECTRUM_URLS=wss://electron.jochen-hoenicke.de:51004,wss://electroncash.dk:50004,wss://bch.imaginary.cash:50004
+
+BASE_RPC_URL=<your Base RPC URL>
+RPC_URL_BASE=<the same Base RPC URL>
 BASE_CHAIN_ID=8453
-BASE_FERRY_HTLC_ADDRESS=<recorded mainnet address>
-BASE_USDC_ADDRESS=<Circle USDC on Base>
-SOLVER_EVM_PRIVATE_KEY=<solver EVM key>
-SOLVER_BCH_WIF=<solver BCH WIF>
-OPERATOR_TOKEN=<at least 32 random characters>
-TPUSD_CATEGORY=<mainnet PUSD category>
-TMUSD_CATEGORY=<mainnet MUSD category>
+BASE_FERRY_HTLC_ADDRESS=0x8b968625F983420B571C102eC0b57F7e509c916e
+BASE_USDC_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+
+TPUSD_CATEGORY=2469acc5afa4b10cb5b5c04afb89c3a3ffd61c5da9c01e26d00951cae2a02544
+TMUSD_CATEGORY=b38a33f750f84c5c169a6f23cb873e6e79605021585d4f3408789689ed87f366
+
+MAX_SWAP_USD_MICROS=1000000
+
+SOLVER_EVM_PRIVATE_KEY=<from your key file: SOLVER_EVM_PRIVATE_KEY>
+SOLVER_BCH_WIF=<from your key file: SOLVER_BCH_WIF>
+OPERATOR_TOKEN=<at least 32 random characters, for example the output of: openssl rand -hex 32>
 ```
+
+Where each value comes from:
+
+- **Chain, token and contract values:** public facts, already filled in above.
+  The contract address is recorded in `packages/chain-config`; the two category
+  IDs are the mainnet PUSD and MUSD token categories (the `TPUSD_`/`TMUSD_`
+  names are historical and take the mainnet IDs).
+- **`BASE_RPC_URL` / `RPC_URL_BASE`:** your own paid Base endpoint (the
+  `RPC_URL_BASE` line of your private env file), or the public
+  `https://base-rpc.publicnode.com` as a fallback. Use the same URL for both.
+- **The two solver keys:** copy only those two lines from `.env.mainnet.local`
+  (made by `keys:generate`). Never copy `DEPLOYER_EVM_PRIVATE_KEY`.
+- **`OPERATOR_TOKEN`:** generate it yourself and keep a copy; you need it for the
+  operator routes and the emergency stop.
+- **`MAX_SWAP_USD_MICROS=1000000`** is the $1 cap for the first swaps.
 
 `TRUSTED_PROXY=true` is correct because Caddy is the only process that can reach
 the solver on localhost. `HOST=127.0.0.1` keeps the solver off the public
