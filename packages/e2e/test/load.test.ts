@@ -38,6 +38,9 @@ function percentile(sorted: number[], p: number): number {
   return sorted[idx] ?? 0;
 }
 
+// 200 concurrent swaps take longer on a small machine; raise with FERRY_LOAD_TIMEOUT_MS.
+const LOAD_TIMEOUT_MS = Number(process.env.FERRY_LOAD_TIMEOUT_MS ?? 180_000);
+
 describe.skipIf(!RUN_LOAD)('Ferry EVM 200-Swap Concurrent Load Test', () => {
   const deployer = privateKeyToAccount(DEPLOYER_KEY);
   const solverAccount = privateKeyToAccount(SOLVER_KEY);
@@ -133,104 +136,113 @@ describe.skipIf(!RUN_LOAD)('Ferry EVM 200-Swap Concurrent Load Test', () => {
     await anvil?.stop();
   });
 
-  it('executes 200 concurrent forward and reverse swaps with zero nonce or DB lock errors', async () => {
-    const totalSwaps = 200;
-    const latenciesMs: number[] = [];
-    const errors: string[] = [];
-    let nonceErrors = 0;
-    let dbLockErrors = 0;
-    let reservationErrors = 0;
+  it(
+    'executes 200 concurrent forward and reverse swaps with zero nonce or DB lock errors',
+    async () => {
+      const totalSwaps = 200;
+      const latenciesMs: number[] = [];
+      const errors: string[] = [];
+      let nonceErrors = 0;
+      let dbLockErrors = 0;
+      let reservationErrors = 0;
 
-    const runSwap = async (index: number): Promise<void> => {
-      const start = performance.now();
-      const isForward = index % 2 === 0;
-      const forwardIdx = Math.floor(index / 2);
-      const userAccount = isForward
-        ? (forwardUsers[forwardIdx] ?? defaultUser)
-        : defaultUser;
-      const secretHex = (index + 1).toString(16).padStart(64, '0');
-      const secret = `0x${secretHex}` as Hex32;
-      const hashLock = sha256(secret);
+      const runSwap = async (index: number): Promise<void> => {
+        const start = performance.now();
+        const isForward = index % 2 === 0;
+        const forwardIdx = Math.floor(index / 2);
+        const userAccount = isForward
+          ? (forwardUsers[forwardIdx] ?? defaultUser)
+          : defaultUser;
+        const secretHex = (index + 1).toString(16).padStart(64, '0');
+        const secret = `0x${secretHex}` as Hex32;
+        const hashLock = sha256(secret);
 
-      const quote = await solver.client.quote({
-        direction: isForward ? 'EVM_TO_BCH' : 'BCH_TO_EVM',
-        token: 'PUSD',
-        chainId: anvil.chainId,
-        evmToken: tokenAddress,
-        amountIn: isForward ? 1_000_000n : 100n,
-        userEvmAddress: userAccount.address,
-        userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
-        hashLock,
-        lane: 'safe',
-      });
-
-      if (isForward) {
-        const relayPayload = await signRelayLockPayload({
-          evmAdapter: solver.evmAdapter,
-          terms: quote.terms as OrderTerms,
-          userAccount,
+        const quote = await solver.client.quote({
+          direction: isForward ? 'EVM_TO_BCH' : 'BCH_TO_EVM',
+          token: 'PUSD',
+          chainId: anvil.chainId,
+          evmToken: tokenAddress,
+          amountIn: isForward ? 1_000_000n : 100n,
+          userEvmAddress: userAccount.address,
+          userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
+          hashLock,
+          lane: 'safe',
         });
-        const relayRes = await fetch(
-          `${solver.baseUrl}/v1/orders/${quote.orderId}/relay-lock`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ payload: relayPayload }, (_k, v: unknown) =>
-              typeof v === 'bigint' ? v.toString() : v,
-            ),
-          },
-        );
-        if (!relayRes.ok) {
-          throw new Error(
-            `relay-lock HTTP ${relayRes.status}: ${await relayRes.text()}`,
+
+        if (isForward) {
+          const relayPayload = await signRelayLockPayload({
+            evmAdapter: solver.evmAdapter,
+            terms: quote.terms as OrderTerms,
+            userAccount,
+          });
+          const relayRes = await fetch(
+            `${solver.baseUrl}/v1/orders/${quote.orderId}/relay-lock`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(
+                { payload: relayPayload },
+                (_k, v: unknown) => (typeof v === 'bigint' ? v.toString() : v),
+              ),
+            },
           );
+          if (!relayRes.ok) {
+            throw new Error(
+              `relay-lock HTTP ${relayRes.status}: ${await relayRes.text()}`,
+            );
+          }
+          await solver.client.revealSecret(quote.orderId, secret);
+          const lockId = evmLockId(userAccount.address, hashLock);
+          await solver.evmAdapter.claim(lockId, secret);
+        } else {
+          await solver.evmAdapter.lock(quote.terms as OrderTerms);
+          await solver.client.revealSecret(quote.orderId, secret);
+          const lockId = evmLockId(solverAccount.address, hashLock);
+          await solver.evmAdapter.claim(lockId, secret);
         }
-        await solver.client.revealSecret(quote.orderId, secret);
-        const lockId = evmLockId(userAccount.address, hashLock);
-        await solver.evmAdapter.claim(lockId, secret);
-      } else {
-        await solver.evmAdapter.lock(quote.terms as OrderTerms);
-        await solver.client.revealSecret(quote.orderId, secret);
-        const lockId = evmLockId(solverAccount.address, hashLock);
-        await solver.evmAdapter.claim(lockId, secret);
+
+        latenciesMs.push(performance.now() - start);
+      };
+
+      const settled = await Promise.allSettled(
+        Array.from({ length: totalSwaps }, (_, i) => runSwap(i)),
+      );
+
+      let okCount = 0;
+      for (const res of settled) {
+        if (res.status === 'fulfilled') {
+          okCount += 1;
+        } else {
+          const msg =
+            res.reason instanceof Error
+              ? res.reason.message
+              : String(res.reason);
+          errors.push(msg);
+          if (/nonce/i.test(msg)) nonceErrors += 1;
+          if (/sqlite|database.*lock|busy/i.test(msg)) dbLockErrors += 1;
+          if (/reserv|liquidity|insufficient|available/i.test(msg)) {
+            reservationErrors += 1;
+          }
+        }
       }
 
-      latenciesMs.push(performance.now() - start);
-    };
+      latenciesMs.sort((a, b) => a - b);
+      const p50 = percentile(latenciesMs, 50);
+      const p95 = percentile(latenciesMs, 95);
 
-    const settled = await Promise.allSettled(
-      Array.from({ length: totalSwaps }, (_, i) => runSwap(i)),
-    );
-
-    let okCount = 0;
-    for (const res of settled) {
-      if (res.status === 'fulfilled') {
-        okCount += 1;
-      } else {
-        const msg =
-          res.reason instanceof Error ? res.reason.message : String(res.reason);
-        errors.push(msg);
-        if (/nonce/i.test(msg)) nonceErrors += 1;
-        if (/sqlite|database.*lock|busy/i.test(msg)) dbLockErrors += 1;
-        if (/reserv|liquidity|insufficient|available/i.test(msg)) {
-          reservationErrors += 1;
-        }
+      console.info(
+        `LOAD_200 ok=${okCount}/${totalSwaps} fail=${errors.length} p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms nonceErrors=${nonceErrors} dbLockErrors=${dbLockErrors} reservationErrors=${reservationErrors}`,
+      );
+      if (errors.length > 0) {
+        console.info(
+          `LOAD_200 sample errors: ${errors.slice(0, 5).join(' | ')}`,
+        );
       }
-    }
 
-    latenciesMs.sort((a, b) => a - b);
-    const p50 = percentile(latenciesMs, 50);
-    const p95 = percentile(latenciesMs, 95);
-
-    console.info(
-      `LOAD_200 ok=${okCount}/${totalSwaps} fail=${errors.length} p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms nonceErrors=${nonceErrors} dbLockErrors=${dbLockErrors} reservationErrors=${reservationErrors}`,
-    );
-    if (errors.length > 0) {
-      console.info(`LOAD_200 sample errors: ${errors.slice(0, 5).join(' | ')}`);
-    }
-
-    expect(nonceErrors).toBe(0);
-    expect(dbLockErrors).toBe(0);
-    expect(okCount).toBe(totalSwaps);
-  }, 180_000);
+      expect(nonceErrors).toBe(0);
+      expect(dbLockErrors).toBe(0);
+      expect(okCount).toBe(totalSwaps);
+    },
+    LOAD_TIMEOUT_MS,
+  );
 });

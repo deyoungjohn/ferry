@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process';
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -210,6 +212,12 @@ async function startForkAnvil(forkUrl: string, chainId: number) {
 }
 
 async function deployHtlcOnFork(rpcUrl: string): Promise<Address> {
+  // Each fork gets a fresh chain id and state, so a stale broadcast record from
+  // an earlier run must not be resumed.
+  await rm(join(HTLC_EVM_DIR, 'cache', 'broadcast'), {
+    recursive: true,
+    force: true,
+  });
   const { stdout } = await execFileAsync(
     'forge',
     [
@@ -218,7 +226,6 @@ async function deployHtlcOnFork(rpcUrl: string): Promise<Address> {
       '--rpc-url',
       rpcUrl,
       '--broadcast',
-      '--start-fresh',
     ],
     {
       cwd: HTLC_EVM_DIR,
