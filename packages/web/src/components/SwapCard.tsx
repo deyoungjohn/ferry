@@ -1,11 +1,10 @@
-import { useEffect, useState, useMemo, useContext } from 'react';
+import { useEffect, useState, useMemo, useContext, useRef } from 'react';
 import { isAddress } from 'viem';
 import {
   formatQuoteRefusalMessage,
   verifyPricing,
   type LiquidityResponse,
   type QuoteRefusal,
-  type Hex32,
   type RecoveryTerms,
 } from '@ferry/core';
 import {
@@ -28,6 +27,9 @@ import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
 import { useReducedMotion } from 'motion/react';
 import { ROUTES } from '../lib/routes';
+import { buildCoreQuoteRequest } from '../lib/solver/core-quote';
+import { readBchTipHeight } from '../lib/solver/tip';
+import { LIVE_EXECUTION_MESSAGE } from '../lib/solver/real';
 import { Field } from './swap-block/field';
 import { FlipButton } from './swap-block/controls';
 import { TokenPicker } from './swap-block/token-picker';
@@ -59,6 +61,17 @@ export interface SwapCardProps {
     | 'read_only';
 }
 
+const LIVE_PLACEHOLDER_QUOTE: QuoteResponse = {
+  fromToken: '',
+  toToken: '',
+  fromAmount: 0,
+  toAmount: 0,
+  exchangeRate: 0,
+  spreadBps: 0,
+  estimatedSeconds: 0,
+  expiresInSeconds: 0,
+};
+
 const CHAIN_BADGES: Record<string, string> = {
   base: 'Bs',
   ethereum: 'Ξ',
@@ -76,6 +89,8 @@ export function SwapCard({
   const solver = useSolver();
   const walletContext = useContext(WalletContext);
   const evm = walletContext?.evm ?? { status: 'disconnected', address: null };
+  const bchAddress = walletContext?.bch.address?.address ?? null;
+  const quoteSecretRef = useRef<string | null>(null);
   const copy = getModeCopy('swap');
   const priceReader = useMemo(() => new RealPriceReader(), []);
 
@@ -187,17 +202,21 @@ export function SwapCard({
     setQuoteLoading(true);
 
     // 1. Call solver.getQuote for legacy / mock adapter compatibility
-    solver
-      .getQuote({
-        fromToken,
-        toToken,
-        fromChain,
-        toChain,
-        fromAmount: amountNum,
-        lane,
-        userAddress: evm.address ?? undefined,
-        recipientAddress: recipientAddress.trim() || undefined,
-      })
+    // With live solvers configured the multi-solver path below is the quote; the single
+    // adapter quote only serves the standalone mock.
+    (solverUrls.length > 0
+      ? Promise.resolve(LIVE_PLACEHOLDER_QUOTE)
+      : solver.getQuote({
+          fromToken,
+          toToken,
+          fromChain,
+          toChain,
+          fromAmount: amountNum,
+          lane,
+          userAddress: evm.address ?? undefined,
+          recipientAddress: recipientAddress.trim() || undefined,
+        })
+    )
       .then((res) => {
         if (!active) return;
         setQuote(res);
@@ -232,38 +251,40 @@ export function SwapCard({
         }
 
         // 2. Call bestQuote across all configured solvers (FR-14)
-        const quoteReq = {
-          direction: isReverse
-            ? ('BCH_TO_EVM' as const)
-            : ('EVM_TO_BCH' as const),
-          token: bchTokenSymbol,
-          chainId:
-            typeof selectedChain.id === 'number' ? selectedChain.id : 84532,
-          evmToken:
-            '0x036cbd53842c5426634e7929541ec2318f3dcf7e' as `0x${string}`,
-          amountIn: isReverse
-            ? BigInt(Math.max(1, Math.round(amountNum * 100)))
-            : BigInt(Math.max(1, Math.round(amountNum * 1_000_000))),
-          userEvmAddress: (isAddress(recipientAddress)
-            ? recipientAddress
-            : ((evm.address as `0x${string}` | null) ??
-              '0x' + '0'.repeat(40))) as `0x${string}`,
-          userBchLockingBytecode: ('0x76a914' +
-            '0'.repeat(40) +
-            '88ac') as `0x${string}`,
-          hashLock: ('0x' + '0'.repeat(64)) as Hex32,
+        const built = buildCoreQuoteRequest({
+          fromToken,
+          toToken,
+          fromChain,
+          toChain,
+          fromAmount: amountNum,
           lane,
-        };
+          userAddress: (isReverse ? bchAddress : evm.address) ?? undefined,
+          recipientAddress: recipientAddress.trim() || undefined,
+        });
+        if (!built) {
+          setQuoteLoading(false);
+          setRefusal({
+            reason: 'ROUTE_DISABLED',
+            asset: fromToken,
+            message: 'This route is not available in this build',
+          });
+          return;
+        }
+        quoteSecretRef.current = built.secret;
+        const quoteReq = built.request;
 
         const fetchImpl =
           typeof window !== 'undefined' ? window.fetch.bind(window) : fetch;
 
-        bestQuote(solverUrls, quoteReq, {
-          fetch: fetchImpl,
-          bchTipHeight: 170000,
-          evmTokenDecimals: 6,
-          bchTokenDecimals: 2,
-        })
+        readBchTipHeight(solverUrls[0], fetchImpl)
+          .then((tip) =>
+            bestQuote(solverUrls, quoteReq, {
+              fetch: fetchImpl,
+              bchTipHeight: tip,
+              evmTokenDecimals: built.farToken.decimals,
+              bchTokenDecimals: 2,
+            }),
+          )
           .then(async (result) => {
             if (!active) return;
             setQuoteLoading(false);
@@ -453,7 +474,9 @@ export function SwapCard({
     } catch (err) {
       setIsSubmitting(false);
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('rejected') || msg.includes('denied')) {
+      if (msg === LIVE_EXECUTION_MESSAGE) {
+        showToast(msg, 'error');
+      } else if (msg.includes('rejected') || msg.includes('denied')) {
         setFailureState('wallet_rejected');
       } else if (msg.includes('expired')) {
         setFailureState('quote_expired');
@@ -1101,8 +1124,19 @@ export function SwapCard({
           </div>
         )}
 
+        {/* Live mode: say plainly what works. The recovery file is offered once locking is switched on, because it must hold the real contract data. */}
+        {solver.isLive() && (
+          <p
+            data-testid="live-exec-note"
+            className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[11px] leading-relaxed text-warn"
+          >
+            Quotes and route checks are live. Locking funds from this page is
+            being switched on; until then this button does not move money.
+          </p>
+        )}
+
         {/* Real Recovery Download Action (Requirement 3) */}
-        {bestSolverQuote && (
+        {bestSolverQuote && !solver.isLive() && (
           <button
             type="button"
             onClick={handleDownloadRecovery}

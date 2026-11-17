@@ -10,8 +10,13 @@ import type {
   SolverHealthResponse,
   OperatorRouteInfo,
   SignedQuote,
+  RecentSwap,
 } from './types';
-import type { LiquidityResponse } from '@ferry/core';
+import { orderTermsFromJson, type LiquidityResponse } from '@ferry/core';
+import { buildCoreQuoteRequest } from './core-quote';
+
+export const LIVE_EXECUTION_MESSAGE =
+  'Live swap execution is not switched on in this release yet. You can quote and check routes; locking funds from the page comes next.';
 
 export class RealSolverClient implements SolverClient {
   private readonly baseUrl: string;
@@ -79,52 +84,95 @@ export class RealSolverClient implements SolverClient {
   }
 
   async getQuote(request: QuoteRequest): Promise<QuoteResponse> {
-    if (!this.baseUrl) {
-      return {
-        fromToken: request.fromToken,
-        toToken: request.toToken,
-        fromAmount: request.fromAmount,
-        toAmount: 0,
-        exchangeRate: 0,
-        spreadBps: 40,
-        estimatedSeconds: 30,
-        expiresInSeconds: 60,
-        refusal: {
-          reason: 'ROUTE_DISABLED',
-          asset: request.fromToken,
-          message: 'No solver configured or endpoint reachable',
-        },
-      };
-    }
-
-    const res = await this.fetchFn(`${this.baseUrl}/v1/quote`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
+    const refusalResponse = (
+      reason: 'ROUTE_DISABLED' | 'QUOTING_PAUSED' | 'PRICE_UNAVAILABLE',
+      message: string,
+    ): QuoteResponse => ({
+      fromToken: request.fromToken,
+      toToken: request.toToken,
+      fromAmount: request.fromAmount,
+      toAmount: 0,
+      exchangeRate: 0,
+      spreadBps: 0,
+      estimatedSeconds: 30,
+      expiresInSeconds: 60,
+      refusal: { reason, asset: request.fromToken, message },
     });
 
-    if (!res.ok) {
-      const errorData = (await res.json().catch(() => ({}))) as {
-        message?: string;
-      };
-      return {
-        fromToken: request.fromToken,
-        toToken: request.toToken,
-        fromAmount: request.fromAmount,
-        toAmount: 0,
-        exchangeRate: 0,
-        spreadBps: 40,
-        estimatedSeconds: 30,
-        expiresInSeconds: 60,
-        refusal: {
-          reason: 'ROUTE_DISABLED',
-          asset: request.fromToken,
-          message: errorData.message ?? `Solver HTTP ${res.status}`,
-        },
-      };
+    if (!this.baseUrl) {
+      return refusalResponse(
+        'ROUTE_DISABLED',
+        'No solver configured or endpoint reachable',
+      );
+    }
+    const built = buildCoreQuoteRequest(request);
+    if (!built) {
+      return refusalResponse(
+        'ROUTE_DISABLED',
+        'This route is not available in this build',
+      );
     }
 
-    return (await res.json()) as QuoteResponse;
+    const res = await this.fetchFn(`${this.baseUrl}/v1/quotes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(built.request, (_k, v) =>
+        typeof v === 'bigint' ? v.toString() : v,
+      ),
+    });
+    const body = (await res.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+
+    if (!res.ok) {
+      const reason = body.reason as string | undefined;
+      const known = [
+        'INSUFFICIENT_LIQUIDITY',
+        'OVER_MAX_SWAP',
+        'PEG_GUARD',
+        'PRICE_UNAVAILABLE',
+        'ROUTE_DISABLED',
+        'QUOTING_PAUSED',
+      ];
+      if (reason && known.includes(reason)) {
+        return {
+          ...refusalResponse('ROUTE_DISABLED', String(body.message ?? reason)),
+          refusal: body as unknown as NonNullable<QuoteResponse['refusal']>,
+        };
+      }
+      return refusalResponse(
+        'ROUTE_DISABLED',
+        String(body.message ?? `Solver HTTP ${res.status}`),
+      );
+    }
+
+    const terms = orderTermsFromJson(
+      (body as { terms: Parameters<typeof orderTermsFromJson>[0] }).terms,
+    );
+    const reverse = built.request.direction === 'BCH_TO_EVM';
+    const toAmount = reverse
+      ? Number(terms.evmAmount) / 10 ** built.farToken.decimals
+      : Number(terms.bchTokenAmount) / 100;
+    return {
+      fromToken: request.fromToken,
+      toToken: request.toToken,
+      fromAmount: request.fromAmount,
+      toAmount,
+      exchangeRate: request.fromAmount > 0 ? toAmount / request.fromAmount : 0,
+      spreadBps: terms.pricing.spreadBps,
+      estimatedSeconds: request.lane === 'fast' ? 30 : 600,
+      expiresInSeconds: Math.max(
+        0,
+        Number(terms.quoteExpiry) - Math.floor(Date.now() / 1000),
+      ),
+      signedQuote: {
+        orderId: body.orderId as SignedQuote['orderId'],
+        terms,
+        signature: body.signature as SignedQuote['signature'],
+        signerAddress: body.signerAddress as SignedQuote['signerAddress'],
+      },
+    };
   }
 
   async getQuoteWithResult(request: QuoteRequest): Promise<QuoteResult> {
@@ -149,14 +197,15 @@ export class RealSolverClient implements SolverClient {
       if (res.ok) {
         const data = (await res.json()) as {
           completedSwaps?: number;
-          totalVolumeUsd?: number;
+          totalVolumeUsd?: string | number;
+          medianFastSeconds?: number;
         };
         const completedSwaps = Number(data.completedSwaps ?? 0);
         const totalVolumeUsd = Number(data.totalVolumeUsd ?? 0);
         return {
           completedSwaps,
           totalVolumeUsd,
-          medianSecondsFast: 30,
+          medianSecondsFast: Number(data.medianFastSeconds ?? 0) || 30,
           isHonestEmpty: completedSwaps === 0,
         };
       }
@@ -177,8 +226,23 @@ export class RealSolverClient implements SolverClient {
       try {
         const res = await this.fetchFn(`${this.baseUrl}/v1/pegs`);
         if (res.ok) {
-          const data = (await res.json()) as { pegs?: readonly PegPrice[] };
-          if (Array.isArray(data.pegs)) return data.pegs;
+          const data = (await res.json()) as {
+            tokens?: Array<{
+              asset: string;
+              currentUsdPrice: string;
+              points: Array<{ usdPrice: string }>;
+            }>;
+          };
+          if (Array.isArray(data.tokens) && data.tokens.length > 0) {
+            return data.tokens.map((t) => ({
+              symbol: t.asset,
+              priceUsd: Number(t.currentUsdPrice),
+              change24hPercent: 0,
+              sparkline: t.points.map((point) => Number(point.usdPrice)),
+              source: 'Cauldron spot',
+              asOf: now,
+            }));
+          }
         }
       } catch {
         // Fallback
@@ -208,26 +272,60 @@ export class RealSolverClient implements SolverClient {
     page: number,
     pageSize: number,
   ): Promise<PaginatedRecentSwaps> {
-    if (this.baseUrl) {
-      try {
-        const res = await this.fetchFn(
-          `${this.baseUrl}/v1/orders/recent?page=${page}&pageSize=${pageSize}`,
-        );
-        if (res.ok) {
-          const data = (await res.json()) as PaginatedRecentSwaps;
-          return data;
-        }
-      } catch {
-        // Fallback
-      }
-    }
-    return {
-      items: [],
+    const empty = {
+      items: [] as RecentSwap[],
       page,
       pageSize,
       totalCount: 0,
       totalPages: 1,
     };
+    if (!this.baseUrl) return empty;
+    try {
+      const res = await this.fetchFn(`${this.baseUrl}/v1/orders/recent`);
+      if (!res.ok) return empty;
+      const data = (await res.json()) as {
+        orders?: Array<{
+          orderId: string;
+          direction: 'EVM_TO_BCH' | 'BCH_TO_EVM';
+          bchToken: string;
+          bchTokenAmount: string;
+          evmAmount: string;
+          evmChainId: number;
+          settledAt: number;
+          durationSeconds: number;
+        }>;
+      };
+      const orders = Array.isArray(data.orders) ? data.orders : [];
+      const all: RecentSwap[] = orders.map((o) => {
+        const bch = Number(o.bchTokenAmount) / 100;
+        const evm = Number(o.evmAmount) / 1_000_000;
+        const forward = o.direction === 'EVM_TO_BCH';
+        return {
+          id: o.orderId,
+          timestampSeconds: o.settledAt,
+          fromToken: forward ? 'USDC' : o.bchToken,
+          fromAmount: forward ? evm : bch,
+          fromChain: forward ? `Chain ${o.evmChainId}` : 'Bitcoin Cash',
+          toToken: forward ? o.bchToken : 'USDC',
+          toAmount: forward ? bch : evm,
+          toChain: forward ? 'Bitcoin Cash' : `Chain ${o.evmChainId}`,
+          durationSeconds: o.durationSeconds,
+          sourceTxHash: '',
+          targetTxHash: '',
+          isMock: false,
+        };
+      });
+      const start = Math.max(0, (page - 1) * pageSize);
+      return {
+        items: all.slice(start, start + pageSize),
+        page,
+        pageSize,
+        totalCount: all.length,
+        totalPages: Math.max(1, Math.ceil(all.length / pageSize)),
+      };
+    } catch {
+      return empty;
+    }
   }
 
   async getOrder(orderId: string): Promise<SwapOrder | null> {
@@ -245,40 +343,12 @@ export class RealSolverClient implements SolverClient {
     return null;
   }
 
-  async createOrder(
-    quote: SignedQuote,
-    userAddress?: string,
-  ): Promise<SwapOrder> {
-    if (!this.baseUrl) {
-      throw new Error('Solver URL is not configured');
-    }
-    const res = await this.fetchFn(`${this.baseUrl}/v1/orders`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quote, userAddress }),
-    });
-    if (!res.ok) {
-      throw new Error(`Failed to create order: HTTP ${res.status}`);
-    }
-    return (await res.json()) as SwapOrder;
+  async createOrder(): Promise<SwapOrder> {
+    throw new Error(LIVE_EXECUTION_MESSAGE);
   }
 
-  async submitLock(orderId: string, txHash: string): Promise<SwapOrder> {
-    if (!this.baseUrl) {
-      throw new Error('Solver URL is not configured');
-    }
-    const res = await this.fetchFn(
-      `${this.baseUrl}/v1/orders/${encodeURIComponent(orderId)}/lock`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ txHash }),
-      },
-    );
-    if (!res.ok) {
-      throw new Error(`Failed to submit lock: HTTP ${res.status}`);
-    }
-    return (await res.json()) as SwapOrder;
+  async submitLock(): Promise<SwapOrder> {
+    throw new Error(LIVE_EXECUTION_MESSAGE);
   }
 }
 
