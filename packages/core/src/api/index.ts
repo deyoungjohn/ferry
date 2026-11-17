@@ -316,6 +316,8 @@ export const QuoteRequestSchema = z.strictObject({
   hashLock: hex32Schema,
   lane: z.enum(['fast', 'safe']),
   fastOptIn: z.boolean().optional(),
+  /** A quote that reserves nothing: for showing a price before the user commits. */
+  dryRun: z.boolean().optional(),
 });
 
 export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;

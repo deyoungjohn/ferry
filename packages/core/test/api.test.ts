@@ -414,3 +414,34 @@ describe('Blueprint route schemas in @ferry/core/api', () => {
     }
   });
 });
+
+describe('QuoteRequestSchema dryRun', () => {
+  const base = {
+    direction: 'EVM_TO_BCH',
+    token: 'PUSD',
+    chainId: 8453,
+    evmToken: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    amountIn: '1000000',
+    userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
+    userBchLockingBytecode: `0x76a914${'11'.repeat(20)}88ac`,
+    hashLock: `0x${'33'.repeat(32)}`,
+    lane: 'fast',
+  } as const;
+
+  it('accepts an optional boolean dryRun and keeps it', () => {
+    expect(QuoteRequestSchema.parse(base).dryRun).toBeUndefined();
+    expect(QuoteRequestSchema.parse({ ...base, dryRun: true }).dryRun).toBe(
+      true,
+    );
+    expect(QuoteRequestSchema.parse({ ...base, dryRun: false }).dryRun).toBe(
+      false,
+    );
+  });
+
+  it('rejects a non-boolean dryRun', () => {
+    expect(() =>
+      QuoteRequestSchema.parse({ ...base, dryRun: 'yes' }),
+    ).toThrow();
+    expect(() => QuoteRequestSchema.parse({ ...base, dryRun: 1 })).toThrow();
+  });
+});
