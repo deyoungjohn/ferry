@@ -16,6 +16,7 @@ import {
   type OrderTerms,
 } from '../src/index.js';
 import { CROSS_CHECK_VECTORS } from '../src/vectors.js';
+import { runs } from './support/runs.js';
 
 const BASE_TERMS: OrderTerms = {
   version: 1,
@@ -260,7 +261,7 @@ describe('order signing and verification', () => {
           expect(orderId(roundTripped)).toBe(orderId(terms));
         },
       ),
-      { numRuns: 50 },
+      { numRuns: runs(50) },
     );
   });
 });
