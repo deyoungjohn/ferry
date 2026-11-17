@@ -1,5 +1,9 @@
 // Mutation testing for the pure modules of @ferry/core.
 // Pick one module per run: MUTATION_MODULE=timing|pricing|liquidity.
+// Reports and sandboxes go to the system temp folder (ferry-mutation) so the repository stays clean.
+import { tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
+
 const moduleName = process.env.MUTATION_MODULE ?? 'timing';
 const allowed = ['timing', 'pricing', 'liquidity'];
 if (!allowed.includes(moduleName)) {
@@ -14,9 +18,15 @@ export default {
   coverageAnalysis: 'perTest',
   reporters: ['clear-text', 'json'],
   jsonReporter: {
-    fileName: `../../scripts/verify/reports/mutation-${moduleName}.json`,
+    fileName: relative(
+      process.cwd(),
+      join(tmpdir(), 'ferry-mutation', `mutation-${moduleName}.json`),
+    ),
   },
-  tempDirName: `../../scripts/verify/.stryker-tmp-${moduleName}`,
+  tempDirName: relative(
+    process.cwd(),
+    join(tmpdir(), 'ferry-mutation', `sandbox-${moduleName}`),
+  ),
   thresholds: { high: 90, low: 80, break: null },
   timeoutMS: 20000,
   concurrency: 4,
