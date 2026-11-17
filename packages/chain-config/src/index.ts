@@ -106,3 +106,5 @@ export type {
   RouteConfig,
 } from './config.js';
 export type { EvmChainConfig } from '@ferry/core';
+export { listDeployedContracts } from './deployed.js';
+export type { DeployedContract } from './deployed.js';

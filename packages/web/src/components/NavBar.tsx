@@ -1,15 +1,33 @@
-import { useState } from 'react';
-import { Link } from 'react-router';
+import { useEffect, useState } from 'react';
+import { Link, NavLink } from 'react-router';
 import { BANNER_CONFIG, NETWORK_LABEL, IS_MAINNET } from '../lib/config';
 import { GlassNav } from './GlassNav';
 import { GlassPopover } from './GlassPopover';
 import { WalletSheet } from './WalletSheet';
 import { useWallets } from '../lib/wallet/context';
 import { InfoIcon, WalletIcon } from './icons';
+import { OPEN_WALLETS_EVENT } from '../lib/site';
+
+const NAV_LINKS = [
+  { to: '/swap', label: 'Swap' },
+  { to: '/pay-link', label: 'Pay link' },
+  { to: '/my-activity', label: 'My activity' },
+  { to: '/features', label: 'Features' },
+  { to: '/proof', label: 'Proof' },
+  { to: '/how-it-works', label: 'How it works' },
+  { to: '/user-guide', label: 'User guide' },
+] as const;
 
 export function NavBar() {
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const { evm, bch } = useWallets();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const open = () => setWalletSheetOpen(true);
+    window.addEventListener(OPEN_WALLETS_EVENT, open);
+    return () => window.removeEventListener(OPEN_WALLETS_EVENT, open);
+  }, []);
 
   const isConnected = evm.status === 'connected' || bch.status === 'connected';
 
@@ -37,43 +55,21 @@ export function NavBar() {
             Ferry<span className="text-lime">.</span>
           </Link>
 
-          <div className="hidden items-center gap-6 md:flex">
-            <Link
-              to="/pay-links"
-              className="text-sm text-text-muted transition-colors hover:text-text"
-            >
-              Pay links
-            </Link>
-            <Link
-              to="/activity"
-              className="text-sm text-text-muted transition-colors hover:text-text"
-            >
-              My Activity
-            </Link>
-            <Link
-              to="/recover"
-              className="text-sm text-text-muted transition-colors hover:text-text"
-            >
-              Recover a swap
-            </Link>
-            <Link
-              to="/help"
-              className="text-sm text-text-muted transition-colors hover:text-text"
-            >
-              User Guide
-            </Link>
-            <a
-              href="/#how-it-works"
-              className="text-sm text-text-muted transition-colors hover:text-text"
-            >
-              How it works
-            </a>
-            <a
-              href="/#faq"
-              className="text-sm text-text-muted transition-colors hover:text-text"
-            >
-              FAQ
-            </a>
+          <div className="hidden items-center gap-5 lg:flex">
+            {NAV_LINKS.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end
+                className={({ isActive }) =>
+                  `text-sm transition-colors hover:text-text ${
+                    isActive ? 'text-text' : 'text-text-muted'
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
             {BANNER_CONFIG.repoUrl && (
               <a
                 href={BANNER_CONFIG.repoUrl}
@@ -130,6 +126,37 @@ export function NavBar() {
           </button>
         </div>
       </nav>
+
+      <div className="lg:hidden border-t border-hairline">
+        <button
+          type="button"
+          aria-expanded={menuOpen}
+          aria-controls="mobile-menu"
+          onClick={() => setMenuOpen((v) => !v)}
+          className="mx-auto flex h-10 w-full max-w-6xl items-center justify-between px-4 text-xs text-text-muted sm:px-6"
+        >
+          <span>Menu</span>
+          <span aria-hidden="true">{menuOpen ? '–' : '+'}</span>
+        </button>
+        {menuOpen && (
+          <ul
+            id="mobile-menu"
+            className="mx-auto max-w-6xl space-y-1 px-4 pb-3 sm:px-6"
+          >
+            {NAV_LINKS.map((item) => (
+              <li key={item.to}>
+                <Link
+                  to={item.to}
+                  onClick={() => setMenuOpen(false)}
+                  className="block rounded-lg px-2 py-2 text-sm text-text-muted hover:bg-surface-2 hover:text-text"
+                >
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <WalletSheet
         open={walletSheetOpen}

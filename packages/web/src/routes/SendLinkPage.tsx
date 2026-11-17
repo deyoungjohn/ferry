@@ -25,7 +25,7 @@ export function SendLinkPage() {
     <div className="mx-auto max-w-md px-4 py-8 sm:px-6">
       <div className="mb-4">
         <Link
-          to="/send-links"
+          to="/pay-link?type=send"
           className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text transition-colors"
         >
           ← All Send Links

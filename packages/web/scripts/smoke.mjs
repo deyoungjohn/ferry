@@ -174,23 +174,9 @@ async function runSmokeSuite() {
           const bridgeSpan = page.locator('span:has-text("without a bridge")');
           await bridgeSpan.waitFor({ state: 'visible' });
 
-          // Assert swap card is rendered
-          const submitBtn = page.locator('[data-testid="swap-submit-button"]');
-          await submitBtn.waitFor({ state: 'visible' });
-
-          // Assert no disabled route warning alert on initial load
-          const disabledAlert = await page.$(
-            '[data-testid="route-disabled-alert"]',
-          );
-          if (disabledAlert) {
-            const alertText = await page.evaluate(
-              (el) => el.textContent,
-              disabledAlert,
-            );
-            throw new Error(
-              `Unexpected route disabled alert found on mock home load: ${alertText}`,
-            );
-          }
+          // Landing page: the call to action leads to the app
+          const cta = page.locator('a:has-text("Open Ferry")');
+          await cta.first().waitFor({ state: 'visible' });
 
           // Save 1280x720 mock home screenshot to /tmp
           const screenshotPath = '/tmp/ferry-screenshot-home-1280x720.png';
@@ -208,8 +194,8 @@ async function runSmokeSuite() {
         onPage: async (page) => {
           const heroHeading = page.locator('h1');
           await heroHeading.waitFor({ state: 'visible' });
-          const submitBtn = page.locator('[data-testid="swap-submit-button"]');
-          await submitBtn.waitFor({ state: 'visible' });
+          const cta = page.locator('a:has-text("Open Ferry")');
+          await cta.first().waitFor({ state: 'visible' });
 
           // Save 390x844 mock home screenshot to /tmp
           const screenshotPath = '/tmp/ferry-screenshot-home-390x844.png';
@@ -233,7 +219,7 @@ async function runSmokeSuite() {
 
     // 4. Test /help route
     await testUrl(
-      '/help',
+      '/user-guide',
       { width: 1280, height: 720 },
       {
         onPage: async (page) => {
@@ -242,6 +228,39 @@ async function runSmokeSuite() {
         },
       },
     );
+
+    // Public pages render without a wallet
+    for (const [route, heading] of [
+      ['/features', 'What Ferry does'],
+      ['/proof', 'Proof'],
+      ['/how-it-works', 'How it works'],
+    ]) {
+      await testUrl(
+        route,
+        { width: 1280, height: 720 },
+        {
+          onPage: async (page) => {
+            await page
+              .locator(`h1:has-text("${heading}")`)
+              .waitFor({ state: 'visible' });
+          },
+        },
+      );
+    }
+
+    // Pages that need a wallet show the connect gate instead
+    for (const route of ['/swap', '/pay-link', '/my-activity']) {
+      await testUrl(
+        route,
+        { width: 1280, height: 720 },
+        {
+          onPage: async (page) => {
+            const gate = page.locator('[data-testid="wallet-gate"]');
+            await gate.waitFor({ state: 'visible' });
+          },
+        },
+      );
+    }
 
     // 5. Test /recover route
     await testUrl(
@@ -267,7 +286,7 @@ async function runSmokeSuite() {
     // Target 2: Mainnet Profile ("not configured" page)
     // -------------------------------------------------------------
     const mainnetPort = 5194;
-    const mainnetUrl = `http://localhost:${mainnetPort}`;
+    const mainnetUrl = `http://localhost:${mainnetPort}/swap`;
     console.log(
       `[smoke] Starting mainnet dev server on port ${mainnetPort}...`,
     );
@@ -405,7 +424,7 @@ async function runSmokeSuite() {
       if (m.type() === 'error') previewErrors.push(m.text());
     });
 
-    await previewPage.goto(previewUrl, {
+    await previewPage.goto(`${previewUrl}/swap`, {
       waitUntil: 'domcontentloaded',
       timeout: 15000,
     });

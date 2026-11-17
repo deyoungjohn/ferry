@@ -2,7 +2,7 @@
 
 **A ferry, not a bridge.** Ferry is a two-way, trust-minimised atomic swap between stablecoins on EVM chains (USDC first, USDT on supported chains) and native PUSD / MUSD CashTokens on Bitcoin Cash, plus cross-chain pay links and send links. Nothing is wrapped, minted, or held by a custodian: every swap is a pair of hash-time-locked contracts (HTLCs) unlocked by the same secret, with an independent solver supplying liquidity.
 
-> **Status: built for BCH BLAZE 2026 (tested on testnet).** Nothing in this repository has been audited or used with real funds yet.
+> **Status: built for BCH BLAZE 2026.** The swap contract is deployed on Base (`0x8b968625F983420B571C102eC0b57F7e509c916e`, source verified on the explorer) and the first small mainnet swaps are starting. Other chains are enabled one at a time. Nothing here has had an outside security audit. Live site: <https://ferry.incepture.dev>.
 
 ## How a swap works (30-second picture)
 
@@ -69,6 +69,36 @@ pnpm --filter @ferry/htlc-bch test
 pnpm --filter @ferry/solver-client test:coverage
 ```
 
+## The website
+
+One single-page app at the root of the domain. Public pages need no wallet; the tool pages ask you to connect one.
+
+| Path            | What it is                                        | Wallet needed         |
+| --------------- | ------------------------------------------------- | --------------------- |
+| `/`             | Landing page                                      | No                    |
+| `/features`     | What Ferry does                                   | No                    |
+| `/proof`        | Deployed contracts, what was tested, what was not | No                    |
+| `/how-it-works` | The swap in four steps, and the FAQ               | No                    |
+| `/user-guide`   | Step-by-step guide                                | No                    |
+| `/recover`      | Finish or refund a swap from a recovery file      | No                    |
+| `/status`       | Route check for the maintainer                    | No                    |
+| `/swap`         | Swap                                              | Yes                   |
+| `/pay-link`     | Create pay links and send links                   | Yes                   |
+| `/my-activity`  | Your swaps, rebuilt from the chains               | Yes                   |
+| `/swap/<hash>`  | Status page of one swap                           | Opened from a receipt |
+| `/pay/<hash>`   | A pay link, as the payer sees it                  | Opened from a link    |
+| `/send/<hash>`  | A send link, as the recipient sees it             | Opened from a link    |
+
+The server proxies `/v1/*` to the solver API and serves every other path as the app (`deploy/`). Old paths (`/help`, `/activity`, `/pay-links`, `/p/<id>`, `/s/<id>`) redirect.
+
+To see the interface locally without a solver or real wallets:
+
+```bash
+VITE_NETWORK=testnet VITE_MOCK=1 pnpm --filter @ferry/web dev
+```
+
+Without those variables the default is the mainnet profile, which shows what is still missing until contracts are deployed and a solver URL is set (`VITE_SOLVER_URLS`, an origin that serves `/v1/*`). The dev server must be restarted after package changes.
+
 ## Verify a claim yourself
 
 1. **Recovery transaction & local VM check (`@ferry/core` + `@ferry/htlc-bch`):**
@@ -90,7 +120,7 @@ pnpm --filter @ferry/solver-client test:coverage
 
 ## Known limitations
 
-- **Testnet only / unaudited:** contracts and solver components have been tested on testnets and local simulators only; no external security audit has been performed.
+- **Unaudited, early mainnet:** the contracts and the solver were tested on local simulators and forks of the live chains; only a few small real swaps have run. No external security audit has been performed. Swap sizes are capped.
 - **Foundry tests require local toolchain:** `forge` and `anvil` tests in `@ferry/htlc-evm` and `@ferry/chain-evm` require Foundry installed locally.
 - **Pay-link index:** open (unpaid) pay links are stored by the solver; paid swaps and all send links remain verifiable on chain.
 - **Browser-side secret storage:** the secret preimage is generated in the browser and stored locally; if a user clears browser storage without saving `ferry-<orderId>.json`, they must wait for the refund timeout rather than claiming.

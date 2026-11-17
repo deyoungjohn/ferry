@@ -1,3 +1,5 @@
+import { siteUrl } from '../site';
+
 export interface PayLinkData {
   readonly id: string;
   readonly recipientCashaddr: string;
@@ -37,15 +39,9 @@ export function chunkCashaddr(address: string): string {
 }
 
 export function payLinkUrl(id: string): string {
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}/p/${id}`;
-  }
-  return `https://ferry.cash/p/${id}`;
+  return siteUrl(`/pay/${id}`);
 }
 
 export function sendLinkUrl(id: string): string {
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}/s/${id}`;
-  }
-  return `https://ferry.cash/s/${id}`;
+  return siteUrl(`/send/${id}`);
 }

@@ -38,7 +38,7 @@ if (wagmiAdapter && REOWN_PROJECT_ID) {
         url:
           typeof window !== 'undefined'
             ? window.location.origin
-            : 'https://ferry.cash',
+            : 'https://ferry.incepture.dev',
         icons: [],
       },
       defaultNetwork: base as unknown as AppKitNetwork,

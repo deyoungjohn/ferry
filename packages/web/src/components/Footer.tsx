@@ -16,16 +16,25 @@ export function Footer() {
         </div>
 
         <div className="flex flex-wrap items-center gap-6 text-[11px]">
-          <a href="#how-it-works" className="hover:text-text transition-colors">
+          <Link
+            to="/how-it-works"
+            className="hover:text-text transition-colors"
+          >
             {FOOTER_COPY.howItWorks}
-          </a>
-          <a href="#faq" className="hover:text-text transition-colors">
-            {FOOTER_COPY.faq}
-          </a>
+          </Link>
+          <Link to="/features" className="hover:text-text transition-colors">
+            Features
+          </Link>
+          <Link to="/proof" className="hover:text-text transition-colors">
+            Proof
+          </Link>
+          <Link to="/recover" className="hover:text-text transition-colors">
+            Recover a swap
+          </Link>
           <Link to="/status" className="hover:text-text transition-colors">
             {FOOTER_COPY.status}
           </Link>
-          <Link to="/help" className="hover:text-text transition-colors">
+          <Link to="/user-guide" className="hover:text-text transition-colors">
             User Guide
           </Link>
           {BANNER_CONFIG.repoUrl && (
