@@ -215,7 +215,8 @@ function formatPct(ok: number, total: number): string {
 async function main(): Promise<void> {
   const { minutes, outDir } = parseArgs(process.argv.slice(2));
   const startMs = Date.now();
-  const deadlineMs = startMs + minutes * 60_000;
+  const startMonotonicMs = performance.now();
+  const deadlineMonotonicMs = startMonotonicMs + minutes * 60_000;
 
   const fulcrumUrlsRaw = process.env['BCH_ELECTRUM_URLS']?.trim();
   const fulcrumUrls = fulcrumUrlsRaw
@@ -580,7 +581,10 @@ async function main(): Promise<void> {
     bchQuorum.close();
 
     const endMs = Date.now();
-    const durationMin = ((endMs - startMs) / 60_000).toFixed(1);
+    const durationMin = (
+      (performance.now() - startMonotonicMs) /
+      60_000
+    ).toFixed(1);
 
     const rows = [...statsMap.values()].map((s) => ({
       name: s.name,
@@ -727,7 +731,7 @@ async function main(): Promise<void> {
   console.log(`Starting read-only live data soak for ${minutes} minute(s)...`);
   await Promise.all([sampleBchAndBchPrices(), sampleEvm()]);
 
-  if (Date.now() < deadlineMs) {
+  if (performance.now() < deadlineMonotonicMs) {
     bchTimer = setInterval(() => {
       void sampleBchAndBchPrices();
     }, 30_000);
@@ -737,7 +741,7 @@ async function main(): Promise<void> {
 
     await new Promise<void>((resolveWait) => {
       const check = setInterval(() => {
-        if (Date.now() >= deadlineMs || stopped) {
+        if (performance.now() >= deadlineMonotonicMs || stopped) {
           clearInterval(check);
           resolveWait();
         }

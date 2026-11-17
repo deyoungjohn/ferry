@@ -13,8 +13,8 @@ Legend: **chain-config** = `@ferry/chain-config` or its deployment record;
 | Variable | Purpose | Source |
 |---|---|---|
 | `NETWORK` | Set to `mainnet` | human |
-| `BCH_ELECTRUM_URLS` | Two or three mainnet Fulcrum hosts | server survey in `FACTS.md` |
-| `BASE_RPC_URL` | Base JSON-RPC endpoint | chain-config public URL, or human for a paid override |
+| `BCH_ELECTRUM_URLS` | Two or three mainnet Fulcrum hosts | server survey in `FACTS.md`; the 90-minute soak kept the three-host set (Germany, Denmark, US) |
+| `BASE_RPC_URL` | Base JSON-RPC endpoint | chain-config public URL, or human for a paid override; add a second URL because the soak saw brief Base/Arbitrum fetch failures |
 | `BASE_CHAIN_ID` | `8453` | chain-config |
 | `BASE_FERRY_HTLC_ADDRESS` | Deployed FerryHTLC on Base | chain-config after `record-deployment` |
 | `BASE_USDC_ADDRESS` | Circle USDC on Base | chain-config |
@@ -44,7 +44,7 @@ a reviewed decision.
 | `BCH_CARRY_SATS` / `BCH_MAX_FEE_SATS` | BCH fee policy | human |
 | `SKEW_MAX_BPS` | Inventory skew limit | human |
 | `DSPROOF_WINDOW_MS` / `DOUBLE_SPEND_WAIT_MS` | Double-spend wait | human |
-| `TIP_MAX_AGE_BCH_SECONDS` / `TIP_MAX_AGE_BASE_SECONDS` | Tip freshness limits | human |
+| `TIP_MAX_AGE_BCH_SECONDS` / `TIP_MAX_AGE_BASE_SECONDS` | Tip freshness limits | human; soak recommends `7200` / `120` (observed maxima `1354s` / `13s`) |
 | `QUOTING_ENABLED` | Quote switch | human |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_PER_ADDRESS` / `RATE_LIMIT_MAX_PER_IP` | API rate limits | human or server |
 | `TPUSD_CATEGORY` / `TMUSD_CATEGORY` | BCH token categories the solver uses | chain-config / blueprint: set to the mainnet PUSD and MUSD categories despite the historical variable names |
@@ -65,6 +65,26 @@ These are not solver variables, but the launch checks use them.
 | `BCH_GENESIS_HASH` | `000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f` | chain fact |
 | `PUSD_CATEGORY` / `MUSD_CATEGORY` | Preflight token categories | chain-config / blueprint |
 | `BCH_CHIPNET_ELECTRUM_URLS` | Not used on mainnet | human |
+
+## Soak observations (2026-11-17)
+
+The 90-minute read-only soak used the three recommended public BCH hosts and
+paid RPC overrides where available. Keep the three-host BCH set; no host dropped
+out, no genesis mismatch and no tip regression was seen. One quorum tick and a
+31 s outage are within the recommended `TIP_MAX_AGE_BCH_SECONDS=7200` and
+`TIP_MAX_AGE_BASE_SECONDS=120` headroom.
+
+The Base and Arbitrum primary RPC hosts showed brief fetch failures (95.56% and
+97.78% success, 63 s longest outage). Add a second URL to the comma list for
+those chains. Ethereum and BNB stayed at 100%.
+
+The BCH price path did not complete in this environment: Coinbase and Kraken DNS
+failed, so `bch-usd` and the Cauldron PUSD/MUSD readers were at 0%; Paryon
+answered but its readings were stale for most samples. That is an owner issue in
+`packages/bch-prices` and the environment, not a server-list fix. No peg
+disagreement conclusion can be drawn from this run. The quorum request target is
+about `17s` (observed maximum p95 `5.7s` times three), but the solver has no
+dedicated environment variable for it today.
 
 ## Launch order
 
