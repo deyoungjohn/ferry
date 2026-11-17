@@ -14,7 +14,9 @@
     "abi": "node scripts/export-abi.mjs",
     "typecheck": "tsc --noEmit && node --check scripts/export-abi.mjs && node --check scripts/check-abi.mjs",
     "lint": "forge fmt --check && eslint --cache .",
-    "slither": "slither . --filter-paths 'node_modules|lib|test|script'"
+    "slither": "slither . --filter-paths 'node_modules|lib|test|script'",
+    "deploy": "tsx --conditions=ferry-source scripts/deploy.ts",
+    "verify-commands": "tsx --conditions=ferry-source scripts/verify-commands.ts"
   },
   "devDependencies": {
     "@ferry/chain-config": "workspace:*",
