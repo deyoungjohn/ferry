@@ -55,7 +55,7 @@ deployment of the current bytecode yet.
 - [ ] Fund PUSD to the solver BCH address: **15 PUSD**.
 - [ ] Fund MUSD to the solver BCH address: **5 MUSD** (or skip MUSD and accept
       that the MUSD route is not demonstrated).
-- [ ] Fund BCH for fees and carry: **0.005 BCH**.
+- [ ] Fund BCH for fees and carry: **0.001 BCH (the maintainer lowered the starting floor from the blueprint minimum of 0.005 BCH; at 3,000 sats of carry per forward swap this covers about 30 swaps)**.
 - [ ] Fund the solver BCH address shown by the preflight. The same address holds
       PUSD, MUSD and the BCH fee balance.
 
