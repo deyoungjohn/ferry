@@ -1,32 +1,28 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, NavLink } from 'react-router';
-import { BANNER_CONFIG, NETWORK_LABEL, IS_MAINNET } from '../lib/config';
-import { GlassNav } from './GlassNav';
+import { NETWORK_LABEL, IS_MAINNET } from '../lib/config';
+import { APP_NAV, PUBLIC_NAV } from '../lib/site-config';
+import { OPEN_WALLETS_EVENT } from '../lib/site';
+import { useScrolled } from '../lib/useScrolled';
+import { useWallets } from '../lib/wallet/context';
+import { Brand } from './Brand';
 import { GlassPopover } from './GlassPopover';
 import { WalletSheet } from './WalletSheet';
-import { useWallets } from '../lib/wallet/context';
 import { InfoIcon, WalletIcon } from './icons';
-import { OPEN_WALLETS_EVENT } from '../lib/site';
-import { ROUTES } from '../lib/routes';
 
-const PUBLIC_NAV = [
-  { to: '/features', label: 'Features' },
-  { to: '/how-it-works', label: 'How it works' },
-  { to: '/proof', label: 'Proof' },
-] as const;
-
-const APP_NAV = [
-  { to: ROUTES.swap, label: 'Swap' },
-  { to: ROUTES.payLink, label: 'Pay link' },
-  { to: ROUTES.activity, label: 'My activity' },
-  { to: ROUTES.recover, label: 'Recover' },
-  { to: ROUTES.guide, label: 'User guide' },
-] as const;
-
+/**
+ * Floating navigation pill: clear at the top of the page, glass once the page
+ * scrolls under it. Public tabs before a wallet is connected, the app tabs after.
+ */
 export function NavBar() {
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
-  const { evm, bch } = useWallets();
   const [menuOpen, setMenuOpen] = useState(false);
+  const scrolled = useScrolled(8);
+  const { evm, bch } = useWallets();
+
+  const isConnected = evm.status === 'connected' || bch.status === 'connected';
+  const links = isConnected ? APP_NAV : PUBLIC_NAV;
 
   useEffect(() => {
     const open = () => setWalletSheetOpen(true);
@@ -34,8 +30,13 @@ export function NavBar() {
     return () => window.removeEventListener(OPEN_WALLETS_EVENT, open);
   }, []);
 
-  const isConnected = evm.status === 'connected' || bch.status === 'connected';
-  const NAV_LINKS = isConnected ? APP_NAV : PUBLIC_NAV;
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) =>
+      e.key === 'Escape' && setMenuOpen(false);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
 
   let buttonLabel = 'Connect';
   if (evm.status === 'connected' && bch.status === 'connected') {
@@ -47,55 +48,45 @@ export function NavBar() {
   }
 
   return (
-    <GlassNav>
-      <nav
-        aria-label="Main"
-        className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6"
+    <div className="sticky top-0 z-50 px-2 pt-2 sm:px-4 sm:pt-3">
+      <header
+        className={`relative mx-auto flex h-16 max-w-[1240px] items-center gap-6 px-3 transition-[background,border-color] duration-300 sm:px-4 ${
+          scrolled
+            ? 'glass glass-nav rounded-full!'
+            : 'rounded-full border border-transparent'
+        }`}
       >
-        <div className="flex items-center gap-8">
-          <Link
-            to="/"
-            aria-label="Ferry home"
-            className="text-[1.35rem] font-semibold tracking-[-0.04em] text-text hover:text-lime transition-colors"
-          >
-            Ferry<span className="text-lime">.</span>
-          </Link>
+        <Link to="/" aria-label="Ferry home" className="shrink-0">
+          <Brand />
+        </Link>
 
-          <div className="hidden items-center gap-5 lg:flex">
-            {NAV_LINKS.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end
-                className={({ isActive }) =>
-                  `text-sm transition-colors hover:text-text ${
-                    isActive ? 'text-text' : 'text-text-muted'
-                  }`
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-            {BANNER_CONFIG.repoUrl && (
-              <a
-                href={BANNER_CONFIG.repoUrl}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-sm text-text-muted transition-colors hover:text-text"
-              >
-                GitHub
-              </a>
-            )}
-          </div>
-        </div>
+        <nav
+          aria-label="Main"
+          className="mx-auto hidden items-center gap-1 lg:flex"
+        >
+          {links.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end
+              className={({ isActive }) =>
+                `flex h-10 items-center rounded-full px-4 text-[14px] font-medium transition-colors hover:bg-surface-2 ${
+                  isActive ? 'text-text bg-surface-2' : 'text-text-muted'
+                }`
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
 
-        <div className="flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2 lg:ml-0">
           <GlassPopover
             label="Network details"
             trigger={
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-2.5 py-1 text-[11px] text-text-muted transition-colors hover:text-text sm:px-3"
+                className="hidden items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 py-1.5 text-[11px] text-text-muted transition-colors hover:text-text sm:inline-flex"
               >
                 <span
                   className="size-1.5 rounded-full bg-ok shadow-[0_0_10px_var(--ok)]"
@@ -121,53 +112,62 @@ export function NavBar() {
             onClick={() => setWalletSheetOpen(true)}
             aria-haspopup="dialog"
             aria-expanded={walletSheetOpen}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-pill px-3.5 text-xs font-semibold transition-colors cursor-pointer sm:px-4 ${
+            className={`inline-flex h-11 items-center gap-2 rounded-full px-5 text-[14px] font-semibold transition-colors cursor-pointer ${
               isConnected
-                ? 'bg-surface-3 text-text border border-hairline hover:border-lime/40'
-                : 'bg-text text-bg hover:bg-lime hover:text-lime-ink'
+                ? 'border border-hairline bg-surface-3 text-text hover:border-lime/40'
+                : 'bg-lime text-lime-ink hover:opacity-90'
             }`}
           >
-            <WalletIcon className="size-3.5 text-lime" />
+            <WalletIcon
+              className={`size-4 ${isConnected ? 'text-lime' : 'text-lime-ink'}`}
+            />
             <span>{buttonLabel}</span>
           </button>
-        </div>
-      </nav>
 
-      <div className="lg:hidden border-t border-hairline">
-        <button
-          type="button"
-          aria-expanded={menuOpen}
-          aria-controls="mobile-menu"
-          onClick={() => setMenuOpen((v) => !v)}
-          className="mx-auto flex h-10 w-full max-w-6xl items-center justify-between px-4 text-xs text-text-muted sm:px-6"
-        >
-          <span>Menu</span>
-          <span aria-hidden="true">{menuOpen ? '–' : '+'}</span>
-        </button>
-        {menuOpen && (
-          <ul
-            id="mobile-menu"
-            className="mx-auto max-w-6xl space-y-1 px-4 pb-3 sm:px-6"
+          <button
+            type="button"
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            aria-controls="mobile-menu"
+            onClick={() => setMenuOpen((v) => !v)}
+            className="grid size-11 place-items-center rounded-full border border-hairline text-text lg:hidden"
           >
-            {NAV_LINKS.map((item) => (
-              <li key={item.to}>
-                <Link
-                  to={item.to}
-                  onClick={() => setMenuOpen(false)}
-                  className="block rounded-lg px-2 py-2 text-sm text-text-muted hover:bg-surface-2 hover:text-text"
-                >
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+            <span aria-hidden="true" className="text-lg leading-none">
+              {menuOpen ? '×' : '≡'}
+            </span>
+          </button>
+        </div>
 
-      <WalletSheet
-        open={walletSheetOpen}
-        onClose={() => setWalletSheetOpen(false)}
-      />
-    </GlassNav>
+        {menuOpen && (
+          <div
+            id="mobile-menu"
+            className="absolute inset-x-0 top-[72px] rounded-2xl border border-hairline bg-surface-1 p-4 lg:hidden"
+          >
+            <ul className="grid grid-cols-2 gap-1">
+              {links.map((item) => (
+                <li key={item.to}>
+                  <Link
+                    to={item.to}
+                    onClick={() => setMenuOpen(false)}
+                    className="block rounded-lg px-3 py-2.5 text-[14px] text-text hover:bg-surface-2"
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </header>
+
+      {/* Rendered at the page root: a glass bar creates its own frame for fixed children. */}
+      {createPortal(
+        <WalletSheet
+          open={walletSheetOpen}
+          onClose={() => setWalletSheetOpen(false)}
+        />,
+        document.body,
+      )}
+    </div>
   );
 }

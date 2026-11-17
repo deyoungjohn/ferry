@@ -35,8 +35,8 @@ export function NetworkBlockedPage() {
 
       <p className="mt-2.5 max-w-lg text-sm text-text-muted leading-relaxed">
         The mainnet deployment profile is empty by default and gated until
-        on-chain HTLC contracts are recorded, solver endpoints are configured,
-        and required banner values are set.
+        on-chain HTLC contracts are recorded and a solver endpoint is
+        configured. Banner values only show a warning.
       </p>
 
       {/* Diagnostics / Status CTA */}
@@ -102,12 +102,10 @@ export function NetworkBlockedPage() {
             )}
             <div>
               <span className="font-semibold text-text">
-                Banner Configuration:{' '}
+                Banner values (optional):{' '}
               </span>
               {bannerWarnings.length === 0 ? (
-                <span className="text-lime">
-                  All required banner variables set
-                </span>
+                <span className="text-lime">All banner variables set</span>
               ) : (
                 <span className="text-warn">
                   Missing values: {bannerWarnings.join(', ')}

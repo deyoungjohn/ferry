@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { App } from '../App';
@@ -25,14 +25,34 @@ describe('navigation', () => {
       { name: 'Main' },
       { timeout: 30_000 },
     );
+    const nav = within(main);
     for (const label of ['Features', 'How it works', 'Proof']) {
-      expect(
-        main.querySelector(`a[href]`) &&
-          screen.getAllByRole('link', { name: label }).length,
-      ).toBeGreaterThan(0);
+      expect(nav.getByRole('link', { name: label })).toBeInTheDocument();
     }
-    expect(screen.queryByRole('link', { name: 'My activity' })).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Recover' })).toBeNull();
+    for (const label of [
+      'Swap',
+      'My activity',
+      'Recover',
+      'User guide',
+      'GitHub',
+    ]) {
+      expect(nav.queryByRole('link', { name: label })).toBeNull();
+    }
+  });
+
+  it('puts the guide and GitHub in the footer', async () => {
+    renderAt('/features');
+    const footer = await screen.findByRole(
+      'contentinfo',
+      {},
+      { timeout: 30_000 },
+    );
+    expect(
+      within(footer).getByRole('link', { name: 'User guide' }),
+    ).toBeInTheDocument();
+    expect(
+      within(footer).getAllByRole('link', { name: 'GitHub' })[0],
+    ).toBeInTheDocument();
   });
 });
 
