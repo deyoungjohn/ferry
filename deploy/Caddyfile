@@ -1,8 +1,9 @@
 # Ferry production Caddyfile.
-# Replace example.org with the real domain before starting Caddy.
+# Replace example.org with ferry.incepture.dev, or set FERRY_DOMAIN.
 # The solver listens on localhost only; Caddy is the single public origin.
+# The SPA fallback covers /swap/<hash>, /pay/<hash>, /send/<hash> and /features.
 
-example.org {
+{$FERRY_DOMAIN:example.org} {
 	encode zstd gzip
 
 	header {
