@@ -1,0 +1,38 @@
+{
+  "name": "@ferry/user-flow",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The user's side of a Ferry swap as a browser-safe library: quote, save recovery, lock, wait, claim or refund, behind wallet and chain ports.",
+  "exports": {
+    ".": {
+      "ferry-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint --cache src test",
+    "test": "vitest run --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage"
+  },
+  "dependencies": {
+    "@bitauth/libauth": "3.0.0",
+    "@ferry/core": "workspace:*",
+    "@ferry/htlc-bch": "workspace:*",
+    "@ferry/solver-client": "workspace:*",
+    "viem": "2.57.10"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@vitest/coverage-v8": "5.0.5",
+    "cashscript": "0.14.0",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}
