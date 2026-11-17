@@ -249,7 +249,7 @@ async function runSmokeSuite() {
     }
 
     // Pages that need a wallet show the connect gate instead
-    for (const route of ['/swap', '/pay-link', '/my-activity']) {
+    for (const route of ['/app/swap', '/app/pay-link', '/app/my-activity']) {
       await testUrl(
         route,
         { width: 1280, height: 720 },
@@ -264,7 +264,7 @@ async function runSmokeSuite() {
 
     // 5. Test /recover route
     await testUrl(
-      '/recover',
+      '/app/recover',
       { width: 1280, height: 720 },
       {
         onPage: async (page) => {
@@ -286,7 +286,7 @@ async function runSmokeSuite() {
     // Target 2: Mainnet Profile ("not configured" page)
     // -------------------------------------------------------------
     const mainnetPort = 5194;
-    const mainnetUrl = `http://localhost:${mainnetPort}/swap`;
+    const mainnetUrl = `http://localhost:${mainnetPort}/app/swap`;
     console.log(
       `[smoke] Starting mainnet dev server on port ${mainnetPort}...`,
     );
@@ -424,7 +424,7 @@ async function runSmokeSuite() {
       if (m.type() === 'error') previewErrors.push(m.text());
     });
 
-    await previewPage.goto(`${previewUrl}/swap`, {
+    await previewPage.goto(`${previewUrl}/app/swap`, {
       waitUntil: 'domcontentloaded',
       timeout: 15000,
     });

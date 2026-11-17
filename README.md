@@ -73,23 +73,25 @@ pnpm --filter @ferry/solver-client test:coverage
 
 One single-page app at the root of the domain. Public pages need no wallet; the tool pages ask you to connect one.
 
-| Path            | What it is                                        | Wallet needed         |
-| --------------- | ------------------------------------------------- | --------------------- |
-| `/`             | Landing page                                      | No                    |
-| `/features`     | What Ferry does                                   | No                    |
-| `/proof`        | Deployed contracts, what was tested, what was not | No                    |
-| `/how-it-works` | The swap in four steps, and the FAQ               | No                    |
-| `/user-guide`   | Step-by-step guide                                | No                    |
-| `/recover`      | Finish or refund a swap from a recovery file      | No                    |
-| `/status`       | Route check for the maintainer                    | No                    |
-| `/swap`         | Swap                                              | Yes                   |
-| `/pay-link`     | Create pay links and send links                   | Yes                   |
-| `/my-activity`  | Your swaps, rebuilt from the chains               | Yes                   |
-| `/swap/<hash>`  | Status page of one swap                           | Opened from a receipt |
-| `/pay/<hash>`   | A pay link, as the payer sees it                  | Opened from a link    |
-| `/send/<hash>`  | A send link, as the recipient sees it             | Opened from a link    |
+| Path               | What it is                                        | Wallet needed         |
+| ------------------ | ------------------------------------------------- | --------------------- |
+| `/`                | Landing page                                      | No                    |
+| `/features`        | What Ferry does                                   | No                    |
+| `/how-it-works`    | The swap in four steps, and the FAQ               | No                    |
+| `/proof`           | Deployed contracts, what was tested, what was not | No                    |
+| `/user-guide`      | Step-by-step guide (also at `/app/user-guide`)    | No                    |
+| `/status`          | Route check for the maintainer                    | No                    |
+| `/pay/<hash>`      | A pay link, as the payer sees it                  | Opened from a link    |
+| `/send/<hash>`     | A send link, as the recipient sees it             | Opened from a link    |
+| `/app/swap`        | Swap                                              | Yes                   |
+| `/app/swap/<hash>` | Status page of one swap                           | Opened from a receipt |
+| `/app/pay-link`    | Create pay links and send links                   | Yes                   |
+| `/app/my-activity` | Your swaps, rebuilt from the chains               | Yes                   |
+| `/app/recover`     | Finish or refund a swap from a recovery file      | No                    |
 
-The server proxies `/v1/*` to the solver API and serves every other path as the app (`deploy/`). Old paths (`/help`, `/activity`, `/pay-links`, `/p/<id>`, `/s/<id>`) redirect.
+The navigation shows Features, How it works and Proof until a wallet is connected, then Swap, Pay link, My activity, Recover and User guide.
+
+The server proxies `/v1/*` to the solver API and serves every other path as the app (`deploy/`). Earlier paths (`/swap`, `/pay-link`, `/my-activity`, `/recover`, `/help`, `/activity`, `/pay-links`, `/p/<id>`, `/s/<id>`) redirect.
 
 To see the interface locally without a solver or real wallets:
 

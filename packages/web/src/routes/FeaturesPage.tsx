@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { ROUTES } from '../lib/routes';
 import { FeatureCards } from '../components/FeatureCards';
 import { PegCards } from '../components/PegCards';
 
@@ -65,7 +66,7 @@ export function FeaturesPage() {
 
       <div className="mt-12 text-center">
         <Link
-          to="/swap"
+          to={ROUTES.swap}
           className="inline-flex h-11 items-center rounded-pill bg-lime px-7 text-sm font-semibold text-lime-ink transition-opacity hover:opacity-90"
         >
           Open Ferry

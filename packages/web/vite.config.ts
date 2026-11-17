@@ -54,7 +54,8 @@ const mockAliases =
     : [];
 
 export default defineConfig({
-  base: './',
+  // Server builds use absolute asset paths so nested URLs work; the IPFS build (hash router) needs relative ones.
+  base: process.env.VITE_ROUTER === 'hash' ? './' : '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     conditions: sourceConditions,

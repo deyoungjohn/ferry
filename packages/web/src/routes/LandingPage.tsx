@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { ROUTES } from '../lib/routes';
 import { HowItWorks } from '../components/HowItWorks';
 
 const PROOF_POINTS = [
@@ -37,7 +38,7 @@ export function LandingPage() {
         </p>
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
           <Link
-            to="/swap"
+            to={ROUTES.swap}
             className="inline-flex h-12 items-center rounded-pill bg-lime px-8 text-sm font-semibold text-lime-ink transition-opacity hover:opacity-90"
           >
             Open Ferry

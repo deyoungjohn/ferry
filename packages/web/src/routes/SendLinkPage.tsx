@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ROUTES } from '../lib/routes';
 import { useParams, useNavigate, Link } from 'react-router';
 import { getModeCopy } from '../lib/copy';
 
@@ -18,14 +19,14 @@ export function SendLinkPage() {
   function handleClaim() {
     setClaiming(true);
     const orderId = `sendlink-${id ?? 'claim'}`;
-    void navigate(`/swap/${orderId}`);
+    void navigate(ROUTES.swapOrder(orderId));
   }
 
   return (
     <div className="mx-auto max-w-md px-4 py-8 sm:px-6">
       <div className="mb-4">
         <Link
-          to="/pay-link?type=send"
+          to={ROUTES.sendLink}
           className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text transition-colors"
         >
           ← All Send Links

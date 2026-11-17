@@ -7,15 +7,20 @@ import { WalletSheet } from './WalletSheet';
 import { useWallets } from '../lib/wallet/context';
 import { InfoIcon, WalletIcon } from './icons';
 import { OPEN_WALLETS_EVENT } from '../lib/site';
+import { ROUTES } from '../lib/routes';
 
-const NAV_LINKS = [
-  { to: '/swap', label: 'Swap' },
-  { to: '/pay-link', label: 'Pay link' },
-  { to: '/my-activity', label: 'My activity' },
+const PUBLIC_NAV = [
   { to: '/features', label: 'Features' },
-  { to: '/proof', label: 'Proof' },
   { to: '/how-it-works', label: 'How it works' },
-  { to: '/user-guide', label: 'User guide' },
+  { to: '/proof', label: 'Proof' },
+] as const;
+
+const APP_NAV = [
+  { to: ROUTES.swap, label: 'Swap' },
+  { to: ROUTES.payLink, label: 'Pay link' },
+  { to: ROUTES.activity, label: 'My activity' },
+  { to: ROUTES.recover, label: 'Recover' },
+  { to: ROUTES.guide, label: 'User guide' },
 ] as const;
 
 export function NavBar() {
@@ -30,6 +35,7 @@ export function NavBar() {
   }, []);
 
   const isConnected = evm.status === 'connected' || bch.status === 'connected';
+  const NAV_LINKS = isConnected ? APP_NAV : PUBLIC_NAV;
 
   let buttonLabel = 'Connect';
   if (evm.status === 'connected' && bch.status === 'connected') {

@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { ROUTES } from '../lib/routes';
 import { BANNER_CONFIG } from '../lib/config';
 import { FOOTER_COPY } from '../lib/copy';
 
@@ -28,7 +29,10 @@ export function Footer() {
           <Link to="/proof" className="hover:text-text transition-colors">
             Proof
           </Link>
-          <Link to="/recover" className="hover:text-text transition-colors">
+          <Link
+            to={ROUTES.recover}
+            className="hover:text-text transition-colors"
+          >
             Recover a swap
           </Link>
           <Link to="/status" className="hover:text-text transition-colors">

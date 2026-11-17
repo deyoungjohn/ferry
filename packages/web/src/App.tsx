@@ -82,6 +82,11 @@ function RedirectWithId({ to }: { to: 'pay' | 'send' }) {
   return <Navigate to={`/${to}/${id ?? ''}`} replace />;
 }
 
+function RedirectWithOrder() {
+  const { orderId } = useParams();
+  return <Navigate to={`/app/swap/${orderId ?? ''}`} replace />;
+}
+
 export function App() {
   return (
     <ErrorBoundary>
@@ -122,14 +127,6 @@ export function App() {
             }
           />
           <Route
-            path="/recover"
-            element={
-              <Page>
-                <RecoverPage />
-              </Page>
-            }
-          />
-          <Route
             path="/status"
             element={
               <Page>
@@ -138,43 +135,62 @@ export function App() {
             }
           />
 
-          {/* Needs a connected wallet */}
-          <Route
-            path="/swap"
-            element={
-              <Page>
-                <SwapPage />
-              </Page>
-            }
-          />
-          <Route
-            path="/pay-link"
-            element={
-              <Page>
-                <PayLinkHubPage />
-              </Page>
-            }
-          />
-          <Route
-            path="/my-activity"
-            element={
-              <Page>
-                <RequireWallet feature="My activity">
-                  <ActivityPage />
-                </RequireWallet>
-              </Page>
-            }
-          />
+          {/* The app: tools that act on your wallet. Recover and the guide need no wallet. */}
+          <Route path="/app">
+            <Route index element={<Navigate to="swap" replace />} />
+            <Route
+              path="swap"
+              element={
+                <Page>
+                  <SwapPage />
+                </Page>
+              }
+            />
+            <Route
+              path="swap/:orderId"
+              element={
+                <Page>
+                  <SwapStatusPage />
+                </Page>
+              }
+            />
+            <Route
+              path="pay-link"
+              element={
+                <Page>
+                  <PayLinkHubPage />
+                </Page>
+              }
+            />
+            <Route
+              path="my-activity"
+              element={
+                <Page>
+                  <RequireWallet feature="My activity">
+                    <ActivityPage />
+                  </RequireWallet>
+                </Page>
+              }
+            />
+            <Route
+              path="recover"
+              element={
+                <Page>
+                  <RecoverPage />
+                </Page>
+              }
+            />
+            <Route
+              path="user-guide"
+              element={
+                <Page>
+                  <HelpPage />
+                </Page>
+              }
+            />
+          </Route>
 
-          {/* Generated pages, opened from a shared link or a receipt */}
-          <Route
-            path="/swap/:orderId"
-            element={
-              <Page>
-                <SwapStatusPage />
-              </Page>
-            }
-          />
+          {/* Shared links: open from a message, no sign-in */}
           <Route
             path="/pay/:id"
             element={
@@ -192,19 +208,33 @@ export function App() {
             }
           />
 
-          {/* Old paths */}
+          {/* Older paths */}
+          <Route path="/swap" element={<Navigate to="/app/swap" replace />} />
+          <Route path="/swap/:orderId" element={<RedirectWithOrder />} />
+          <Route
+            path="/pay-link"
+            element={<Navigate to="/app/pay-link" replace />}
+          />
+          <Route
+            path="/my-activity"
+            element={<Navigate to="/app/my-activity" replace />}
+          />
+          <Route
+            path="/recover"
+            element={<Navigate to="/app/recover" replace />}
+          />
           <Route path="/help" element={<Navigate to="/user-guide" replace />} />
           <Route
             path="/activity"
-            element={<Navigate to="/my-activity" replace />}
+            element={<Navigate to="/app/my-activity" replace />}
           />
           <Route
             path="/pay-links"
-            element={<Navigate to="/pay-link" replace />}
+            element={<Navigate to="/app/pay-link" replace />}
           />
           <Route
             path="/send-links"
-            element={<Navigate to="/pay-link?type=send" replace />}
+            element={<Navigate to="/app/pay-link?type=send" replace />}
           />
           <Route path="/p/:id" element={<RedirectWithId to="pay" />} />
           <Route path="/s/:id" element={<RedirectWithId to="send" />} />

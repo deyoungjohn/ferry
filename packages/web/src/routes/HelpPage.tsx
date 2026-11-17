@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ROUTES } from '../lib/routes';
 import { Link } from 'react-router';
 import { HELP_COPY, type HelpGuideSection } from '../lib/copy';
 
@@ -41,7 +42,7 @@ export function HelpPage() {
             Route Health & Status
           </Link>
           <Link
-            to="/recover"
+            to={ROUTES.recover}
             className="rounded-pill bg-surface-2 border border-hairline px-3.5 py-1.5 text-text-muted hover:text-text hover:border-text-muted/40 transition-colors"
           >
             Offline Recovery Tool

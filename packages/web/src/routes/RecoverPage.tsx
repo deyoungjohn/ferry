@@ -1,4 +1,5 @@
 import { useState, useContext, type ChangeEvent, type FormEvent } from 'react';
+import { ROUTES } from '../lib/routes';
 import { Link } from 'react-router';
 import {
   parseRecoveryFileJson,
@@ -366,7 +367,7 @@ export function RecoverPage() {
             <span>{error}</span>
             <CopyDiagnosticsButton
               data={{
-                route: '/recover',
+                route: ROUTES.recover,
                 errorCode: 'RECOVERY_ERROR',
                 errorMessage: error,
               }}

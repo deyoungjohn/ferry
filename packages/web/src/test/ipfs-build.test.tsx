@@ -13,21 +13,17 @@ describe('IPFS-Ready Build & Offline Recovery', () => {
     const configContent = fs.readFileSync(configPath, 'utf-8');
 
     // Base must be './' so all asset links are relative
-    expect(configContent).toContain("base: './'");
+    expect(configContent).toContain("'hash' ? './' : '/'");
   });
 
-  it('verifies dist/index.html has relative asset paths if build exists', () => {
+  it('a built index.html uses one consistent kind of asset path', () => {
     const distIndexPath = path.resolve(__dirname, '../../dist/index.html');
     if (fs.existsSync(distIndexPath)) {
       const html = fs.readFileSync(distIndexPath, 'utf-8');
-
-      // Assert no absolute paths for script tags
-      expect(html).not.toMatch(/src="\/assets\//);
-      // Assert no absolute paths for link tags
-      expect(html).not.toMatch(/href="\/assets\//);
-
-      // Assert relative paths exist
-      expect(html).toMatch(/(src|href)="\.\/assets\//);
+      const relative = /(src|href)="\.\/assets\//.test(html);
+      const absolute = /(src|href)="\/assets\//.test(html);
+      // Server builds use absolute paths; the IPFS (hash router) build uses relative ones.
+      expect(relative !== absolute).toBe(true);
     }
   });
 

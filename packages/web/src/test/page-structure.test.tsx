@@ -17,6 +17,25 @@ function renderAt(path: string) {
   );
 }
 
+describe('navigation', () => {
+  it('shows only the public tabs before a wallet is connected', async () => {
+    renderAt('/features');
+    const main = await screen.findByRole(
+      'navigation',
+      { name: 'Main' },
+      { timeout: 30_000 },
+    );
+    for (const label of ['Features', 'How it works', 'Proof']) {
+      expect(
+        main.querySelector(`a[href]`) &&
+          screen.getAllByRole('link', { name: label }).length,
+      ).toBeGreaterThan(0);
+    }
+    expect(screen.queryByRole('link', { name: 'My activity' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Recover' })).toBeNull();
+  });
+});
+
 describe('page structure', { timeout: 45_000 }, () => {
   it.each([
     ['/', /Move dollars onto Bitcoin Cash/],
@@ -24,6 +43,8 @@ describe('page structure', { timeout: 45_000 }, () => {
     ['/proof', /Proof/],
     ['/how-it-works', /How it works/],
     ['/user-guide', /User Guide/],
+    ['/app/user-guide', /User Guide/],
+    ['/app/recover', /Recover a Swap/],
   ])('shows %s without a wallet', async (path, heading) => {
     renderAt(path);
     expect(
@@ -36,7 +57,7 @@ describe('page structure', { timeout: 45_000 }, () => {
     expect(screen.queryByTestId('wallet-gate')).toBeNull();
   });
 
-  it.each(['/pay-link', '/my-activity'])(
+  it.each(['/app/pay-link', '/app/my-activity'])(
     'asks for a wallet on %s',
     async (path) => {
       renderAt(path);
@@ -50,13 +71,20 @@ describe('page structure', { timeout: 45_000 }, () => {
   );
 
   it('swap shows either the wallet gate or the not-configured notice', async () => {
-    renderAt('/swap');
+    renderAt('/app/swap');
     expect(
       await screen.findByText(
         /Configuration Incomplete|Connect a wallet to use Swap/,
         {},
         { timeout: 30_000 },
       ),
+    ).toBeInTheDocument();
+  });
+
+  it('redirects the earlier top-level app paths', async () => {
+    renderAt('/pay-link');
+    expect(
+      await screen.findByTestId('wallet-gate', {}, { timeout: 30_000 }),
     ).toBeInTheDocument();
   });
 

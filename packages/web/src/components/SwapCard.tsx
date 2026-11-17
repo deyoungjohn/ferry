@@ -27,6 +27,7 @@ import {
 import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
 import { useReducedMotion } from 'motion/react';
+import { ROUTES } from '../lib/routes';
 import { Field } from './swap-block/field';
 import { FlipButton } from './swap-block/controls';
 import { TokenPicker } from './swap-block/token-picker';
@@ -447,7 +448,7 @@ export function SwapCard({
         );
       }
       if (typeof window !== 'undefined') {
-        window.location.assign(`/swap/${orderId}`);
+        window.location.assign(ROUTES.swapOrder(orderId));
       }
     } catch (err) {
       setIsSubmitting(false);
