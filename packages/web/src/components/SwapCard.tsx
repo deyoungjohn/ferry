@@ -70,12 +70,17 @@ export function SwapCard({
 
   // Selected far chain and tokens
   const farChains = NETWORK_PROFILE.farChains;
+  const defaultChain = farChains.find((c) => c.enabled) ?? farChains[0];
   const [selectedChainId, setSelectedChainId] = useState<string | number>(
-    farChains[0]?.id ?? 8453,
+    defaultChain?.id ?? 8453,
   );
 
   const selectedChain: ChainDisplay =
-    farChains.find((c) => c.id === selectedChainId) ?? farChains[0]!;
+    farChains.find((c) => c.id === selectedChainId) ??
+    defaultChain ??
+    farChains[0]!;
+
+  const hasAnyEnabledRoute = farChains.some((c) => c.enabled);
 
   const [selectedFarToken, setSelectedFarToken] = useState<string>(
     selectedChain?.tokenSymbols[0] ?? 'USDC',
@@ -188,6 +193,27 @@ export function SwapCard({
           setRefusal(res.refusal);
           setBestSolverQuote(null);
           setMultiQuoteResult(null);
+          return;
+        }
+
+        // When solverUrls is empty (e.g. in standalone mock mode), use adapter quote directly
+        if (solverUrls.length === 0) {
+          setQuoteLoading(false);
+          if (res.signedQuote) {
+            const receiveAmount = isReverse
+              ? res.signedQuote.terms.evmAmount
+              : res.signedQuote.terms.bchTokenAmount;
+            setBestSolverQuote({
+              solverUrl: solver.getLabel ? solver.getLabel() : 'local',
+              latencyMs: 15,
+              quote: {
+                ...res.signedQuote,
+                signerAddress: '0x0000000000000000000000000000000000000000',
+                receiveAmount,
+              },
+            });
+            setRefusal(null);
+          }
           return;
         }
 
@@ -438,6 +464,7 @@ export function SwapCard({
   const submitButtonDisabled =
     Boolean(refusal) ||
     isSubmitting ||
+    !hasAnyEnabledRoute ||
     isChainDisabled ||
     isAddressEmpty ||
     hasAddressError ||
@@ -449,6 +476,7 @@ export function SwapCard({
 
   const submitButtonText = useMemo(() => {
     if (isReadOnly) return FAILURE_COPY.readOnlyMode.button;
+    if (!hasAnyEnabledRoute) return 'No routes enabled';
     if (isChainDisabled) return 'Not live yet';
     if (isSubmitting) return 'Starting swap…';
     if (isAddressEmpty) {
@@ -462,6 +490,7 @@ export function SwapCard({
     return copy.actionLabel;
   }, [
     isReadOnly,
+    hasAnyEnabledRoute,
     isChainDisabled,
     isSubmitting,
     isAddressEmpty,
@@ -541,17 +570,20 @@ export function SwapCard({
 
         {/* You send Well */}
         <div className="relative rounded-well border border-hairline bg-surface-2 p-3 transition-colors focus-within:border-lime">
-          <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-            <label htmlFor="send-input" className="font-medium">
+          <div className="flex items-center justify-between text-xs text-text-muted mb-1 gap-2">
+            <label
+              htmlFor="send-input"
+              className="font-medium shrink-0 whitespace-nowrap"
+            >
               {copy.sendLabel}
             </label>
             {!isReverse ? (
-              <div className="relative inline-flex items-center">
+              <div className="relative inline-flex items-center min-w-0 max-w-[210px] sm:max-w-[250px]">
                 <select
                   aria-label="Source chain"
                   value={selectedChainId}
                   onChange={(e) => handleChainChange(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
+                  className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime w-full max-w-full truncate"
                 >
                   {farChains.map((c) => (
                     <option
@@ -572,10 +604,12 @@ export function SwapCard({
                     </option>
                   ))}
                 </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
+                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted shrink-0" />
               </div>
             ) : (
-              <span className="text-[11px] text-text-dim">Bitcoin Cash</span>
+              <span className="text-[11px] text-text-dim shrink-0 whitespace-nowrap">
+                Bitcoin Cash
+              </span>
             )}
           </div>
 
@@ -639,15 +673,17 @@ export function SwapCard({
 
         {/* You receive Well */}
         <div className="relative rounded-well border border-hairline bg-surface-2 p-3 transition-colors">
-          <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-            <span className="font-medium">{copy.receiveLabel}</span>
+          <div className="flex items-center justify-between text-xs text-text-muted mb-1 gap-2">
+            <span className="font-medium shrink-0 whitespace-nowrap">
+              {copy.receiveLabel}
+            </span>
             {isReverse ? (
-              <div className="relative inline-flex items-center">
+              <div className="relative inline-flex items-center min-w-0 max-w-[210px] sm:max-w-[250px]">
                 <select
                   aria-label="Destination chain"
                   value={selectedChainId}
                   onChange={(e) => handleChainChange(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
+                  className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime w-full max-w-full truncate"
                 >
                   {farChains.map((c) => (
                     <option
@@ -668,10 +704,12 @@ export function SwapCard({
                     </option>
                   ))}
                 </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
+                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted shrink-0" />
               </div>
             ) : (
-              <span className="text-[11px] text-text-dim">Bitcoin Cash</span>
+              <span className="text-[11px] text-text-dim shrink-0 whitespace-nowrap">
+                Bitcoin Cash
+              </span>
             )}
           </div>
 
@@ -810,6 +848,38 @@ export function SwapCard({
                   </ul>
                 </details>
               )}
+          </div>
+        )}
+
+        {/* No routes enabled warning (B3-11) */}
+        {!hasAnyEnabledRoute && (
+          <div
+            data-testid="no-routes-enabled-alert"
+            className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn"
+            role="alert"
+          >
+            <p className="font-semibold">No swap routes currently enabled</p>
+            <p className="mt-0.5 text-[11px] text-text-muted">
+              {farChains[0]?.disabledReason ??
+                'No counterparty routes have verified HTLC deployments on this network.'}
+            </p>
+          </div>
+        )}
+
+        {/* Selected route disabled alert (B3-11) */}
+        {hasAnyEnabledRoute && isChainDisabled && (
+          <div
+            data-testid="route-disabled-alert"
+            className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn"
+            role="alert"
+          >
+            <p className="font-semibold">
+              This swap route ({selectedChain.name}) is currently disabled
+            </p>
+            <p className="mt-0.5 text-[11px] text-text-muted">
+              {selectedChain.disabledReason ??
+                'HTLC contract not deployed or route not active on this network.'}
+            </p>
           </div>
         )}
 

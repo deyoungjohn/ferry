@@ -52,7 +52,7 @@ function setup() {
     errors: [],
   };
   const bch: BchBalanceResult = {
-    byAddress: new Map([[BCH, { sats: 500_000n, pusd: 1_500n, musd: 0n }]]),
+    byAddress: new Map([[BCH, { sats: 100_000n, pusd: 1_500n, musd: 0n }]]),
     hostsOk: 2,
     hostsTotal: 2,
     errors: [],

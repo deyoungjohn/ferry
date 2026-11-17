@@ -5,9 +5,9 @@ export function Hero() {
         <span className="size-1.5 rounded-full bg-lime shadow-[0_0_8px_var(--lime)]" />
         Two-way atomic swaps · No custodian
       </div>
-      <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text sm:text-3xl md:text-4xl max-w-2xl leading-[1.15]">
+      <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text sm:text-3xl md:text-4xl max-w-2xl leading-tight">
         Move dollars onto Bitcoin Cash{' '}
-        <span className="font-accent italic text-lime text-glow">
+        <span className="font-accent italic text-lime text-glow inline-block whitespace-nowrap">
           without a bridge
         </span>
       </h1>

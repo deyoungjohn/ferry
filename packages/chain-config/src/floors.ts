@@ -6,7 +6,7 @@ export const MINIMUM_TIER = {
   otherStablecoinUsd: 10,
   pusd: 15,
   musd: 5,
-  bchSats: 500_000n,
+  bchSats: 100_000n,
 } as const;
 
 /** Stablecoin floor in base units for a chain/asset pair. */
