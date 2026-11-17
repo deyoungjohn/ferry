@@ -24,6 +24,8 @@ export interface RouteStatusItem {
   readonly direction: 'forward' | 'reverse';
   readonly enabled: boolean;
   readonly disabledReason: string | null;
+  readonly fromChain: string;
+  readonly toChain: string;
 }
 
 export interface RouteTestResult {
@@ -62,30 +64,46 @@ export function RouteStatusPage() {
     const items: RouteStatusItem[] = [];
     const chains = NETWORK_PROFILE.farChains;
 
-    for (const chain of chains) {
-      // Forward: Far Chain (USDC) -> BCH (tPUSD)
-      items.push({
-        id: `${chain.id}-forward-pusd`,
-        chainName: chain.name,
-        chainId: chain.id,
-        fromToken: 'USDC',
-        toToken: 'tPUSD',
-        direction: 'forward',
-        enabled: chain.enabled,
-        disabledReason: chain.disabledReason,
-      });
+    const bchName = NETWORK_PROFILE.bch.name;
+    const bchTokens = NETWORK_PROFILE.bch.tokenSymbols;
 
-      // Reverse: BCH (tPUSD) -> Far Chain (USDC)
-      items.push({
-        id: `${chain.id}-reverse-pusd`,
-        chainName: chain.name,
-        chainId: chain.id,
-        fromToken: 'tPUSD',
-        toToken: 'USDC',
-        direction: 'reverse',
-        enabled: chain.enabled,
-        disabledReason: chain.disabledReason,
-      });
+    for (const chain of chains) {
+      const farTokens =
+        chain.tokenSymbols.length > 0 ? chain.tokenSymbols : ['USDC'];
+      // A chain that is not live yet gets one card; a live chain gets every token and direction.
+      const tokensToList = chain.enabled ? farTokens : farTokens.slice(0, 1);
+      const bchToList = chain.enabled ? bchTokens : bchTokens.slice(0, 1);
+      for (const farToken of tokensToList) {
+        for (const bchToken of bchToList) {
+          // Forward: far chain stablecoin -> PUSD / MUSD on Bitcoin Cash
+          items.push({
+            id: `${chain.id}-${farToken}-forward-${bchToken}`,
+            chainName: chain.name,
+            chainId: chain.id,
+            fromToken: farToken,
+            toToken: bchToken,
+            direction: 'forward',
+            enabled: chain.enabled,
+            disabledReason: chain.disabledReason,
+            fromChain: chain.name,
+            toChain: bchName,
+          });
+          // Reverse: PUSD / MUSD -> far chain stablecoin
+          if (!chain.enabled) continue;
+          items.push({
+            id: `${chain.id}-${farToken}-reverse-${bchToken}`,
+            chainName: chain.name,
+            chainId: chain.id,
+            fromToken: bchToken,
+            toToken: farToken,
+            direction: 'reverse',
+            enabled: chain.enabled,
+            disabledReason: chain.disabledReason,
+            fromChain: bchName,
+            toChain: chain.name,
+          });
+        }
+      }
     }
 
     return items;
@@ -166,8 +184,8 @@ export function RouteStatusPage() {
           toToken: route.toToken,
           fromAmount: 1.0, // Minimum test amount ($1)
           lane: 'safe',
-          fromChain: route.direction === 'forward' ? 'base' : 'bch',
-          toChain: route.direction === 'forward' ? 'bch' : 'base',
+          fromChain: route.fromChain,
+          toChain: route.toChain,
         });
 
         const latency = Math.round(performance.now() - startTime);
@@ -218,6 +236,8 @@ export function RouteStatusPage() {
     },
     [solver],
   );
+
+  const hasEnabledRoutes = routes.some((route) => route.enabled);
 
   // Run test quote on all routes sequentially
   const handleTestAllRoutes = async () => {
@@ -452,6 +472,16 @@ export function RouteStatusPage() {
           <h2 className="text-sm font-semibold text-text">
             Dry-Run Test Suite
           </h2>
+          {!hasEnabledRoutes && (
+            <p
+              data-testid="no-routes-note"
+              className="mt-1 text-xs font-medium text-warn"
+            >
+              No route is enabled in this build, so there is nothing to test. A
+              route is enabled once its contract is deployed and recorded, or
+              when it is listed in VITE_ENABLED_ROUTES at build time.
+            </p>
+          )}
           <p className="text-xs text-text-muted mt-0.5">
             {ROUTE_STATUS_COPY.testAllDisclaimer}
           </p>
@@ -460,7 +490,7 @@ export function RouteStatusPage() {
           data-testid="test-all-routes-button"
           type="button"
           onClick={handleTestAllRoutes}
-          disabled={testingAll || !solverReachable}
+          disabled={testingAll || !solverReachable || !hasEnabledRoutes}
           className="inline-flex items-center justify-center gap-2 rounded-pill bg-lime px-5 py-2 text-xs font-bold text-lime-ink hover:bg-lime/90 transition-colors disabled:opacity-40 cursor-pointer shrink-0 shadow-elev-pill"
         >
           {testingAll ? (
