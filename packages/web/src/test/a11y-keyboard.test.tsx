@@ -32,7 +32,7 @@ describe('Accessibility & Keyboard Navigation (Task B3-05 §19)', () => {
     // Send amount input with accessible label
     const sendInput = screen.getByLabelText(/You send/i);
     expect(sendInput).toBeInTheDocument();
-    expect(sendInput).toHaveAttribute('type', 'number');
+    expect(sendInput).toHaveAttribute('inputmode', 'decimal');
 
     // Direction flip toggle button
     const flipButton = screen.getByRole('button', {

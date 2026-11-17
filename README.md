@@ -118,6 +118,10 @@ Without those variables the default is the mainnet profile, which shows what is 
 - **Prior testnet work:** [`ferry-testnet`](https://github.com/deyoungjohn/ferry-testnet) is a public testnet implementation built before BCH BLAZE 2026. This repository was started fresh on 15 November 2026 and is not a fork of `ferry-testnet`. Design notes and measured spike results from that testnet work live in [`preparation/`](preparation/).
 - **AI-assisted development:** this repository was written by a small swarm of AI coding agents (Claude) working in parallel under human direction, as recorded in the `Co-Authored-By` git commit trailers.
 
+## Credits
+
+The swap card's layout and token picker are adapted from the Swap block at <https://beui.dev/components/blocks/swap>, used with the maintainer's permission.
+
 ## Known limitations
 
 - **Unaudited, early mainnet:** the contracts and the solver were tested on local simulators and forks of the live chains; only a few small real swaps have run. No external security audit has been performed. Swap sizes are capped.

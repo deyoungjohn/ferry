@@ -26,7 +26,11 @@ import {
 } from '../lib/solver/pricing-display';
 import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
-import { ArrowUpDownIcon, ChevronDownIcon } from './icons';
+import { useReducedMotion } from 'motion/react';
+import { Field } from './swap-block/field';
+import { FlipButton } from './swap-block/controls';
+import { TokenPicker } from './swap-block/token-picker';
+import type { Chain, Token, TokenSide } from './swap-block/types';
 import { CopyDiagnosticsButton } from './CopyDiagnosticsButton';
 import { useToast } from '../lib/toast/ToastContext';
 
@@ -53,6 +57,15 @@ export interface SwapCardProps {
     | 'wrong_network'
     | 'read_only';
 }
+
+const CHAIN_BADGES: Record<string, string> = {
+  base: 'Bs',
+  ethereum: 'Ξ',
+  arbitrum: 'Ab',
+  arc: 'Ac',
+  bnb: 'Bn',
+  robinhood: 'Rh',
+};
 
 export function SwapCard({
   initialReverse = true, // Judge path first: leads with PUSD -> USDC (§13, §19)
@@ -459,6 +472,80 @@ export function SwapCard({
     return '0.00';
   }, [bestSolverQuote, quote, isReverse]);
 
+  // Swap block adapters: Ferry's chains and tokens expressed as the block's types.
+  const reduceMotion = useReducedMotion();
+  const [pickerSide, setPickerSide] = useState<TokenSide | null>(null);
+
+  const bchBlockChain: Chain = {
+    id: 'bch',
+    name: 'Bitcoin Cash',
+    tone: 'bg-primary text-primary-foreground',
+    symbol: '₿',
+  };
+  const farBlockChains: Chain[] = farChains.map((c) => ({
+    id: String(c.id),
+    name: c.name,
+    tone: 'bg-muted text-foreground',
+    symbol: CHAIN_BADGES[c.chainKey ?? ''] ?? c.name.slice(0, 2),
+  }));
+  const bchBlockTokens: Token[] = bchTokens.map((sym) => ({
+    id: `bch:${sym}`,
+    symbol: sym,
+    name: 'Bitcoin Cash',
+    chainId: 'bch',
+    usd: 1,
+  }));
+  const farBlockTokens: Token[] = farChains.flatMap((c) =>
+    (c.tokenSymbols.length > 0 ? c.tokenSymbols : ['USDC']).map((sym) => ({
+      id: `${String(c.id)}:${sym}`,
+      symbol: sym,
+      name: c.name,
+      chainId: String(c.id),
+      usd: 1,
+      ...(c.enabled ? {} : { disabledReason: 'Not live yet' }),
+    })),
+  );
+  const bchBlockToken = bchBlockTokens.find(
+    (t) => t.symbol === selectedBchToken,
+  ) ??
+    bchBlockTokens[0] ?? { id: 'bch:', symbol: '', name: '', chainId: 'bch' };
+  const farBlockToken = farBlockTokens.find(
+    (t) =>
+      t.chainId === String(selectedChain.id) && t.symbol === selectedFarToken,
+  ) ?? {
+    id: 'far:',
+    symbol: selectedFarToken,
+    name: selectedFarToken,
+    chainId: String(selectedChain.id),
+    usd: 1,
+  };
+  const farBlockChain =
+    farBlockChains.find((c) => c.id === String(selectedChain.id)) ??
+    farBlockChains[0] ??
+    bchBlockChain;
+  const fromBlockToken = isReverse ? bchBlockToken : farBlockToken;
+  const fromBlockChain = isReverse ? bchBlockChain : farBlockChain;
+  const toBlockToken = isReverse ? farBlockToken : bchBlockToken;
+  const toBlockChain = isReverse ? farBlockChain : bchBlockChain;
+
+  const pickerOnBch =
+    (pickerSide === 'from' && isReverse) || (pickerSide === 'to' && !isReverse);
+  const pickerChains = pickerOnBch ? [bchBlockChain] : farBlockChains;
+  const pickerTokens = pickerOnBch ? bchBlockTokens : farBlockTokens;
+  const pickerSelectedId = pickerOnBch ? bchBlockToken.id : farBlockToken.id;
+
+  function handlePickToken(id: string) {
+    const [chainPart, ...rest] = id.split(':');
+    const symbol = rest.join(':');
+    if (chainPart === 'bch') {
+      setSelectedBchToken(symbol);
+    } else {
+      handleChainChange(chainPart ?? '');
+      setSelectedFarToken(symbol);
+    }
+    setPickerSide(null);
+  }
+
   const isChainDisabled = !selectedChain.enabled;
 
   const submitButtonDisabled =
@@ -521,7 +608,7 @@ export function SwapCard({
       )}
 
       {/* Main swap card shell */}
-      <div className="card-ring relative rounded-card border border-hairline bg-surface-1 p-3.5 sm:p-4">
+      <div className="card-ring relative overflow-hidden rounded-card border border-hairline bg-surface-1 p-3.5 sm:p-4">
         {/* Lane Toggle & Liquidity Maximum Display */}
         <div className="mb-2.5 flex items-center justify-between gap-2">
           <div
@@ -568,178 +655,52 @@ export function SwapCard({
           </div>
         </div>
 
-        {/* You send Well */}
-        <div className="relative rounded-well border border-hairline bg-surface-2 p-3 transition-colors focus-within:border-lime">
-          <div className="flex items-center justify-between text-xs text-text-muted mb-1 gap-2">
-            <label
-              htmlFor="send-input"
-              className="font-medium shrink-0 whitespace-nowrap"
-            >
-              {copy.sendLabel}
-            </label>
-            {!isReverse ? (
-              <div className="relative inline-flex items-center min-w-0 max-w-[210px] sm:max-w-[250px]">
-                <select
-                  aria-label="Source chain"
-                  value={selectedChainId}
-                  onChange={(e) => handleChainChange(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime w-full max-w-full truncate"
-                >
-                  {farChains.map((c) => (
-                    <option
-                      key={c.id}
-                      value={c.id}
-                      disabled={!c.enabled}
-                      className="bg-surface-2"
-                    >
-                      {c.name}{' '}
-                      {!c.enabled
-                        ? `(${
-                            !c.disabledReason ||
-                            c.disabledReason.toLowerCase().includes('htlc')
-                              ? 'not live yet'
-                              : c.disabledReason
-                          })`
-                        : ''}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted shrink-0" />
-              </div>
-            ) : (
-              <span className="text-[11px] text-text-dim shrink-0 whitespace-nowrap">
-                Bitcoin Cash
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <input
-              id="send-input"
-              type="number"
-              step="any"
-              min="1"
-              value={sendAmount}
-              inputMode="decimal"
-              autoComplete="off"
-              onChange={(e) => setSendAmount(e.target.value)}
-              placeholder="0.0"
-              className="w-full bg-transparent text-xl sm:text-2xl font-semibold text-text outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        {/* You pay / flip / you get: the swap block */}
+        <div className="relative">
+          <Field
+            side="from"
+            token={fromBlockToken}
+            chain={fromBlockChain}
+            amount={sendAmount}
+            onAmount={setSendAmount}
+            editable
+            quoting={false}
+            onOpenPicker={() => setPickerSide('from')}
+            labels={{ youPay: copy.sendLabel }}
+          />
+          <div className="my-1">
+            <FlipButton
+              rotation={isReverse ? 180 : 0}
+              reduce={Boolean(reduceMotion)}
+              onClick={handleFlipDirection}
             />
-            {!isReverse ? (
-              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text">
-                <span>{sendTokenSymbol}</span>
-              </div>
-            ) : (
-              <div className="relative inline-flex shrink-0 items-center">
-                <select
-                  aria-label="Send token"
-                  value={selectedBchToken}
-                  onChange={(e) => setSelectedBchToken(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2.5 pr-6 py-1 rounded-pill text-xs font-semibold text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
-                >
-                  {bchTokens.map((sym: string) => (
-                    <option key={sym} value={sym} className="bg-surface-2">
-                      {sym}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
-              </div>
-            )}
           </div>
+          <Field
+            side="to"
+            token={toBlockToken}
+            chain={toBlockChain}
+            amount={displayedReceiveAmount}
+            editable={false}
+            quoting={quoteLoading}
+            onOpenPicker={() => setPickerSide('to')}
+            labels={{ youGet: copy.receiveLabel }}
+          />
           {isChainDisabled && selectedChain.disabledReason && (
             <p className="mt-1 text-[11px] text-warn">
               Route disabled: {selectedChain.disabledReason}
             </p>
           )}
         </div>
-
-        {/* Direction Toggle button in center with micro-interaction (FR / B3-10) */}
-        <div className="relative my-[-8px] z-10 flex justify-center">
-          <button
-            type="button"
-            onClick={handleFlipDirection}
-            aria-label="Toggle swap direction"
-            className="group flex size-8 items-center justify-center rounded-full border border-hairline bg-surface-3 text-text shadow-md transition-all hover:border-lime/40 hover:text-lime cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-lime active:scale-95 motion-reduce:transform-none"
-          >
-            <ArrowUpDownIcon
-              className={`size-3.5 transition-transform duration-300 ease-out motion-reduce:transition-none motion-reduce:transform-none ${
-                isReverse ? 'rotate-180' : 'rotate-0'
-              }`}
-            />
-          </button>
-        </div>
-
-        {/* You receive Well */}
-        <div className="relative rounded-well border border-hairline bg-surface-2 p-3 transition-colors">
-          <div className="flex items-center justify-between text-xs text-text-muted mb-1 gap-2">
-            <span className="font-medium shrink-0 whitespace-nowrap">
-              {copy.receiveLabel}
-            </span>
-            {isReverse ? (
-              <div className="relative inline-flex items-center min-w-0 max-w-[210px] sm:max-w-[250px]">
-                <select
-                  aria-label="Destination chain"
-                  value={selectedChainId}
-                  onChange={(e) => handleChainChange(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime w-full max-w-full truncate"
-                >
-                  {farChains.map((c) => (
-                    <option
-                      key={c.id}
-                      value={c.id}
-                      disabled={!c.enabled}
-                      className="bg-surface-2"
-                    >
-                      {c.name}{' '}
-                      {!c.enabled
-                        ? `(${
-                            !c.disabledReason ||
-                            c.disabledReason.toLowerCase().includes('htlc')
-                              ? 'not live yet'
-                              : c.disabledReason
-                          })`
-                        : ''}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted shrink-0" />
-              </div>
-            ) : (
-              <span className="text-[11px] text-text-dim shrink-0 whitespace-nowrap">
-                Bitcoin Cash
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xl sm:text-2xl font-semibold text-text">
-              {displayedReceiveAmount}
-            </div>
-            {isReverse ? (
-              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text">
-                <span>{receiveTokenSymbol}</span>
-              </div>
-            ) : (
-              <div className="relative inline-flex shrink-0 items-center">
-                <select
-                  aria-label="Receive token"
-                  value={selectedBchToken}
-                  onChange={(e) => setSelectedBchToken(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2.5 pr-6 py-1 rounded-pill text-xs font-semibold text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
-                >
-                  {bchTokens.map((sym: string) => (
-                    <option key={sym} value={sym} className="bg-surface-2">
-                      {sym}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
-              </div>
-            )}
-          </div>
-        </div>
+        <TokenPicker
+          open={pickerSide !== null}
+          side={pickerSide}
+          chains={pickerChains}
+          tokens={pickerTokens}
+          selectedId={pickerSelectedId}
+          onPick={handlePickToken}
+          onClose={() => setPickerSide(null)}
+          reduce={Boolean(reduceMotion)}
+        />
 
         {/* Destination Recipient Address Well (Judge Path - §13, §19) */}
         <div className="mt-2.5 rounded-well border border-hairline bg-surface-2 p-3 transition-colors focus-within:border-lime">

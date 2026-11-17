@@ -189,12 +189,9 @@ describe('First-Impression Polish (Task B3-10)', () => {
       // Button has motion-reduce class
       expect(toggleButton.className).toContain('motion-reduce:transform-none');
 
-      // The icon inside rotates on toggle
-      const svgIcon = toggleButton.querySelector('svg');
-      expect(svgIcon).not.toBeNull();
-      expect(
-        svgIcon?.className.baseVal || svgIcon?.getAttribute('class'),
-      ).toContain('motion-reduce:transition-none');
+      // The icon sits inside the button; motion's own reduced-motion switch
+      // removes the rotation, so there is no per-icon class to check.
+      expect(toggleButton.querySelector('svg')).not.toBeNull();
     });
 
     it('enforces dark theme only in CSS tokens', () => {

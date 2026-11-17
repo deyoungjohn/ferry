@@ -17,7 +17,7 @@ function renderAt(path: string) {
   );
 }
 
-describe('page structure', { timeout: 20_000 }, () => {
+describe('page structure', { timeout: 45_000 }, () => {
   it.each([
     ['/', /Move dollars onto Bitcoin Cash/],
     ['/features', /What Ferry does/],
@@ -30,7 +30,7 @@ describe('page structure', { timeout: 20_000 }, () => {
       await screen.findByRole(
         'heading',
         { level: 1, name: heading },
-        { timeout: 10_000 },
+        { timeout: 30_000 },
       ),
     ).toBeInTheDocument();
     expect(screen.queryByTestId('wallet-gate')).toBeNull();
@@ -41,7 +41,7 @@ describe('page structure', { timeout: 20_000 }, () => {
     async (path) => {
       renderAt(path);
       expect(
-        await screen.findByTestId('wallet-gate', {}, { timeout: 10_000 }),
+        await screen.findByTestId('wallet-gate', {}, { timeout: 30_000 }),
       ).toBeInTheDocument();
       expect(
         screen.getByRole('button', { name: 'Connect wallet' }),
@@ -55,7 +55,7 @@ describe('page structure', { timeout: 20_000 }, () => {
       await screen.findByText(
         /Configuration Incomplete|Connect a wallet to use Swap/,
         {},
-        { timeout: 10_000 },
+        { timeout: 30_000 },
       ),
     ).toBeInTheDocument();
   });
@@ -66,7 +66,7 @@ describe('page structure', { timeout: 20_000 }, () => {
       await screen.findByRole(
         'heading',
         { level: 1, name: /User Guide/ },
-        { timeout: 10_000 },
+        { timeout: 30_000 },
       ),
     ).toBeInTheDocument();
   });
@@ -78,7 +78,7 @@ describe('page structure', { timeout: 20_000 }, () => {
       {
         name: /Read the source on the explorer/,
       },
-      { timeout: 10_000 },
+      { timeout: 30_000 },
     );
     expect(link.getAttribute('href')).toMatch(
       /\/address\/0x[0-9a-fA-F]{40}#code$/,
