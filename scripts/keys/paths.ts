@@ -23,6 +23,11 @@ function gitRoot(cwd: string): string | null {
   }
 }
 
+/** The directory the user typed the command in (pnpm sets INIT_CWD), else the working directory. */
+export function invocationDir(): string {
+  return process.env['INIT_CWD'] ?? process.cwd();
+}
+
 export function defaultKeyPath(cwd = process.cwd()): string {
   return join(gitRoot(cwd) ?? cwd, '.env.mainnet.local');
 }

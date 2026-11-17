@@ -6,7 +6,7 @@ import {
 } from '../../packages/chain-config/src/key-file.js';
 import { loadChainConfig } from '../../packages/chain-config/src/config.js';
 import { checkOnlineCodes, type CodeReader } from './online.js';
-import { readKeyFile } from './paths.js';
+import { readKeyFile, invocationDir } from './paths.js';
 
 export interface CheckOptions {
   file: string;
@@ -19,7 +19,7 @@ export interface CheckOptions {
 
 export function parseCheckArgs(
   argv: readonly string[],
-  cwd = process.cwd(),
+  cwd = invocationDir(),
 ): { file: string; online: boolean } {
   let file: string | undefined;
   let online = false;
@@ -46,12 +46,12 @@ export function parseCheckArgs(
 
 function printCheck(out: (line: string) => void, check: KeyCheck): void {
   out(
-    `${check.ok ? 'PASS' : 'FAIL'} ${check.name}${check.detail === null ? '' : `: ${check.detail}`}`,
+    `${check.ok ? 'PASS' : 'FAIL'} ${check.name}${check.ok || check.detail === null ? '' : `: ${check.detail}`}`,
   );
 }
 
 export async function runCheck(options: CheckOptions): Promise<number> {
-  const cwd = options.cwd ?? process.cwd();
+  const cwd = options.cwd ?? invocationDir();
   const out = options.stdout ?? ((line: string) => console.log(line));
   const err = options.stderr ?? ((line: string) => console.error(line));
 

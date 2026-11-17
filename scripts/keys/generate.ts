@@ -8,7 +8,12 @@ import {
   buildKeyFile,
   evidenceBlock,
 } from '../../packages/chain-config/src/key-file.js';
-import { assertNewKeyPath, defaultKeyPath, writeKeyFile } from './paths.js';
+import {
+  assertNewKeyPath,
+  defaultKeyPath,
+  writeKeyFile,
+  invocationDir,
+} from './paths.js';
 
 export interface GenerateOptions {
   file?: string;
@@ -21,7 +26,7 @@ export interface GenerateOptions {
 
 export function parseGenerateArgs(
   argv: readonly string[],
-  cwd = process.cwd(),
+  cwd = invocationDir(),
 ): { file: string } {
   let file: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
@@ -43,7 +48,7 @@ export function parseGenerateArgs(
 }
 
 export function runGenerate(options: GenerateOptions = {}): number {
-  const cwd = options.cwd ?? process.cwd();
+  const cwd = options.cwd ?? invocationDir();
   const out = options.stdout ?? ((line: string) => console.log(line));
   const err = options.stderr ?? ((line: string) => console.error(line));
   try {
