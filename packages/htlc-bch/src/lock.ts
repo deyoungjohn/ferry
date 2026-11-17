@@ -15,6 +15,7 @@ import {
   type Transaction,
 } from '@bitauth/libauth';
 import { internalToDisplayCategory } from './byte-order.js';
+import { assertLockOutputBindsRedeemScript } from './p2sh32.js';
 import {
   deriveHtlcAddresses,
   encodeHtlcParameters,
@@ -531,6 +532,12 @@ export function buildLockTransaction(
   }
 
   const categoryBytes = hexToBin(displayCategory);
+  // Funds sent to an output whose hash does not match the redeem script can
+  // never be spent: stop before anything is built or signed.
+  assertLockOutputBindsRedeemScript(
+    htlcDerivation.lockingBytecode,
+    htlcDerivation.redeemScript,
+  );
   const outputs: Output[] = [
     {
       lockingBytecode: htlcDerivation.lockingBytecode,

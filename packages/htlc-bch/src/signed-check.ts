@@ -8,6 +8,7 @@ import {
   type Transaction,
 } from '@bitauth/libauth';
 import type { WcSourceOutput } from './lock.js';
+import { findP2sh32Mismatch } from './p2sh32.js';
 
 export interface SignedInputDiagnostic {
   readonly index: number;
@@ -214,6 +215,23 @@ export function inspectSignedTransaction(
       `Expected ${signed.inputs.length} source outputs, received ${sourceOutputs.length}.`,
     );
   } else if (problems.length === 0) {
+    const mismatch = findP2sh32Mismatch(
+      signed,
+      sourceOutputs.map((output) => output.lockingBytecode),
+    );
+    if (mismatch !== null) {
+      problems.push(mismatch.message);
+      failedInput ??= mismatch.inputIndex;
+      const flagged = inputs[mismatch.inputIndex];
+      if (flagged) {
+        inputs[mismatch.inputIndex] = {
+          ...flagged,
+          scriptError: mismatch.message,
+        };
+      }
+    }
+  }
+  if (problems.length === 0 && sourceOutputs.length === signed.inputs.length) {
     const vm = createVirtualMachineBCH();
     const result = vm.verify({
       sourceOutputs: sourceOutputs.map((output) => ({
