@@ -79,6 +79,25 @@ Covered by the suites above; times are from the rehearsal.
 | htlc-evm scripts                       |                      57.7% | deploy 56.5%, verify-commands 56.3%                                |
 | FerryHTLC.sol (forge, minimum-IR mode) | 98.1% lines, 100% branches | -                                                                  |
 
+## 7. Read-only data soak (price and EVM sources, 32 minutes, 11:38 to 12:10 UTC)
+
+Run with `--no-fulcrum` because wss is blocked in this sandbox; the BCH quorum was not exercised.
+
+| Source group                                                   | Samples each | Success | p50 / p95 latency               | Longest outage |
+| -------------------------------------------------------------- | -----------: | ------: | ------------------------------- | -------------: |
+| Chainlink USDC and USDT feeds on Base, Ethereum, Arbitrum, BNB |           32 |    100% | 108 to 127 ms / 146 to 219 ms   |            0 s |
+| EVM tip, four chains                                           |           32 |    100% | 435 to 717 ms / 612 to 1,027 ms |            0 s |
+| `eth_getLogs` over 100 blocks, four chains                     |           32 |    100% | 89 to 698 ms / 136 to 833 ms    |            0 s |
+| BCH/USD (Coinbase and Kraken)                                  |           64 |    100% | 368 / 491 ms                    |            0 s |
+| Cauldron PUSD and MUSD                                         |           64 |    100% | 625 to 646 / 687 to 708 ms      |            0 s |
+| Paryon PUSD                                                    |           64 |    100% | 616 / 673 ms                    |            0 s |
+
+Findings:
+
+- Slowest source: the Base public RPC tip read (p95 1,027 ms); still far inside a 10 s timeout. Maximum EVM tip age observed: 11 s.
+- **Paryon readings were flagged stale in 54 of 64 samples**, and **Paryon and Cauldron PUSD prices disagreed by more than 1% in all 64 samples** (none above 2%). Either the Paryon timestamp is not refreshed as often as the 30 s sampling, or the two sources differ by a steady margin. The peg guard policy decides whether quoting pauses at 1%; this should be understood before funding the solver (owner: bch-prices and solver).
+- Suggested thresholds were unchanged: EVM tip age 120 s, request timeout 10 s.
+
 ## 6. Open risks, by launch impact
 
 1. **`record-deployment` rejects a correct deployment** (chain-config). The on-chain code differs from the build output only in the two immutable slots, and the check does not zero them before hashing. The runbook's record step will fail after the real Base deploy. Fix: mask the immutable ranges of the artifact before comparing.
@@ -87,4 +106,5 @@ Covered by the suites above; times are from the rehearsal.
 4. **Re-running the deploy script on an already deployed address does not print the deploy block.**
 5. **Foundry versions differ**: the rehearsal used a forge flag that current releases reject; fixed. CI pins 1.8.3.
 6. Low coverage in `chain-config` preflight and RPC reading, and in the solver's pay-link and BCH lock builder, is untested on the happy path by unit tests (the rehearsal covers some of it).
-7. Not exercised in this sandbox: BCH Fulcrum quorum (wss blocked); the maintainer's machine runs it.
+7. **Paryon staleness and Paryon versus Cauldron disagreement** (section 7); decide whether the peg guard's 1% rule would have paused quoting during this window.
+8. Not exercised in this sandbox: BCH Fulcrum quorum (wss blocked); the maintainer's machine runs it.
