@@ -18,7 +18,11 @@ const ARTIFACT: DeploymentArtifact = {
 const PREDICTED = predictHtlcAddress();
 
 function data(): ChainConfigData {
-  return parseChainConfigData(loadChainData());
+  // The shipped data already records the real Base deployment; start from a clean slate.
+  const clean = parseChainConfigData(loadChainData());
+  clean.chains.base.mainnet.deployment.htlcAddress = null;
+  clean.chains.base.mainnet.deployment.deployBlock = null;
+  return clean;
 }
 
 function clientAt(blocks: Record<number, Hex>): DeploymentClient {

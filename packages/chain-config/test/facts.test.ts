@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CHAIN_IDS,
   NETWORKS,
+  PREDICTED_FERRY_HTLC_ADDRESS,
   loadChainData,
   parseChainConfigData,
   routeIneligibilityReasons,
@@ -64,6 +65,13 @@ describe('chain fact data', () => {
     for (const id of CHAIN_IDS) {
       for (const network of NETWORKS) {
         const deployment = data.chains[id][network].deployment;
+        // Base mainnet was deployed and recorded on 2026-11-17; every other row stays null.
+        if (id === 'base' && network === 'mainnet') {
+          expect(deployment.htlcAddress).toBe(PREDICTED_FERRY_HTLC_ADDRESS);
+          expect(deployment.deployBlock).toBe(58633459);
+          expect(deployment.evidence.status).toBe('verified');
+          continue;
+        }
         expect(deployment.htlcAddress).toBeNull();
         expect(deployment.deployBlock).toBeNull();
         expect(deployment.relayCostUsd).toBeNull();
