@@ -79,6 +79,14 @@ describe('RealSolverClient against the live response shapes', () => {
   });
 
   it('refuses to build a live swap before execution is switched on', async () => {
-    await expect(client.createOrder()).rejects.toThrow(/not switched on/);
+    // Read the message by hand: under the shared-worker runner the thrown Error can come from
+    // another realm, and toThrow then sees an empty message.
+    const thrown = await client.createOrder().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(String((thrown as { message?: unknown } | null)?.message)).toMatch(
+      /not switched on/,
+    );
   });
 });
