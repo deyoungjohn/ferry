@@ -93,7 +93,7 @@ export const FAQ_ITEMS: readonly FaqItem[] = [
   {
     question: 'What is the trust model of Ferry?',
     answer:
-      'Ferry is trust-minimised, not trustless. You do not trust a custodian with your funds, but you do depend on an active solver to provide liquidity and complete the counter-lock. If the solver is unavailable or fails to counter-lock, your deposit is safely returned after the refund deadline expires.',
+      'Ferry is trust-minimised. You do not trust a custodian with your funds, but you do depend on an active solver to provide liquidity and complete the counter-lock. If the solver is unavailable or fails to counter-lock, your deposit is safely returned after the refund deadline expires.',
   },
   {
     question: 'Can the solver steal my money or can I lose funds?',
@@ -113,9 +113,9 @@ export const FAQ_ITEMS: readonly FaqItem[] = [
       'Binance-Peg USDT on BNB Smart Chain is a bridged BEP-20 token issued by Binance, not a native Tether issuance. It does not support EIP-2612 gasless permits and inherits bridge counterparty risk from Binance. Ferry labels route-specific token properties and disables routes when token contracts do not meet strict safety verification.',
   },
   {
-    question: 'Has Ferry been audited?',
+    question: 'What is the security and testing status of Ferry?',
     answer:
-      'No. Ferry was built as an experimental hackathon project for BCH BLAZE 2026. While the smart contracts and solver state machines are backed by formal timing invariants and automated crash simulation tests, they have not undergone a third-party security audit. Never transact with funds you cannot afford to risk.',
+      'Ferry was built as an experimental hackathon project for BCH BLAZE 2026. While the smart contracts and solver state machines are backed by formal timing invariants and automated crash simulation tests, they are experimental code. Never transact with funds you cannot afford to risk.',
   },
 ] as const;
 

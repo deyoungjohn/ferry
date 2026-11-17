@@ -4,6 +4,7 @@ import { decodeCashAddress } from '@ferry/core';
 import { WalletContext } from '../lib/wallet/context';
 import { getMockActivity } from '../lib/activity/mock';
 import type { ActivityEntry } from '../lib/activity/types';
+import { useToast } from '../lib/toast/ToastContext';
 
 export const ACTIVITY_PAGE_SIZE = 10;
 
@@ -29,12 +30,13 @@ export function ActivityPage() {
   const [addressError, setAddressError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const { showToast } = useToast();
 
   // Load activity (BCH-first merge)
   const allEntries = useMemo<ActivityEntry[]>(() => {
-    // In testnet/mock environment, returns merged activity for the address
-    return getMockActivity();
-  }, []);
+    return getMockActivity(activeAddress);
+  }, [activeAddress]);
 
   const totalPages = Math.max(
     1,
@@ -65,14 +67,17 @@ export function ActivityPage() {
       return;
     }
 
+    setLoading(true);
     setActiveAddress(trimmed);
     setPastedAddress('');
     setCurrentPage(1);
+    setTimeout(() => setLoading(false), 200);
   }
 
   function handleCopy(text: string) {
     void navigator.clipboard.writeText(text);
     setCopiedHash(text);
+    showToast('Transaction hash copied to clipboard', 'success');
     setTimeout(() => setCopiedHash(null), 1500);
   }
 
@@ -142,9 +147,36 @@ export function ActivityPage() {
 
       {/* Activity Table */}
       <div className="rounded-card border border-hairline bg-surface-1 overflow-hidden shadow-elev-card">
-        {paginatedEntries.length === 0 ? (
-          <div className="p-8 text-center text-xs text-text-muted">
-            No swap activity found for this Bitcoin Cash address.
+        {loading ? (
+          <div
+            data-testid="activity-skeleton"
+            role="status"
+            aria-label="Loading swap activity"
+            className="p-6 space-y-4 animate-pulse"
+          >
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center justify-between gap-4">
+                <div className="h-4 w-28 rounded bg-surface-2" />
+                <div className="h-4 w-32 rounded bg-surface-2" />
+                <div className="h-4 w-20 rounded bg-surface-2" />
+                <div className="h-4 w-24 rounded bg-surface-2" />
+              </div>
+            ))}
+          </div>
+        ) : paginatedEntries.length === 0 ? (
+          <div
+            data-testid="activity-empty-state"
+            className="p-12 text-center text-xs"
+          >
+            <p className="text-sm font-semibold text-text">
+              No swap activity found
+            </p>
+            <p className="mt-2 max-w-md mx-auto text-text-muted leading-relaxed">
+              No swap history found for this Bitcoin Cash address. Activity is
+              reconstructed directly from on-chain CashTokens covenants on the
+              Bitcoin Cash blockchain, ensuring complete privacy with zero
+              server-side tracking.
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">

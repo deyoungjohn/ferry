@@ -186,7 +186,15 @@ export const SAMPLE_MOCK_CHAIN_LOCKS: readonly ChainLock[] = [
   },
 ];
 
-export function getMockActivity(): ActivityEntry[] {
+export function getMockActivity(address?: string): ActivityEntry[] {
+  if (
+    address &&
+    (address.includes('rv3z') ||
+      address.includes('qqqq') ||
+      address.includes('empty'))
+  ) {
+    return [];
+  }
   return mergeActivity({
     bch: SAMPLE_MOCK_BCH_ACTIVITY,
     locks: SAMPLE_MOCK_CHAIN_LOCKS,

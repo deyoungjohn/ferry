@@ -50,15 +50,44 @@ export function RecentSwapsTable() {
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
-              {!data || data.items.length === 0 ? (
+              {!data ? (
+                [0, 1, 2, 3].map((idx) => (
+                  <tr
+                    key={idx}
+                    data-testid="recent-swaps-skeleton"
+                    className="animate-pulse"
+                  >
+                    <td className="px-4 py-3.5">
+                      <div className="h-4 w-24 rounded bg-surface-2" />
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <div className="h-4 w-24 rounded bg-surface-2" />
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <div className="h-4 w-12 rounded bg-surface-2" />
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <div className="h-4 w-28 rounded bg-surface-2" />
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <div className="h-4 w-28 rounded bg-surface-2" />
+                    </td>
+                  </tr>
+                ))
+              ) : data.items.length === 0 ? (
                 <tr>
                   <td
                     colSpan={5}
-                    className="px-4 py-8 text-center text-text-muted"
+                    data-testid="recent-swaps-empty"
+                    className="px-4 py-12 text-center"
                   >
-                    {!data
-                      ? 'Loading recent swaps…'
-                      : 'No swap activity recorded yet.'}
+                    <p className="text-sm font-semibold text-text">
+                      No swaps settled yet
+                    </p>
+                    <p className="mt-1 text-xs text-text-muted">
+                      Live order settlements will appear here as swaps complete
+                      on-chain.
+                    </p>
                   </td>
                 </tr>
               ) : (
