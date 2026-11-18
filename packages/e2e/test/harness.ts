@@ -348,6 +348,8 @@ export async function startInProcessSolver(params: {
   };
 
   const config = loadConfigFromEnv({
+    // The local harness has no live price or gas feeds; the live cost model has its own tests.
+    COST_MODEL_ENABLED: '0',
     ALLOW_DEV_KEYS: '1',
     OPERATOR_TOKEN: 'a'.repeat(32),
     SOLVER_EVM_PRIVATE_KEY: params.solverKey ?? SOLVER_KEY,
