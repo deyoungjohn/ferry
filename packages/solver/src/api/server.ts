@@ -3,7 +3,13 @@ import cors from '@fastify/cors';
 import { timingSafeEqual } from 'node:crypto';
 import type pino from 'pino';
 import { privateKeyToAccount } from 'viem/accounts';
-import type { Address, PublicClient } from 'viem';
+import {
+  createPublicClient,
+  http,
+  type Address,
+  type PublicClient,
+} from 'viem';
+import { base, baseSepolia } from 'viem/chains';
 import {
   decodeCashAddress,
   DEFAULT_TIMING_CONFIG,
@@ -138,6 +144,7 @@ export interface BuildServerOptions {
   costModelReader?: LiveCostModelReader | undefined;
 }
 
+export const createSolverServer = buildServer;
 export function buildServer(options: BuildServerOptions): FastifyInstance {
   const { config, db, evmAdapter, bchClient, engine, priceSource } = options;
 
@@ -281,11 +288,36 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     (options.publicClient ||
       (evmAdapter as unknown as { client?: PublicClient })?.client);
 
+  const baseClients: PublicClient[] = [];
+  if (liveCostClient) {
+    baseClients.push(liveCostClient);
+  }
+  if (config.baseRpcUrls) {
+    const viemChain = config.network === 'mainnet' ? base : baseSepolia;
+    const urls = config.baseRpcUrls
+      .split(',')
+      .map((u) => u.trim())
+      .filter(Boolean);
+    for (const url of urls) {
+      try {
+        baseClients.push(
+          createPublicClient({
+            chain: viemChain,
+            transport: http(url),
+          }) as unknown as PublicClient,
+        );
+      } catch {
+        // ignore invalid URL format
+      }
+    }
+  }
+
   const costModelReader =
     options.costModelReader ??
-    (liveCostClient
+    (baseClients.length > 0 || liveCostClient
       ? new LiveCostModelReader({
           client: liveCostClient,
+          clients: baseClients.length > 0 ? baseClients : undefined,
           bchClient,
           ethUsdFeedAddress: config.ethUsdFeedAddress as `0x${string}`,
           limits: {
@@ -294,10 +326,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
             baseGasMaxAgeSeconds: config.baseGasMaxAgeSeconds,
             bchFeeRateMaxAgeSeconds: config.bchFeeRateMaxAgeSeconds,
             bchUsdDisagreementPercent: config.bchUsdDisagreementPercent,
+            costFeedGraceSeconds: config.costFeedGraceSeconds,
           },
           costSafetyPercent: config.costSafetyPercent,
           minMarginUsdMicros: config.minMarginUsdMicros,
           cacheTtlSeconds: config.costCacheTtlSeconds,
+          costFeedGraceSeconds: config.costFeedGraceSeconds,
         })
       : undefined);
 
@@ -1365,8 +1399,14 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       }
 
       const txHash = claimTxRef.txId;
-      order.solverClaimTxId = txHash;
-      order.status = 'SOLVER_CLAIM_BROADCAST';
+      if (order.direction === 'BCH_TO_EVM') {
+        order.secret = secretToUse;
+        order.userClaimTxId = txHash;
+        order.status = 'USER_CLAIM_SEEN';
+      } else {
+        order.solverClaimTxId = txHash;
+        order.status = 'SOLVER_CLAIM_BROADCAST';
+      }
       order.updatedAt = now;
       db.saveOrder(order);
 
@@ -1452,6 +1492,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const isQuotingActive = config.quotingEnabled && !db.isQuotingPaused();
     const ok = bchHealth.isHealthy && evmHealthy && isQuotingActive;
 
+    const costFeeds = costModelReader
+      ? costModelReader.getFeedStatuses()
+      : undefined;
+
     const response = {
       ok,
       quotingEnabled: isQuotingActive,
@@ -1464,6 +1508,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         bchSeconds,
         evmSeconds,
       },
+      ...(costFeeds ? { costFeeds } : {}),
     };
 
     HealthResponseSchema.parse(response);
@@ -2798,29 +2843,32 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         );
       }
 
+      const now = Math.floor(Date.now() / 1000);
       let status:
-        'pending_lock' | 'locked' | 'claimed' | 'refunded' | 'expired' =
-        'pending_lock';
-      if (order.status === 'QUOTED' || order.status === 'PENDING') {
-        status = 'pending_lock';
+        'pending_lock' | 'locked' | 'claimed' | 'refunded' | 'expired';
+      if (
+        order.status === 'SWAP_COMPLETE' ||
+        order.status === 'CLAIMED' ||
+        order.status === 'SOLVER_CLAIM_FINAL' ||
+        order.status === 'SOLVER_CLAIM_BROADCAST' ||
+        order.status === 'USER_CLAIM_SEEN' ||
+        order.status === 'USER_CLAIM_FINAL'
+      ) {
+        status = 'claimed';
+      } else if (order.status === 'REFUNDED') {
+        status = 'refunded';
+      } else if (order.status === 'EXPIRED' || now > terms.evmDeadline) {
+        status = 'expired';
       } else if (
         order.status === 'USER_LOCK_SEEN' ||
+        order.status === 'USER_LOCK_FINAL' ||
         order.status === 'SOLVER_LOCK_SEEN' ||
         order.status === 'SOLVER_LOCK_BROADCAST' ||
         order.status === 'LOCKED'
       ) {
         status = 'locked';
-      } else if (
-        order.status === 'SWAP_COMPLETE' ||
-        order.status === 'CLAIMED' ||
-        order.status === 'SOLVER_CLAIM_FINAL' ||
-        order.status === 'USER_CLAIM_SEEN'
-      ) {
-        status = 'claimed';
-      } else if (order.status === 'REFUNDED') {
-        status = 'refunded';
-      } else if (order.status === 'EXPIRED') {
-        status = 'expired';
+      } else {
+        status = 'pending_lock';
       }
 
       const note = db.getSendLinkNote(order.id);

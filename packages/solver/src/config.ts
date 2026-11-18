@@ -72,6 +72,8 @@ export const SolverConfigSchema = z
     costSafetyPercent: z.coerce.number().default(25),
     minMarginUsdMicros: z.coerce.bigint().default(0n),
     costCacheTtlSeconds: z.coerce.number().default(45),
+    costFeedGraceSeconds: z.coerce.number().default(900),
+    baseRpcUrls: z.string().optional(),
     ethUsdFeedAddress: z
       .string()
       .regex(/^0x[0-9a-fA-F]{40}$/)
@@ -315,6 +317,8 @@ export function loadConfigFromEnv(
     costSafetyPercent: env.COST_SAFETY_PERCENT,
     minMarginUsdMicros: env.MIN_MARGIN_USD_MICROS,
     costCacheTtlSeconds: env.COST_CACHE_TTL_SECONDS,
+    costFeedGraceSeconds: env.COST_FEED_GRACE_SECONDS,
+    baseRpcUrls: env.BASE_RPC_URLS,
     ethUsdFeedAddress: env.ETH_USD_FEED_ADDRESS,
     ethUsdMaxAgeSeconds: env.ETH_USD_MAX_AGE_SECONDS,
     bchUsdMaxAgeSeconds: env.BCH_USD_MAX_AGE_SECONDS,
