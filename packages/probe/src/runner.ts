@@ -156,6 +156,7 @@ export function createDefaultEvmPort(
                 to: tx.to,
                 data: tx.data,
                 value: tx.value ?? 0n,
+                ...(tx.gas !== undefined ? { gas: tx.gas } : {}),
               }),
           },
           evmChain: {

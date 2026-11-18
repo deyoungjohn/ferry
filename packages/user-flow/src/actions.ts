@@ -41,6 +41,31 @@ interface ApproveLockPayload {
     readonly address: Hex;
     readonly args: readonly [Hex, Hex, bigint, Hex32, bigint];
   };
+  /**
+   * The complete ordered list to send: a reset to zero when the token needs it,
+   * the approval, then the lock. Absent in older payloads.
+   */
+  readonly transactions?: readonly WalletStep[];
+}
+
+interface WalletStep {
+  readonly kind: string;
+  readonly to: Hex;
+  readonly data: Hex;
+  readonly value?: bigint;
+  readonly gas?: bigint;
+}
+
+/**
+ * The permit's `v`. `parseSignature` gives `v` for a signature ending in 1b or
+ * 1c but only `yParity` (0 or 1) for one ending in 00 or 01.
+ */
+function permitV(signature: {
+  v?: bigint | undefined;
+  yParity?: number | undefined;
+}): number {
+  if (signature.v !== undefined) return Number(signature.v);
+  return signature.yParity === 1 ? 28 : 27;
 }
 
 function messageOf(error: unknown): string {
@@ -91,7 +116,7 @@ export async function lockUserOnEvm(
       permit: {
         value: terms.evmAmount,
         deadline: Number(payload.permitTypedData.message.deadline),
-        v: Number(permit.v ?? 27n),
+        v: permitV(permit),
         r: permit.r,
         s: permit.s,
       },
@@ -102,6 +127,10 @@ export async function lockUserOnEvm(
       signature: intentSig,
     });
     return response.txHash;
+  }
+
+  if (payload.transactions !== undefined && payload.transactions.length > 0) {
+    return sendInOrder(context, terms, payload.transactions);
   }
 
   const approveHash = await guardWallet(() =>
@@ -129,6 +158,39 @@ export async function lockUserOnEvm(
   );
   await evmChain.waitForReceipt(lockHash);
   return lockHash;
+}
+
+/**
+ * Send the planned transactions one at a time, in order, each one mined before
+ * the next is sent: the approval may depend on a reset, and the lock on the
+ * approval. The list must end with the lock; the lock's hash is returned.
+ */
+async function sendInOrder(
+  context: EvmLockContext,
+  terms: OrderTerms,
+  steps: readonly WalletStep[],
+): Promise<Hex32> {
+  if (steps[steps.length - 1]?.kind !== 'lock') {
+    throw new UserFlowError(
+      'INVALID_INPUT',
+      'The planned transactions do not end with the lock, so nothing was sent.',
+    );
+  }
+  let lastHash: Hex32 | null = null;
+  for (const step of steps) {
+    const hash = await guardWallet(() =>
+      context.evmSigner.sendTransaction({
+        to: step.to,
+        data: step.data,
+        value: step.value ?? 0n,
+        chainId: terms.evmChainId,
+        ...(step.gas !== undefined ? { gas: step.gas } : {}),
+      }),
+    );
+    await context.evmChain.waitForReceipt(hash);
+    lastHash = hash;
+  }
+  return lastHash as Hex32;
 }
 
 export interface BchLockContext {
