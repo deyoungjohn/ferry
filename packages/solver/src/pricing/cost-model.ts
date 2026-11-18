@@ -373,6 +373,9 @@ export function applyCostModelToQuote(
   ];
 
   const costBreakdown: CostBreakdown = {
+    pricingChoice,
+    gasUnits: params.routeCost.gasUnits.toString(),
+    bchTxBytes: params.routeCost.bchTxBytes,
     gasCostUsd: formatUsdMicrosToDecimal(params.routeCost.gasCostUsdMicros),
     bchFeeCostUsd: formatUsdMicrosToDecimal(
       params.routeCost.bchFeeCostUsdMicros,
