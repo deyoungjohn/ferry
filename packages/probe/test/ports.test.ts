@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { EvmChainConfig, Hex, Hex32, OrderTerms } from '@ferry/core';
+import {
+  binToHex,
+  decodeTransaction,
+  hexToBin,
+  lockingBytecodeToCashAddress,
+  type Transaction,
+} from '@bitauth/libauth';
+import { deriveHtlcAddresses, encodeHtlcParameters } from '@ferry/htlc-bch';
+import { createKeyBackedBchSigner } from '@ferry/user-flow';
 import type { PublicClient, WalletClient } from 'viem';
 import {
   createDefaultBchPort,
@@ -165,6 +174,70 @@ describe('@ferry/probe default ports and formatters', () => {
     expect(request.permit.deadline).toBe(SAMPLE_TERMS.quoteExpiry + 3600);
     expect(request.intent.deadline).toBe(SAMPLE_TERMS.quoteExpiry + 3600);
     expect(request.permit.v).toBe(27);
+  });
+
+  it('locks on Bitcoin Cash through the shared library, keeping the token data of the funding output', async () => {
+    const privateKey = new Uint8Array(32).fill(0x31);
+    const signer = createKeyBackedBchSigner(privateKey);
+    const lockingHex = binToHex(signer.lockingBytecode);
+    const keys = {
+      evmPrivateKey: `0x${'01'.repeat(32)}` as Hex32,
+      evmAddress: SAMPLE_TERMS.userEvmAddress,
+      bchPrivateKey: privateKey,
+      bchLockingBytecode: `0x${lockingHex}` as Hex,
+      bchCashAddress: (
+        lockingBytecodeToCashAddress({
+          bytecode: signer.lockingBytecode,
+          prefix: 'bchtest',
+          tokenSupport: false,
+        }) as { address: string }
+      ).address,
+      source: 'env' as const,
+    };
+    const terms: OrderTerms = {
+      ...SAMPLE_TERMS,
+      direction: 'BCH_TO_EVM',
+      userBchLockingBytecode: keys.bchLockingBytecode,
+    };
+    const asked: string[] = [];
+    const broadcasts: string[] = [];
+    const port = createDefaultBchPort(
+      {
+        getTipHeight: async () => 500_000,
+        getUtxos: async (lockingBytecode) => {
+          asked.push(String(lockingBytecode));
+          // The shape a Fulcrum server answers with.
+          return [
+            {
+              tx_hash: 'ab'.repeat(32),
+              tx_pos: 1,
+              value: 50_000,
+              token_data: { category: 'ec'.repeat(32), amount: '1000' },
+            },
+          ] as never;
+        },
+        broadcast: async (txHex) => {
+          broadcasts.push(txHex);
+          return 'cd'.repeat(32);
+        },
+      },
+      'chipnet',
+    );
+
+    const txid = await port.lock(terms, keys, 1);
+
+    expect(txid).toBe(`0x${'cd'.repeat(32)}`);
+    expect(asked).toEqual([`0x${lockingHex}`]);
+    const tx = decodeTransaction(hexToBin(broadcasts[0]!)) as Transaction;
+    const covenant = deriveHtlcAddresses(
+      encodeHtlcParameters(terms),
+      'chipnet',
+    );
+    expect(binToHex(tx.outputs[0]!.lockingBytecode)).toBe(
+      binToHex(covenant.lockingBytecode),
+    );
+    expect(tx.outputs[0]!.token?.amount).toBe(terms.bchTokenAmount);
+    expect(tx.inputs.every((i) => i.unlockingBytecode.length > 0)).toBe(true);
   });
 
   it('exercises createDefaultBchPort tip, UTXO polling, and refund height polling', async () => {

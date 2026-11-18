@@ -1,7 +1,20 @@
 import type { Hex, Hex32, OrderTerms } from '@ferry/core';
+import {
+  buildLockTransaction,
+  buildWizardConnectSignRequest,
+  inspectSignedTransaction,
+  type LockUtxo,
+} from '@ferry/htlc-bch';
 import { encodeFunctionData, parseAbi, parseSignature } from 'viem';
 import { UserFlowError } from './errors.js';
-import type { EvmChainPort, EvmSignerPort, SolverPort } from './ports.js';
+import type {
+  BchChainPort,
+  BchSignerPort,
+  BchUtxo,
+  EvmChainPort,
+  EvmSignerPort,
+  SolverPort,
+} from './ports.js';
 
 const ERC20_APPROVE_ABI = parseAbi([
   'function approve(address spender, uint256 amount) external returns (bool)',
@@ -116,4 +129,62 @@ export async function lockUserOnEvm(
   );
   await evmChain.waitForReceipt(lockHash);
   return lockHash;
+}
+
+export interface BchLockContext {
+  readonly bchSigner: BchSignerPort;
+  readonly bchChain: BchChainPort;
+  readonly bchNetwork: 'mainnet' | 'chipnet';
+  /** The user's own address: change and token change return here. */
+  readonly bchCashAddress: string;
+  /** The user's own locking bytecode, hex: where the funding outputs are looked up. */
+  readonly userLockingBytecodeHex: string;
+  readonly feeRateSatPerByte?: number;
+}
+
+const DEFAULT_FEE_RATE_SAT_PER_BYTE = 1;
+
+function toLockUtxo(utxo: BchUtxo): LockUtxo {
+  return {
+    txid: utxo.txid,
+    vout: utxo.vout,
+    satoshis: utxo.satoshis,
+    ...(utxo.token ? { token: { ...utxo.token } } : {}),
+  };
+}
+
+/**
+ * The user's Bitcoin Cash lock: build the transaction from the user's own
+ * outputs, have the wallet (or a key) sign it, check what came back, and only
+ * then broadcast. Returns the transaction id.
+ */
+export async function lockUserOnBch(
+  context: BchLockContext,
+  terms: OrderTerms,
+): Promise<string> {
+  const utxos = await context.bchChain.getUtxos(context.userLockingBytecodeHex);
+  const built = buildLockTransaction({
+    params: terms,
+    utxos: utxos.map(toLockUtxo),
+    changeAddress: context.bchCashAddress,
+    network: context.bchNetwork,
+    feeRateSatPerByte:
+      context.feeRateSatPerByte ?? DEFAULT_FEE_RATE_SAT_PER_BYTE,
+  });
+  const request = buildWizardConnectSignRequest({ lockTx: built });
+  const signedHex = await guardWallet(() =>
+    context.bchSigner.signTransaction(request),
+  );
+  const report = inspectSignedTransaction(
+    built.unsigned.txHex,
+    signedHex,
+    built.unsigned.sourceOutputs,
+  );
+  if (!report.ok) {
+    throw new UserFlowError(
+      'SIGNED_TRANSACTION_REJECTED',
+      `The wallet's transaction did not pass the local check, so it was not sent. ${report.problems.join(' ')}`,
+    );
+  }
+  return context.bchChain.broadcast(signedHex);
 }

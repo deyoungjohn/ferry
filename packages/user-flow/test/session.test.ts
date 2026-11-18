@@ -203,6 +203,20 @@ describe('refusals before anything moves', () => {
     await expectCode(new UserSwapSession(deps()).saveRecovery(), 'NO_QUOTE');
   });
 
+  it('refuses to save a recovery file without the session secret, and saves nothing', async () => {
+    const { world, deps } = createWorld();
+    const session = new UserSwapSession(deps());
+    await session.quote(forward);
+    // The secret is lost (for example by a bug elsewhere): never invent a new one.
+    (session as unknown as { secret: Hex32 | null }).secret = null;
+
+    await expectCode(session.saveRecovery(), 'SECRET_MISSING');
+    expect(world.store.files.size).toBe(0);
+    expect(world.events).toEqual([]);
+    expect(session.state.status).toBe('failed');
+    await expectCode(session.lock(), 'RECOVERY_NOT_SAVED');
+  });
+
   it('a dry-run quote sends dryRun, reserves nothing and cannot be locked', async () => {
     const { world, deps } = createWorld();
     const session = new UserSwapSession(deps());
