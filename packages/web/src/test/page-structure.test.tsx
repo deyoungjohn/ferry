@@ -1,0 +1,135 @@
+import { render, screen, within } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { MemoryRouter } from 'react-router';
+import { App } from '../App';
+import { SolverProvider } from '../lib/solver/SolverProvider';
+import { MockSolverClient } from '../lib/solver/mock';
+
+const client = new MockSolverClient();
+
+function renderAt(path: string) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <SolverProvider client={client}>
+        <App />
+      </SolverProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe('navigation', () => {
+  it('shows only the public tabs before a wallet is connected', async () => {
+    renderAt('/features');
+    const main = await screen.findByRole(
+      'navigation',
+      { name: 'Main' },
+      { timeout: 30_000 },
+    );
+    const nav = within(main);
+    for (const label of ['Features', 'How it works', 'Stats']) {
+      expect(nav.getByRole('link', { name: label })).toBeInTheDocument();
+    }
+    for (const label of [
+      'Swap',
+      'My activity',
+      'Recover',
+      'User guide',
+      'GitHub',
+    ]) {
+      expect(nav.queryByRole('link', { name: label })).toBeNull();
+    }
+  });
+
+  it('puts the guide and GitHub in the footer', async () => {
+    renderAt('/features');
+    const footer = await screen.findByRole(
+      'contentinfo',
+      {},
+      { timeout: 30_000 },
+    );
+    expect(
+      within(footer).getByRole('link', { name: 'User guide' }),
+    ).toBeInTheDocument();
+    expect(
+      within(footer).getAllByRole('link', { name: 'GitHub' })[0],
+    ).toBeInTheDocument();
+  });
+});
+
+describe('page structure', { timeout: 45_000 }, () => {
+  it.each([
+    ['/', /Move dollars onto Bitcoin Cash/],
+    ['/features', /What Ferry does/],
+    ['/stats', /Stats/],
+    ['/how-it-works', /How it works/],
+    ['/user-guide', /User Guide/],
+    ['/app/user-guide', /User Guide/],
+    ['/app/recover', /Recover a Swap/],
+  ])('shows %s without a wallet', async (path, heading) => {
+    renderAt(path);
+    expect(
+      await screen.findByRole(
+        'heading',
+        { level: 1, name: heading },
+        { timeout: 30_000 },
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('wallet-gate')).toBeNull();
+  });
+
+  it.each(['/app/pay-link', '/app/my-activity'])(
+    'asks for a wallet on %s',
+    async (path) => {
+      renderAt(path);
+      expect(
+        await screen.findByTestId('wallet-gate', {}, { timeout: 30_000 }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Connect wallet' }),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it('swap shows either the wallet gate or the not-configured notice', async () => {
+    renderAt('/app/swap');
+    expect(
+      await screen.findByText(
+        /Configuration Incomplete|Connect a wallet to use Swap/,
+        {},
+        { timeout: 30_000 },
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('redirects the earlier top-level app paths', async () => {
+    renderAt('/pay-link');
+    expect(
+      await screen.findByTestId('wallet-gate', {}, { timeout: 30_000 }),
+    ).toBeInTheDocument();
+  });
+
+  it('sends old paths to the new ones', async () => {
+    renderAt('/help');
+    expect(
+      await screen.findByRole(
+        'heading',
+        { level: 1, name: /User Guide/ },
+        { timeout: 30_000 },
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('stats page lists the deployed contract with an explorer link', async () => {
+    renderAt('/stats');
+    const link = await screen.findByRole(
+      'link',
+      {
+        name: /Read the source on the explorer/,
+      },
+      { timeout: 30_000 },
+    );
+    expect(link.getAttribute('href')).toMatch(
+      /\/address\/0x[0-9a-fA-F]{40}#code$/,
+    );
+  });
+});

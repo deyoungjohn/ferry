@@ -18,7 +18,11 @@ const ARTIFACT: DeploymentArtifact = {
 const PREDICTED = predictHtlcAddress();
 
 function data(): ChainConfigData {
-  return parseChainConfigData(loadChainData());
+  // The shipped data already records the real Base deployment; start from a clean slate.
+  const clean = parseChainConfigData(loadChainData());
+  clean.chains.base.mainnet.deployment.htlcAddress = null;
+  clean.chains.base.mainnet.deployment.deployBlock = null;
+  return clean;
 }
 
 function clientAt(blocks: Record<number, Hex>): DeploymentClient {
@@ -78,6 +82,38 @@ describe('recordDeployment', () => {
       recordDeployment({
         ...baseOptions(),
         client: clientAt({ 500: '0x6002600055' }),
+      }),
+    ).rejects.toThrow(/does not match the build artifact/);
+  });
+
+  it('accepts on-chain code that differs only in the immutable slots', async () => {
+    // Artifact has zeros in bytes 2..3 (an immutable slot); the chain holds the real values.
+    const artifactCode: Hex = '0x60000000aa55';
+    const onChain: Hex = '0x6000beefaa55';
+    const result = await recordDeployment({
+      ...baseOptions(),
+      client: clientAt({ 500: onChain }),
+      artifact: {
+        deployedBytecode: {
+          object: artifactCode,
+          immutableReferences: [{ start: 2, length: 2 }],
+        },
+      },
+    });
+    expect(result.data.chains.base.mainnet.deployment.deployBlock).toBe(500);
+  });
+
+  it('rejects a difference outside the immutable slots', async () => {
+    await expect(
+      recordDeployment({
+        ...baseOptions(),
+        client: clientAt({ 500: '0x6000beef0055' }),
+        artifact: {
+          deployedBytecode: {
+            object: '0x60000000aa55',
+            immutableReferences: [{ start: 2, length: 2 }],
+          },
+        },
       }),
     ).rejects.toThrow(/does not match the build artifact/);
   });

@@ -17,6 +17,8 @@ describe('Caddy configuration', () => {
     expect(caddy).toContain('root * /var/www/ferry/dist');
     expect(caddy).toContain('reverse_proxy 127.0.0.1:8787');
     expect(caddy).toContain('try_files {path} /index.html');
+    expect(caddy).toContain('/swap/<hash>');
+    expect(caddy).not.toContain('handle /swap/*');
     expect(caddy).toContain('file_server');
     expect(caddy).toContain('encode zstd gzip');
     expect(caddy.indexOf('handle /v1/*')).toBeLessThan(
@@ -56,6 +58,16 @@ describe('systemd units', () => {
   const backupTimer = read('deploy/systemd/ferry-backup.timer');
   const health = read('deploy/systemd/ferry-health.service');
   const healthTimer = read('deploy/systemd/ferry-health.timer');
+
+  it('runs the solver from source in the one clone, the way the tests run it', () => {
+    expect(solver).toMatch(
+      /^WorkingDirectory=\/opt\/ferry\/packages\/solver$/m,
+    );
+    expect(solver).toMatch(
+      /^ExecStart=\/usr\/local\/bin\/node --conditions=ferry-source --import tsx src\/main\.ts$/m,
+    );
+    expect(solver).not.toContain('/home/');
+  });
 
   it('runs the solver as ferry with a strict sandbox and graceful stop', () => {
     expect(solver).toMatch(/^User=ferry$/m);

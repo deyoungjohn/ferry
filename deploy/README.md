@@ -1,241 +1,265 @@
-# Ferry server bootstrap
+# Deploying Ferry on one Lightsail server
 
-One Ubuntu 24.04 Lightsail instance runs the solver and the static web build.
-Caddy is the only public origin: it serves the Vite `dist` and proxies `/v1/*`
-to the solver on `127.0.0.1:8787`. `trusted_proxies` is intentionally unset, so
-Caddy does not trust an inbound CDN or proxy. The solver sets `TRUSTED_PROXY=true`
-only because Caddy is the sole local caller on `127.0.0.1`.
+One Ubuntu 24.04 Lightsail instance runs the solver and the website. Caddy is the
+only public origin: it serves the web app from `/var/www/ferry/dist` and proxies
+`/v1/*` to the solver on `127.0.0.1:8787`. The landing, features, proof, guide,
+swap, pay and send pages are all inside the one app at the root of the domain.
 
-The examples use `example.org` and `203.0.113.10`. Replace them with your real
-domain and static IP. No file in this folder contains a secret.
+The domain is `ferry.incepture.dev`. Examples use `203.0.113.10` for the server
+address. No file in this folder contains a secret.
+
+**Paths used everywhere below**
+
+| What                                    | Where                                                               |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| The one clone of the repository         | `/opt/ferry` (owned by `ubuntu`; you run everything there directly) |
+| Solver environment file (secrets)       | `/etc/ferry/solver.env` (`0600`, owned by `ferry`)                  |
+| Web build settings (public values only) | `/opt/ferry/packages/web/.env.production`                           |
+| Built website                           | `/var/www/ferry/dist`                                               |
+| Solver database and backups             | `/var/lib/ferry/`                                                   |
+| Solver logs                             | `journalctl -u ferry-solver`                                        |
+
+The solver runs **from source** (`node --conditions=ferry-source --import tsx
+src/main.ts` in `/opt/ferry/packages/solver`), exactly as the tests run it, so
+there is no solver build step. Only the website is built.
 
 ## 1. Create the instance
 
-1. In Lightsail, create an **Ubuntu 24.04** instance with **2 vCPU and 4 GB**.
-2. Attach a **static IP** and use `203.0.113.10` below as the example.
-3. In **Networking**, allow:
-   - SSH 22, preferably restricted to your admin address.
-   - HTTP 80 from anywhere.
-   - HTTPS 443 from anywhere.
-4. Create a DNS **A** record `example.org -> 203.0.113.10`. Add `www` if you want
-   it, but the example uses the apex only.
-5. Download the Lightsail SSH key and test the first login:
+1. In Lightsail create an **Ubuntu 24.04** instance, **2 vCPU and 4 GB**.
+2. Attach a **static IP**.
+3. In **Networking** allow SSH 22, HTTP 80 and HTTPS 443.
+4. Create a DNS **A** record `ferry.incepture.dev -> <static IP>`.
+5. Download the Lightsail SSH key and log in:
 
 ```bash
 ssh -i lightsail-key.pem ubuntu@203.0.113.10
 ```
 
-## 2. Prepare the admin key
+## 2. Keep your SSH access
 
-The bootstrap disables password SSH and root SSH. Confirm your public key is in
-`~/.ssh/authorized_keys` for `ubuntu` before running it. The bootstrap copies
-that key to the non-root `ferry` user; test a second session before closing the
-first one:
-
-```bash
-ssh -i lightsail-key.pem ubuntu@203.0.113.10
-```
-
-If you use a different admin key, add it to `~/.ssh/authorized_keys` first and
-test it.
+The bootstrap turns off password and root SSH login. Your key must already be in
+`~/.ssh/authorized_keys` for `ubuntu` (it is, if the login above worked). After
+the bootstrap, open a second terminal and confirm you can still log in before you
+close the first one.
 
 ## 3. Clone and bootstrap
 
 ```bash
-git clone https://github.com/deyoungjohn/ferry.git /home/ubuntu/ferry
-cd /home/ubuntu/ferry
-sudo ADMIN_IP=203.0.113.10 bash deploy/bootstrap.sh
+sudo install -d -o ubuntu -g ubuntu /opt/ferry
+git clone https://github.com/deyoungjohn/ferry.git /opt/ferry
+cd /opt/ferry
+sudo bash deploy/bootstrap.sh
 ```
 
-`ADMIN_IP` restricts SSH to that address. Omit it only if you accept SSH from
-anywhere. The bootstrap installs Node 22 at the exact `.nvmrc` version, pnpm at
-the `packageManager` version, Caddy from its official apt repository, the
-directories, the units and the helper scripts. It does not start the solver and
-does not read a secret.
+To restrict SSH to one address add `ADMIN_IP=203.0.113.10` before `bash`; leave it
+out if you connect from changing networks. The bootstrap installs Node 22 (the
+version in `.nvmrc`), pnpm, Caddy, `fail2ban`, the firewall rules, the `ferry`
+service user, the directories and the systemd units. It does not start anything
+and reads no secret. It is safe to run again; do that after every `git pull` that
+changes anything in `deploy/`.
 
-Create the service checkout as the service user:
+## 4. Build the website
 
 ```bash
-sudo -u ferry git clone https://github.com/deyoungjohn/ferry.git /home/ferry/ferry
+cd /opt/ferry
+pnpm install --frozen-lockfile
+cp packages/web/.env.example packages/web/.env.production
+nano packages/web/.env.production
 ```
 
-## 4. Build the solver and web
+Fill in the web settings (public values only, no keys):
 
-Run these as `ferry`:
-
-```bash
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm install --frozen-lockfile'
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && for package in @ferry/core @ferry/chain-config @ferry/chain-evm @ferry/solver; do pnpm --filter "$package" build; done'
+```dotenv
+VITE_NETWORK=mainnet
+VITE_SOLVER_URLS=https://ferry.incepture.dev
+VITE_REOWN_PROJECT_ID=<your Reown project id>
+VITE_MOCK=
+VITE_PRIOR_REPO_URL=https://github.com/deyoungjohn/ferry-testnet
+VITE_DECK_URL=<when you have it>
+VITE_EMBER_ADDRESS=<when you have it>
 ```
 
-Create the production web environment file from the example and fill it in:
+Then build and publish the files:
 
 ```bash
-sudo -u ferry cp /home/ferry/ferry/packages/web/.env.example /home/ferry/ferry/packages/web/.env.production
-sudo -u ferry nano /home/ferry/ferry/packages/web/.env.production
-```
-
-The required production values are:
-
-- `VITE_NETWORK=mainnet`
-- `VITE_SOLVER_URLS=https://example.org` for the same-origin solver (or leave it
-  empty; both resolve to `/v1/*` on this host)
-- `VITE_REOWN_PROJECT_ID=<your Reown project id>`
-- `VITE_MOCK=` (empty; never `1` in production)
-- `VITE_PRIOR_REPO_URL` for the banner, plus the optional banner variables in
-  `packages/web/.env.example`
-
-Build and publish the static files:
-
-```bash
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm --filter @ferry/web build'
-sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/dist/
+cd /opt/ferry
+pnpm --filter @ferry/web build
+sudo rsync -a --delete packages/web/dist/ /var/www/ferry/dist/
 sudo chown -R root:root /var/www/ferry/dist
-sudo find /var/www/ferry/dist -type d -exec chmod 0755 {} +
-sudo find /var/www/ferry/dist -type f -exec chmod 0644 {} +
 ```
+
+Until this step has run, `https://ferry.incepture.dev/` returns 404 because the
+folder is empty.
 
 ## 5. Install the solver environment
 
-Generate the keys offline as described in `preparation/KEYS.md`. Do not copy the
-deployer key to the server. Copy only the solver values into a solver-only file
-and keep the deployer key on the offline machine.
+Generate the keys offline first (`preparation/KEYS.md`). Do not copy the deployer
+key to the server: copy only the two solver keys.
 
-The solver reads the variables in `packages/solver/src/config.ts` and
-`preparation/MAINNET_SOLVER_ENV.md`. The launch-critical values are:
+Two env files exist, in two places:
+
+| File                           | Where                                                                                                                                       | Holds                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `solver.env`                   | Written on **your machine** (outside the repository, for example `~/ferry-solver.env`, `chmod 600`), then copied to `/etc/ferry/solver.env` | Everything in this section, including the two solver keys |
+| `packages/web/.env.production` | On the server, `/opt/ferry` (section 4)                                                                                                     | Public web settings only                                  |
+
+Start your local file from this block and fill in the `<...>` values yourself:
 
 ```dotenv
 NETWORK=mainnet
+FERRY_NETWORK=mainnet
+ENABLED_ROUTES=usdc:base
 HOST=127.0.0.1
 PORT=8787
 DATABASE_PATH=/var/lib/ferry/solver.db
 TRUSTED_PROXY=true
-BCH_ELECTRUM_URLS=<two or three mainnet Fulcrum hosts>
-BASE_RPC_URL=<Base JSON-RPC URL>
+
+BCH_ELECTRUM_URLS=wss://electron.jochen-hoenicke.de:51004,wss://electroncash.dk:50004,wss://bch.imaginary.cash:50004
+
+BASE_RPC_URL=<your Base RPC URL>
+RPC_URL_BASE=<the same Base RPC URL>
 BASE_CHAIN_ID=8453
-BASE_FERRY_HTLC_ADDRESS=<recorded mainnet address>
-BASE_USDC_ADDRESS=<Circle USDC on Base>
-SOLVER_EVM_PRIVATE_KEY=<solver EVM key>
-SOLVER_BCH_WIF=<solver BCH WIF>
-OPERATOR_TOKEN=<at least 32 random characters>
-TPUSD_CATEGORY=<mainnet PUSD category>
-TMUSD_CATEGORY=<mainnet MUSD category>
+BASE_FERRY_HTLC_ADDRESS=0x8b968625F983420B571C102eC0b57F7e509c916e
+BASE_USDC_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+
+TPUSD_CATEGORY=2469acc5afa4b10cb5b5c04afb89c3a3ffd61c5da9c01e26d00951cae2a02544
+TMUSD_CATEGORY=b38a33f750f84c5c169a6f23cb873e6e79605021585d4f3408789689ed87f366
+
+MAX_SWAP_USD_MICROS=1000000
+
+SOLVER_EVM_PRIVATE_KEY=<from your key file: SOLVER_EVM_PRIVATE_KEY>
+SOLVER_BCH_WIF=<from your key file: SOLVER_BCH_WIF>
+OPERATOR_TOKEN=<at least 32 random characters, for example: openssl rand -hex 32>
 ```
 
-`TRUSTED_PROXY=true` is correct because Caddy is the only process that can reach
-the solver on localhost. `HOST=127.0.0.1` keeps the solver off the public
-interface. Do not set `ALLOW_DEV_KEYS` or `ALLOW_MOCK_PAYLINK_SIGNATURES`.
+Where the values come from:
 
-Copy the solver-only file, install it with the right owner and remove the
-temporary copy:
+- **Chain, token and contract values** are public facts, filled in above. The
+  `TPUSD_`/`TMUSD_` names are historical; they take the mainnet PUSD and MUSD
+  category IDs.
+- **`BASE_RPC_URL` / `RPC_URL_BASE`:** your own paid Base endpoint, or the public
+  `https://base-rpc.publicnode.com` as a fallback. Use the same URL for both.
+- **The two solver keys:** copy only those two lines from `.env.mainnet.local`.
+  Never copy `DEPLOYER_EVM_PRIVATE_KEY`.
+- **`OPERATOR_TOKEN`:** generate it and keep a copy; the operator routes and the
+  emergency stop need it.
+- **`MAX_SWAP_USD_MICROS=1000000`** is the $1 cap for the first swaps.
+
+`HOST=127.0.0.1` keeps the solver off the public network, and `TRUSTED_PROXY=true`
+is right because Caddy is the only caller. Do not set `ALLOW_DEV_KEYS` or
+`ALLOW_MOCK_PAYLINK_SIGNATURES`.
+
+Copy the file to the server from **your machine** and install it with the right
+owner:
 
 ```bash
-scp -i lightsail-key.pem solver.env ubuntu@203.0.113.10:/tmp/solver.env
+scp -i lightsail-key.pem ~/ferry-solver.env ubuntu@203.0.113.10:/tmp/solver.env
 ssh -i lightsail-key.pem ubuntu@203.0.113.10 \
   'sudo install -m 0600 -o ferry -g ferry /tmp/solver.env /etc/ferry/solver.env && rm -f /tmp/solver.env'
 ```
 
 Never paste a key into a shell command, chat, ticket or repository.
 
-## 6. Run the strict preflight
+## 6. Check before you start
 
-Use the public preflight addresses and the RPC names the preflight reads. Keep
-paid RPC values in the environment; do not print them.
+On the server, with your three public addresses (deployer EVM, solver EVM, solver
+BCH token-aware):
 
 ```bash
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && \
-  ENABLED_ROUTES=usdc:base \
-  PREFLIGHT_ADDRESSES="deployer=0x...,solver=0x...,bch=bitcoincash:..." \
-  pnpm --filter @ferry/chain-config preflight --strict'
+cd /opt/ferry
+ENABLED_ROUTES=usdc:base PREFLIGHT_ADDRESSES="deployer=0xDEPLOYER,solver=0xSOLVER,bch=bitcoincash:zSOLVER" pnpm --filter @ferry/chain-config preflight --strict
 ```
 
-The root `pnpm preflight` alias is not present; the filtered command above is
-the supported form in this checkout. A `GO for mainnet launch` line is required
-before the first swap.
+Write it as one line. It must end with `GO for mainnet launch`. If it lists
+something missing (solver gas, USDC, PUSD, BCH), fund that first.
 
-## 7. Set the domain and start services
+## 7. Start the services
 
-Replace `example.org` in `/etc/caddy/Caddyfile` with the real domain:
+Point Caddy at the domain, then start things in this order:
 
 ```bash
-sudo nano /etc/caddy/Caddyfile
+sudo sed -i 's/example.org/ferry.incepture.dev/' /etc/caddy/Caddyfile
 sudo caddy validate --config /etc/caddy/Caddyfile
-```
-
-Start Caddy first, then the solver, then the timers:
-
-```bash
 sudo systemctl daemon-reload
-sudo systemctl enable caddy.service
-sudo systemctl restart caddy.service
+sudo systemctl enable --now caddy.service
 sudo systemctl enable --now ferry-solver.service
 sudo systemctl start ferry-backup.timer ferry-health.timer
 ```
 
-Check the public site and the solver:
+Check it:
 
 ```bash
-curl -fsS https://example.org/v1/health
-curl -fsS https://example.org/status
 sudo systemctl status ferry-solver.service --no-pager
+curl -fsS https://ferry.incepture.dev/v1/health
+curl -fsSI https://ferry.incepture.dev/app/swap
+cd /opt/ferry && pnpm --dir scripts/preflight preflight -- --url https://ferry.incepture.dev
 ```
 
-The health timer checks `/v1/health` and `/v1/ready`. The current solver exposes
-`/v1/health`; if `/v1/ready` is not present yet, add the readiness route or set
-`FERRY_READY_URL=http://127.0.0.1:8787/v1/health` in a systemd drop-in for the
-health service until the route lands. The timer prints one line to the journal
-when either check fails.
+`/v1/health` must return JSON (`{"ok":true,...}`). Then open
+`https://ferry.incepture.dev/status` in a browser and press **Test All Routes
+(Quote-Only)**; that checks every route without locking anything.
 
 ## 8. Update
 
-Take a Lightsail snapshot before every change. Then:
+Take a Lightsail snapshot first. Then:
 
 ```bash
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && git pull --ff-only && pnpm install --frozen-lockfile && for package in @ferry/core @ferry/chain-config @ferry/chain-evm @ferry/solver; do pnpm --filter "$package" build; done'
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm --filter @ferry/web build'
-sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/dist/
-sudo chown -R root:root /var/www/ferry/dist
+cd /opt/ferry
+git pull --ff-only
+pnpm install --frozen-lockfile
+sudo bash deploy/bootstrap.sh          # only if deploy/ changed
+pnpm --filter @ferry/web build
+sudo rsync -a --delete packages/web/dist/ /var/www/ferry/dist/
 sudo systemctl restart ferry-solver.service
-sudo systemctl reload caddy.service
 ```
 
-Build before restarting so the restart does not serve a half-written tree. Run
-the strict preflight again if the chain configuration or contract addresses
-changed.
+The solver needs no build; restarting it picks up the new code. Run the strict
+preflight again if chain configuration or addresses changed.
 
 ## 9. Roll back
 
-Preferred: restore the Lightsail snapshot from before the change. If you are
-rolling back only the code and have a clean previous commit:
+Preferred: restore the Lightsail snapshot taken before the change. To roll back
+only the code:
 
 ```bash
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && git switch --detach <previous-commit> && pnpm install --frozen-lockfile && for package in @ferry/core @ferry/chain-config @ferry/chain-evm @ferry/solver; do pnpm --filter "$package" build; done'
-sudo -u ferry bash -lc 'cd /home/ferry/ferry && pnpm --filter @ferry/web build'
-sudo rsync -a --delete /home/ferry/ferry/packages/web/dist/ /var/www/ferry/dist/
+cd /opt/ferry
+git switch --detach <previous-commit>
+pnpm install --frozen-lockfile
+pnpm --filter @ferry/web build
+sudo rsync -a --delete packages/web/dist/ /var/www/ferry/dist/
 sudo systemctl restart ferry-solver.service
-sudo systemctl reload caddy.service
 ```
 
-Do not restore a database backup over a running solver. Stop the solver first if
-you need to recover SQLite state, then start it and watch the journal.
+Do not restore a database backup over a running solver: stop it first, restore,
+start it, and watch the journal.
 
 ## 10. Logs
 
 ```bash
+sudo journalctl -u ferry-solver -n 100 --no-pager
 sudo journalctl -u ferry-solver -f
 sudo journalctl -u ferry-health -n 50 --no-pager
-sudo journalctl -u ferry-backup -n 50 --no-pager
 sudo tail -f /var/log/caddy/ferry-access.log
 ```
 
-Caddy access logs are JSON with the client address truncated to a /24 (IPv4) or
-/56 (IPv6); `common_log` and `X-Forwarded-For` are removed. Cookies,
-`Authorization` and proxy authorization headers are redacted by Caddy.
+Caddy access logs keep only the network prefix of client addresses.
 
-## 11. Stop quoting in an emergency
+## 11. If something is wrong
 
-`/v1/pause` stops new quotes and leaves the process running. `/v1/kill-switch`
-stops the engine; restart the solver to recover it.
+| You see                                       | Likely cause                                      | What to do                                                                                                                           |
+| --------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `/v1/health` returns **502**                  | The solver is not running                         | `sudo journalctl -u ferry-solver -n 50 --no-pager`; the last lines say why                                                           |
+| `/` or `/app/swap` returns **404**            | The website was never copied                      | Run the build and `rsync` in section 4                                                                                               |
+| Journal says a variable is missing or invalid | `/etc/ferry/solver.env` incomplete                | Compare with the block in section 5; edit with `sudo nano /etc/ferry/solver.env`, then `sudo systemctl restart ferry-solver.service` |
+| Journal says genesis verification failed      | A Bitcoin Cash host is down or on the wrong chain | Check `BCH_ELECTRUM_URLS`; use at least two of the hosts in section 5                                                                |
+| `Start request repeated too quickly`          | The solver crashed five times in a row            | Fix the cause from the journal, then `sudo systemctl reset-failed ferry-solver.service && sudo systemctl start ferry-solver.service` |
+| Preflight says the URL "returned HTML"        | The domain points at another site                 | Check the DNS record and `/etc/caddy/Caddyfile`                                                                                      |
+
+## 12. Stop quoting in an emergency
+
+`/v1/pause` stops new quotes and leaves the process running; `/v1/kill-switch`
+stops the engine (restart the solver to recover). Both persist across restarts
+until you resume.
 
 ```bash
 TOKEN="$(sudo sed -n 's/^OPERATOR_TOKEN=//p' /etc/ferry/solver.env)"
@@ -243,19 +267,11 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8787/v1/pau
 unset TOKEN
 ```
 
-To stop the engine instead:
+The token is read into the shell and never printed. If the solver may be
+compromised: stop it first (`sudo systemctl stop ferry-solver`), move funds, and
+rotate the keys as described in `preparation/KEYS.md`.
 
-```bash
-TOKEN="$(sudo sed -n 's/^OPERATOR_TOKEN=//p' /etc/ferry/solver.env)"
-curl -fsS -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8787/v1/kill-switch
-unset TOKEN
-```
-
-The token is read into the shell, never printed. If the solver is compromised,
-stop it first, move funds, and rotate the keys as described in
-`preparation/KEYS.md`.
-
-## 12. Backups and daily copy hook
+## 13. Backups and daily copy hook
 
 `ferry-backup.timer` runs every 15 minutes and keeps the 48 newest
 `/var/lib/ferry/backups/solver-*.db` files. The service uses `sqlite3 .backup`,
@@ -267,7 +283,7 @@ bootstrap. To use one, create an executable `/etc/ferry/daily-backup.sh` owned b
 argument and runs at most once per UTC day. Put off-instance credentials in the
 root-only hook or in a root-only environment file; never in this repository.
 
-## 13. Files installed by the bootstrap
+## 14. Files installed by the bootstrap
 
 | Source                                | Destination                                     | Mode / owner       |
 | ------------------------------------- | ----------------------------------------------- | ------------------ |
@@ -283,13 +299,13 @@ root-only hook or in a root-only environment file; never in this repository.
 | static site                           | `/var/www/ferry/dist`                           | `0755 root:root`   |
 | Caddy access log                      | `/var/log/caddy/ferry-access.log`               | `0640 caddy:caddy` |
 
-## 14. Local checks before a server change
+## 15. Local checks before a server change
 
 ```bash
 bash -n deploy/bootstrap.sh deploy/backup.sh deploy/healthcheck.sh
 shellcheck deploy/bootstrap.sh deploy/backup.sh deploy/healthcheck.sh
 systemd-analyze verify deploy/systemd/*.service deploy/systemd/*.timer
-pnpm exec vitest run scripts/preflight/deploy-config.test.ts
+pnpm exec vitest run scripts/preflight
 ```
 
 Install `shellcheck` locally if it is missing (`apt-get install shellcheck`, or

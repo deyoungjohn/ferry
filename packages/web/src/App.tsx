@@ -1,152 +1,251 @@
-import { lazy, Suspense } from 'react';
-import { Route, Routes } from 'react-router';
+import { lazy, Suspense, type ReactNode } from 'react';
+import { Navigate, Route, Routes, useParams } from 'react-router';
 import { AppShell } from './components/AppShell';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { HomePage } from './routes/HomePage';
+import { LandingPage } from './routes/LandingPage';
+import { RequireWallet } from './components/RequireWallet';
 
-const NotFoundPage = lazy(async () => {
-  const m = await import('./routes/NotFoundPage');
-  return { default: m.NotFoundPage };
-});
+function lazyPage<T extends Record<string, unknown>>(
+  load: () => Promise<T>,
+  name: keyof T,
+) {
+  return lazy(async () => {
+    const m = await load();
+    return { default: m[name] as React.ComponentType };
+  });
+}
 
-const SwapStatusPage = lazy(async () => {
-  const m = await import('./routes/SwapStatusPage');
-  return { default: m.SwapStatusPage };
-});
+const FeaturesPage = lazyPage(
+  () => import('./routes/FeaturesPage'),
+  'FeaturesPage',
+);
+const StatsPage = lazyPage(() => import('./routes/StatsPage'), 'StatsPage');
+const HowItWorksPage = lazyPage(
+  () => import('./routes/HowItWorksPage'),
+  'HowItWorksPage',
+);
+const HelpPage = lazyPage(() => import('./routes/HelpPage'), 'HelpPage');
+const SwapPage = lazyPage(() => import('./routes/SwapPage'), 'SwapPage');
+const PayLinkHubPage = lazyPage(
+  () => import('./routes/PayLinkHubPage'),
+  'PayLinkHubPage',
+);
+const ActivityPage = lazyPage(
+  () => import('./routes/ActivityPage'),
+  'ActivityPage',
+);
+const SwapStatusPage = lazyPage(
+  () => import('./routes/SwapStatusPage'),
+  'SwapStatusPage',
+);
+const PayLinkPage = lazyPage(
+  () => import('./routes/PayLinkPage'),
+  'PayLinkPage',
+);
+const SendLinkPage = lazyPage(
+  () => import('./routes/SendLinkPage'),
+  'SendLinkPage',
+);
+const RecoverPage = lazyPage(
+  () => import('./routes/RecoverPage'),
+  'RecoverPage',
+);
+const RouteStatusPage = lazyPage(
+  () => import('./routes/RouteStatusPage'),
+  'RouteStatusPage',
+);
+const NotFoundPage = lazyPage(
+  () => import('./routes/NotFoundPage'),
+  'NotFoundPage',
+);
 
-const ActivityPage = lazy(async () => {
-  const m = await import('./routes/ActivityPage');
-  return { default: m.ActivityPage };
-});
+function Page({ children }: { children: ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <div
+          className="mx-auto max-w-xl py-16 text-center text-xs text-text-muted"
+          role="status"
+        >
+          Loading…
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  );
+}
 
-const RecoverPage = lazy(async () => {
-  const m = await import('./routes/RecoverPage');
-  return { default: m.RecoverPage };
-});
+/** Old links keep working: /p/<id> and /s/<id> became /pay/<id> and /send/<id>. */
+function RedirectWithId({ to }: { to: 'pay' | 'send' }) {
+  const { id } = useParams();
+  return <Navigate to={`/${to}/${id ?? ''}`} replace />;
+}
 
-const PayLinksPage = lazy(async () => {
-  const m = await import('./routes/PayLinksPage');
-  return { default: m.PayLinksPage };
-});
-
-const PayLinkPage = lazy(async () => {
-  const m = await import('./routes/PayLinkPage');
-  return { default: m.PayLinkPage };
-});
-
-const SendLinksPage = lazy(async () => {
-  const m = await import('./routes/SendLinksPage');
-  return { default: m.SendLinksPage };
-});
-
-const SendLinkPage = lazy(async () => {
-  const m = await import('./routes/SendLinkPage');
-  return { default: m.SendLinkPage };
-});
-
-const RouteStatusPage = lazy(async () => {
-  const m = await import('./routes/RouteStatusPage');
-  return { default: m.RouteStatusPage };
-});
-
-const HelpPage = lazy(async () => {
-  const m = await import('./routes/HelpPage');
-  return { default: m.HelpPage };
-});
+function RedirectWithOrder() {
+  const { orderId } = useParams();
+  return <Navigate to={`/app/swap/${orderId ?? ''}`} replace />;
+}
 
 export function App() {
   return (
     <ErrorBoundary>
       <Routes>
         <Route element={<AppShell />}>
-          <Route index element={<HomePage />} />
+          {/* Public: no wallet needed */}
+          <Route index element={<LandingPage />} />
           <Route
-            path="/swap/:orderId"
+            path="/features"
             element={
-              <Suspense
-                fallback={
-                  <div
-                    className="mx-auto max-w-xl py-16 text-center text-xs text-text-muted"
-                    role="status"
-                  >
-                    Loading status…
-                  </div>
-                }
-              >
-                <SwapStatusPage />
-              </Suspense>
+              <Page>
+                <FeaturesPage />
+              </Page>
+            }
+          />
+          <Route path="/proof" element={<Navigate to="/stats" replace />} />
+          <Route
+            path="/stats"
+            element={
+              <Page>
+                <StatsPage />
+              </Page>
             }
           />
           <Route
-            path="/activity"
+            path="/how-it-works"
             element={
-              <Suspense fallback={null}>
-                <ActivityPage />
-              </Suspense>
+              <Page>
+                <HowItWorksPage />
+              </Page>
             }
           />
           <Route
-            path="/recover"
+            path="/user-guide"
             element={
-              <Suspense fallback={null}>
-                <RecoverPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/pay-links"
-            element={
-              <Suspense fallback={null}>
-                <PayLinksPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/p/:id"
-            element={
-              <Suspense fallback={null}>
-                <PayLinkPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/send-links"
-            element={
-              <Suspense fallback={null}>
-                <SendLinksPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/s/:id"
-            element={
-              <Suspense fallback={null}>
-                <SendLinkPage />
-              </Suspense>
+              <Page>
+                <HelpPage />
+              </Page>
             }
           />
           <Route
             path="/status"
             element={
-              <Suspense fallback={null}>
+              <Page>
                 <RouteStatusPage />
-              </Suspense>
+              </Page>
+            }
+          />
+
+          {/* The app: tools that act on your wallet. Recover and the guide need no wallet. */}
+          <Route path="/app">
+            <Route index element={<Navigate to="swap" replace />} />
+            <Route
+              path="swap"
+              element={
+                <Page>
+                  <SwapPage />
+                </Page>
+              }
+            />
+            <Route
+              path="swap/:orderId"
+              element={
+                <Page>
+                  <SwapStatusPage />
+                </Page>
+              }
+            />
+            <Route
+              path="pay-link"
+              element={
+                <Page>
+                  <PayLinkHubPage />
+                </Page>
+              }
+            />
+            <Route
+              path="my-activity"
+              element={
+                <Page>
+                  <RequireWallet feature="My activity">
+                    <ActivityPage />
+                  </RequireWallet>
+                </Page>
+              }
+            />
+            <Route
+              path="recover"
+              element={
+                <Page>
+                  <RecoverPage />
+                </Page>
+              }
+            />
+            <Route
+              path="user-guide"
+              element={
+                <Page>
+                  <HelpPage />
+                </Page>
+              }
+            />
+          </Route>
+
+          {/* Shared links: open from a message, no sign-in */}
+          <Route
+            path="/pay/:id"
+            element={
+              <Page>
+                <PayLinkPage />
+              </Page>
             }
           />
           <Route
-            path="/help"
+            path="/send/:id"
             element={
-              <Suspense fallback={null}>
-                <HelpPage />
-              </Suspense>
+              <Page>
+                <SendLinkPage />
+              </Page>
             }
           />
+
+          {/* Older paths */}
+          <Route path="/swap" element={<Navigate to="/app/swap" replace />} />
+          <Route path="/swap/:orderId" element={<RedirectWithOrder />} />
+          <Route
+            path="/pay-link"
+            element={<Navigate to="/app/pay-link" replace />}
+          />
+          <Route
+            path="/my-activity"
+            element={<Navigate to="/app/my-activity" replace />}
+          />
+          <Route
+            path="/recover"
+            element={<Navigate to="/app/recover" replace />}
+          />
+          <Route path="/help" element={<Navigate to="/user-guide" replace />} />
+          <Route
+            path="/activity"
+            element={<Navigate to="/app/my-activity" replace />}
+          />
+          <Route
+            path="/pay-links"
+            element={<Navigate to="/app/pay-link" replace />}
+          />
+          <Route
+            path="/send-links"
+            element={<Navigate to="/app/pay-link?type=send" replace />}
+          />
+          <Route path="/p/:id" element={<RedirectWithId to="pay" />} />
+          <Route path="/s/:id" element={<RedirectWithId to="send" />} />
+
           <Route
             path="*"
             element={
-              <Suspense fallback={null}>
+              <Page>
                 <NotFoundPage />
-              </Suspense>
+              </Page>
             }
           />
         </Route>

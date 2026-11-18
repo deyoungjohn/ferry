@@ -1,5 +1,13 @@
+/* Unlayered CSS beats Tailwind's layered utilities, so a plain `.glass { position: relative }`
+   overrode `fixed` on dialogs and dropped them at the bottom of the page. Put the default in the
+   components layer so a utility on the same element wins. */
+@layer components {
+  .glass {
+    position: relative;
+  }
+}
+
 .glass {
-  position: relative;
   border-radius: var(--r-card);
   background:
     linear-gradient(

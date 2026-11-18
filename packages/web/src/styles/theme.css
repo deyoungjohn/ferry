@@ -15,6 +15,21 @@
   --color-olive-ink: var(--olive-ink);
   --color-olive-soft: var(--olive-soft);
 
+  /* Names the swap block's classes use, mapped onto the Ferry tokens. */
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-card: var(--surface-1);
+  --color-border: var(--hairline);
+  --color-muted: var(--surface-3);
+  --color-muted-foreground: var(--text-muted);
+  --color-primary: var(--lime);
+  --color-primary-foreground: var(--lime-ink);
+  --color-secondary: var(--surface-2);
+  --color-secondary-foreground: var(--text);
+  --color-accent: var(--olive);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--danger);
+
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-danger: var(--danger);

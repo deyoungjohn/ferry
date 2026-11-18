@@ -19,12 +19,12 @@ describe('core EvmChainConfig shape', () => {
     }
   });
 
-  it('keeps deployBlock out of the output until a deployment sets it', () => {
+  it('carries the recorded Base deployBlock', () => {
     const base = loadChainConfig({ env: {} }).coreChains.find(
       (chain) => chain.id === 'base',
     );
     expect(base).toBeDefined();
-    expect(base?.deployBlock).toBeUndefined();
+    expect(base?.deployBlock).toBe(58633459);
     expect(EvmChainConfigSchema.safeParse(base).success).toBe(true);
   });
 

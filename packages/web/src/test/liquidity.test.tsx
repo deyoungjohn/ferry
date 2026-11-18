@@ -45,7 +45,7 @@ describe('Liquidity availability and typed refusals (FR-18)', () => {
 
     // Clicking "Fill maximum" populates input with 5000.00
     fireEvent.click(fillMaxBtn);
-    expect(input).toHaveValue(5000);
+    expect(screen.getByLabelText(/You send/i)).toHaveValue('5000.00');
   });
 
   it('renders typed refusal when solver returns PEG_GUARD', async () => {

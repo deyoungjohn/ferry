@@ -366,6 +366,7 @@ export async function startInProcessSolver(params: {
     bchClient,
     engine,
     priceSource,
+    inventoryReader: makeFundedInventory(),
   });
 
   await app.listen({ port: 0, host: '127.0.0.1' });
@@ -480,4 +481,30 @@ export async function signRelayLockRequest(params: {
     },
     signature: payload.intentSig,
   };
+}
+
+/** The solver reads real wallet balances in production; tests have no real wallets, so they inject a funded reader. */
+export function makeFundedInventory(): NonNullable<
+  Parameters<typeof buildServer>[0]['inventoryReader']
+> {
+  return {
+    getAssetInventory: async () => 10n ** 15n,
+    getBchInventory: async () => ({
+      pusd: 10n ** 12n,
+      musd: 10n ** 12n,
+      sats: 10n ** 9n,
+      asOf: Math.floor(Date.now() / 1000),
+    }),
+    getEvmInventory: async (chain: string) => ({
+      chain,
+      nativeWei: 10n ** 20n,
+      tokens: new Map<string, bigint>(),
+      asOf: Math.floor(Date.now() / 1000),
+    }),
+    getSolverBchScriptHash: async () => '00'.repeat(32),
+    setSolverBchScriptHash: () => undefined,
+    clearCache: () => undefined,
+  } as unknown as NonNullable<
+    Parameters<typeof buildServer>[0]['inventoryReader']
+  >;
 }

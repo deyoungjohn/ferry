@@ -295,7 +295,7 @@ export function SendLinksPage() {
                   <div>
                     <div className="font-medium text-text">
                       <Link
-                        to={`/s/${link.id}`}
+                        to={`/send/${link.id}`}
                         className="hover:text-lime underline"
                       >
                         {link.amount.toFixed(2)} {link.destinationToken} →{' '}

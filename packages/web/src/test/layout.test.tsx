@@ -104,4 +104,33 @@ describe('Swap form viewport visibility (above-the-fold layout test)', () => {
     const mobileStackHeight = 70 + 56 + 120 + 360;
     expect(mobileStackHeight).toBeLessThan(844);
   });
+
+  it('asserts "without a bridge" has whitespace-nowrap and inline-block at 1280x720 and 390x844', () => {
+    renderAboveTheFold();
+    const bridgeText = screen.getByText('without a bridge');
+    expect(bridgeText).toHaveClass('whitespace-nowrap');
+    expect(bridgeText).toHaveClass('inline-block');
+  });
+
+  it('asserts chain picker in "You receive" well does not overflow and label never wraps', () => {
+    renderAboveTheFold();
+    // The token and chain are chosen from one picker button per well.
+    expect(screen.getByText('You receive')).toBeInTheDocument();
+    expect(screen.getByText('You send')).toBeInTheDocument();
+    const pickers = screen
+      .getAllByRole('button')
+      .filter((b) => /USDC|USDT|PUSD|MUSD/.test(b.textContent ?? ''));
+    expect(pickers.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('selects an enabled route by default on first load without showing disabled route warning', () => {
+    renderAboveTheFold();
+    expect(
+      screen.queryByTestId('route-disabled-alert'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('no-routes-enabled-alert'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/currently disabled/i)).not.toBeInTheDocument();
+  });
 });

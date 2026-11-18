@@ -75,7 +75,12 @@ export async function startSolver(
     .map((u) => u.trim())
     .filter(Boolean);
 
-  const bchClient = overrides.bchClient ?? new BchQuorumClient(electrumUrls);
+  const bchClient =
+    overrides.bchClient ??
+    new BchQuorumClient(electrumUrls, {
+      network: config.network === 'mainnet' ? 'mainnet' : 'chipnet',
+      tipMaxAgeBchSeconds: config.tipMaxAgeBchSeconds,
+    });
 
   // 5. Initialize EVM Clients & Adapters for every enabled chain
   const evmAdapters = new Map<string, EvmChainAdapter>();

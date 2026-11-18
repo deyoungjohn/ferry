@@ -57,7 +57,7 @@ describe('pricing and decimal conversion', () => {
           expect(roundTrip).toBeLessThanOrEqual(amountIn);
         },
       ),
-      { numRuns: 300 },
+      { numRuns: runs(300) },
     );
   });
 
@@ -81,7 +81,7 @@ describe('pricing and decimal conversion', () => {
           }
         },
       ),
-      { numRuns: 300 },
+      { numRuns: runs(300) },
     );
   });
 
@@ -144,6 +144,7 @@ import {
   type OrderTerms,
   type PricingEvidence,
 } from '../src/index.js';
+import { runs } from './support/runs.js';
 
 describe('PricingEvidence quoteOut, quoteInForExactOut, and verifyPricing', () => {
   const evidence: PricingEvidence = {
@@ -204,6 +205,7 @@ describe('PricingEvidence quoteOut, quoteInForExactOut, and verifyPricing', () =
           }
         },
       ),
+      { numRuns: runs(100) },
     );
   });
 

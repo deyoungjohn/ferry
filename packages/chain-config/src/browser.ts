@@ -15,3 +15,5 @@ export type {
   ChainDisplayResult,
   RouteConfig,
 } from './config.js';
+export { listDeployedContracts } from './deployed.js';
+export type { DeployedContract } from './deployed.js';

@@ -56,6 +56,7 @@ import {
   startInProcessSolver,
   type AnvilInstance,
   type InProcessSolverHarness,
+  makeFundedInventory,
 } from './harness.js';
 
 const ERC20_MINT_ABI = parseAbi([
@@ -204,6 +205,7 @@ describe('Adversarial Security Suite (Blueprint §9)', () => {
       bchClient,
       engine,
       priceSource,
+      inventoryReader: makeFundedInventory(),
     });
     await app.listen({ port: 0, host: '127.0.0.1' });
     const addr = app.server.address();

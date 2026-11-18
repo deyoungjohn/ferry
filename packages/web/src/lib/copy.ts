@@ -207,7 +207,7 @@ export const HELP_COPY = {
       summary:
         'Create a reusable payment link or QR code to collect payments in stablecoins settled directly to your wallet.',
       steps: [
-        'Navigate to Pay Links (/pay-links) and enter the exact dollar amount you wish to request.',
+        'Open Pay link in the app menu and enter the exact dollar amount you wish to request.',
         'Copy the generated pay link or present the interactive QR code to the payer.',
         'The payer visits the link, connects any supported EVM or BCH wallet, and submits the payment.',
         'Settlement completes directly to your configured CashAddress without intermediate custody.',

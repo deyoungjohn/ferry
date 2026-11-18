@@ -114,7 +114,9 @@ describe('deterministic deployment script & verification helper', () => {
       expect(entry.command).toContain('--compiler-version 0.8.28');
       expect(entry.command).toContain('--via-ir');
       expect(entry.command).toContain('--evm-version cancun');
-      expect(entry.command).toContain('--num-of-runs 200');
+      expect(entry.command).toContain('--num-of-optimizations 200');
+      expect(entry.command).not.toContain('--num-of-runs');
+      expect(entry.command).toContain('--etherscan-api-key');
     }
   });
 });

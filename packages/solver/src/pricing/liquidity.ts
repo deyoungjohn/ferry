@@ -186,6 +186,9 @@ export class LiquidityManager {
     evmExposure: bigint;
     skewMaxBps: number;
     nowSeconds: number;
+    assets?: InventoryAssetView[] | undefined;
+    bchUsdMicros?: bigint | undefined;
+    evmUsdMicros?: bigint | undefined;
   }): InventoryView {
     const bchReserved = this.getActiveReservationsForAsset(
       'PUSD',
@@ -210,9 +213,9 @@ export class LiquidityManager {
     );
 
     // Convert PUSD (2 decimals) to USD micros (x10,000)
-    const bchUsdMicros = params.bchInventory * 10_000n;
+    const bchUsdMicros = params.bchUsdMicros ?? params.bchInventory * 10_000n;
     // EVM USDC is already 6 decimals (USD micros)
-    const evmUsdMicros = params.evmInventory;
+    const evmUsdMicros = params.evmUsdMicros ?? params.evmInventory;
 
     const skewBps = this.calculateSkewBps(
       bchUsdMicros,
@@ -220,25 +223,27 @@ export class LiquidityManager {
       params.skewMaxBps,
     );
 
+    const assets = params.assets ?? [
+      {
+        chain: 'bch',
+        symbol: 'PUSD',
+        balance: params.bchInventory.toString(),
+        reserved: bchReserved.toString(),
+        exposure: params.bchExposure.toString(),
+        available: bchAvailable.toString(),
+      },
+      {
+        chain: 'base',
+        symbol: 'USDC',
+        balance: params.evmInventory.toString(),
+        reserved: evmReserved.toString(),
+        exposure: params.evmExposure.toString(),
+        available: evmAvailable.toString(),
+      },
+    ];
+
     return {
-      assets: [
-        {
-          chain: 'bch',
-          symbol: 'PUSD',
-          balance: params.bchInventory.toString(),
-          reserved: bchReserved.toString(),
-          exposure: params.bchExposure.toString(),
-          available: bchAvailable.toString(),
-        },
-        {
-          chain: 'base',
-          symbol: 'USDC',
-          balance: params.evmInventory.toString(),
-          reserved: evmReserved.toString(),
-          exposure: params.evmExposure.toString(),
-          available: evmAvailable.toString(),
-        },
-      ],
+      assets,
       skewBps,
       skewMaxBps: params.skewMaxBps,
       timestamp: params.nowSeconds,
@@ -256,6 +261,7 @@ export class LiquidityManager {
     openExposure: bigint;
     nowSeconds: number;
     ttlSeconds?: number;
+    dryRun?: boolean | undefined;
   }):
     { success: true } | { success: false; reason: string; maxAmount: bigint } {
     const {
@@ -269,6 +275,7 @@ export class LiquidityManager {
       openExposure,
       nowSeconds,
       ttlSeconds = QUOTE_TTL_S,
+      dryRun = false,
     } = params;
 
     this.pruneExpired(nowSeconds);
@@ -314,6 +321,10 @@ export class LiquidityManager {
             ? this.maxReservedPerIp - ipReserved
             : 0n,
       };
+    }
+
+    if (dryRun) {
+      return { success: true };
     }
 
     this.reservations.set(quoteId, {

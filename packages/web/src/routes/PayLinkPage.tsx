@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext } from 'react';
+import { ROUTES } from '../lib/routes';
 import { useParams, useNavigate, Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
 import { getModeCopy } from '../lib/copy';
@@ -33,7 +34,7 @@ export function PayLinkPage() {
   const currentUrl =
     typeof window !== 'undefined'
       ? window.location.href
-      : `https://ferry.cash/p/${id ?? 'demo'}`;
+      : `https://ferry.incepture.dev/pay/${id ?? 'demo'}`;
 
   // Payer options
   const farChains = NETWORK_PROFILE.farChains;
@@ -80,7 +81,7 @@ export function PayLinkPage() {
       if (solver.createOrder && quote?.signedQuote) {
         await solver.createOrder(quote.signedQuote, evm.address ?? undefined);
       }
-      void navigate(`/swap/${orderId}`);
+      void navigate(ROUTES.swapOrder(orderId));
     } catch {
       setPaying(false);
     }
@@ -118,7 +119,7 @@ export function PayLinkPage() {
       {/* Back button & Action links (hidden during print) */}
       <div className="mb-4 flex items-center justify-between print:hidden">
         <Link
-          to="/pay-links"
+          to={ROUTES.payLink}
           className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text transition-colors"
         >
           ← All Pay Links

@@ -16,6 +16,7 @@ import {
 import { assertValidSecret } from '@ferry/core';
 import { internalToDisplayCategory } from './byte-order.js';
 import { getHtlcContract } from './contract.js';
+import { findP2sh32Mismatch } from './p2sh32.js';
 import type { BchHtlcParameters, CashAddressNetwork } from './types.js';
 
 function computeTxId(txHex: string): string {
@@ -111,6 +112,13 @@ export function verifyBchTransactionWithVm(params: {
   } else {
     tx = params.transaction;
   }
+  // libauth runs the redeem script but does not check its hash against the
+  // locking script, so a wrong redeem script would otherwise verify.
+  const mismatch = findP2sh32Mismatch(
+    tx,
+    params.sourceOutputs.map((output) => output.lockingBytecode),
+  );
+  if (mismatch !== null) return mismatch.message;
   const vm = createVirtualMachineBCH();
   return vm.verify({
     transaction: tx,

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ROUTES } from '../lib/routes';
 import { useParams, Link } from 'react-router';
 import { useSolver } from '../lib/solver/useSolver';
 import type { SwapOrder } from '../lib/solver/types';
@@ -93,7 +94,7 @@ export function SwapStatusPage() {
             </Link>
             <CopyDiagnosticsButton
               data={{
-                route: `/swap/${orderId}`,
+                route: ROUTES.swapOrder(orderId ?? ''),
                 orderId,
                 errorCode: 'ORDER_NOT_FOUND',
                 errorMessage:
@@ -204,14 +205,14 @@ export function SwapStatusPage() {
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <Link
-                    to="/recover"
+                    to={ROUTES.recover}
                     className="rounded-pill bg-surface-3 px-3 py-1 font-semibold text-text hover:text-lime transition-colors"
                   >
                     Open Recovery Tool
                   </Link>
                   <CopyDiagnosticsButton
                     data={{
-                      route: `/swap/${order.id}`,
+                      route: ROUTES.swapOrder(order.id),
                       orderId: order.id,
                       errorCode: order.status,
                       errorMessage: FAILURE_COPY.counterLockLate.message,

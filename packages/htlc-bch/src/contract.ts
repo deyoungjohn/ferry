@@ -14,6 +14,7 @@ import {
 } from '@bitauth/libauth';
 import artifact from './artifact.json' with { type: 'json' };
 import { displayToInternalCategory } from './byte-order.js';
+import { p2sh32LockingBytecodeFor } from './p2sh32.js';
 import type {
   BchHtlcParameters,
   CashAddressNetwork,
@@ -208,7 +209,17 @@ export function deriveHtlcAddresses(
   network: CashAddressNetwork = 'chipnet',
 ): HtlcAddressDerivationResult {
   const contract = getHtlcContract(params, { network });
-  const lockingBytecodeBytes = hexToBin(contract.lockingBytecode);
+  const redeemScript = hexToBin(contract.bytecode);
+  // The output hash comes from the redeem script itself; the library's own
+  // value must agree, or the two derivations have drifted apart.
+  const lockingBytecodeBytes = p2sh32LockingBytecodeFor(redeemScript);
+  if (
+    binToHex(lockingBytecodeBytes) !== contract.lockingBytecode.toLowerCase()
+  ) {
+    throw new Error(
+      'The contract library and the P2SH32 helper disagree on the locking bytecode',
+    );
+  }
   const prefix = network === 'mainnet' ? 'bitcoincash' : 'bchtest';
 
   const p2sh32Res = lockingBytecodeToCashAddress({
@@ -232,7 +243,7 @@ export function deriveHtlcAddresses(
   return {
     p2sh32Address: p2sh32Res.address,
     tokenAddress: tokenRes.address,
-    redeemScript: hexToBin(contract.bytecode),
+    redeemScript,
     lockingBytecode: lockingBytecodeBytes,
   };
 }

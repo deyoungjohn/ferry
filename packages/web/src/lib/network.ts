@@ -6,6 +6,7 @@
  * Out-of-scope networks are excluded.
  */
 import {
+  listDeployedContracts,
   loadChainDisplay,
   type AssetSymbol,
   type ChainDisplayResult,
@@ -55,6 +56,30 @@ export interface NetworkProfile {
 }
 
 /**
+ * Mainnet default when no VITE_ENABLED_ROUTES is set: every token route on a chain
+ * where a deployment is recorded, so the page follows the facts instead of a build flag.
+ */
+function deployedRoutes(): string | undefined {
+  try {
+    const keys: string[] = [];
+    for (const item of listDeployedContracts(chainsData)) {
+      const chain = (chainsData as unknown as ChainsJson).chains[item.chain];
+      for (const token of chain?.mainnet.tokens ?? []) {
+        if (token.symbol)
+          keys.push(`${token.symbol.toLowerCase()}:${item.chain}`);
+      }
+    }
+    return keys.length > 0 ? keys.join(',') : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+interface ChainsJson {
+  chains: Record<string, { mainnet: { tokens: Array<{ symbol?: string }> } }>;
+}
+
+/**
  * Loads chain display view from @ferry/chain-config facts (FR-14, FR-17, Requirement 4).
  * Disabled routes carry their specific disabledReason.
  */
@@ -65,7 +90,7 @@ export function loadFarChainsFromFacts(
     typeof import.meta !== 'undefined' && import.meta.env?.VITE_ENABLED_ROUTES
       ? (import.meta.env.VITE_ENABLED_ROUTES as string)
       : isMainnetEnv
-        ? undefined
+        ? deployedRoutes()
         : 'usdc:base,usdc:ethereum,usdc:arbitrum';
 
   const result: ChainDisplayResult = loadChainDisplay({
@@ -195,7 +220,9 @@ export function isMainnetProfileConfigured(
     deck?.trim() && repo?.trim() && ember?.trim() && priorRepo?.trim(),
   );
 
-  return hasChains && hasSolver && hasBanner;
+  // Missing banner values keep their visible build warning; they never switch the product off.
+  void hasBanner;
+  return hasChains && hasSolver;
 }
 
 const mainnetConfigured = isMainnetProfileConfigured();

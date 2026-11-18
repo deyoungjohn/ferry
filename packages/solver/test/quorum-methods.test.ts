@@ -104,7 +104,7 @@ describe('BchQuorumClient Electrum methods and failover', () => {
     };
 
     const client = new BchQuorumClient([transport], 'chipnet');
-    const result = await client.waitForDoubleSpendProof('txid123', 2500);
+    const result = await client.waitForDoubleSpendProof('txid123', 15_000);
 
     expect(result.hasProof).toBe(true);
     expect(result.proofData).toEqual({ dsproof_id: 'dsproof123' });

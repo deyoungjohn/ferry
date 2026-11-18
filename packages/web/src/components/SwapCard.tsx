@@ -1,11 +1,10 @@
-import { useEffect, useState, useMemo, useContext } from 'react';
+import { useEffect, useState, useMemo, useContext, useRef } from 'react';
 import { isAddress } from 'viem';
 import {
   formatQuoteRefusalMessage,
   verifyPricing,
   type LiquidityResponse,
   type QuoteRefusal,
-  type Hex32,
   type RecoveryTerms,
 } from '@ferry/core';
 import {
@@ -26,7 +25,15 @@ import {
 } from '../lib/solver/pricing-display';
 import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
-import { ArrowUpDownIcon, ChevronDownIcon } from './icons';
+import { useReducedMotion } from 'motion/react';
+import { ROUTES } from '../lib/routes';
+import { buildCoreQuoteRequest } from '../lib/solver/core-quote';
+import { readBchTipHeight } from '../lib/solver/tip';
+import { LIVE_EXECUTION_MESSAGE } from '../lib/solver/real';
+import { Field } from './swap-block/field';
+import { FlipButton } from './swap-block/controls';
+import { TokenPicker } from './swap-block/token-picker';
+import type { Chain, Token, TokenSide } from './swap-block/types';
 import { CopyDiagnosticsButton } from './CopyDiagnosticsButton';
 import { useToast } from '../lib/toast/ToastContext';
 
@@ -54,6 +61,26 @@ export interface SwapCardProps {
     | 'read_only';
 }
 
+const LIVE_PLACEHOLDER_QUOTE: QuoteResponse = {
+  fromToken: '',
+  toToken: '',
+  fromAmount: 0,
+  toAmount: 0,
+  exchangeRate: 0,
+  spreadBps: 0,
+  estimatedSeconds: 0,
+  expiresInSeconds: 0,
+};
+
+const CHAIN_BADGES: Record<string, string> = {
+  base: 'Bs',
+  ethereum: 'Ξ',
+  arbitrum: 'Ab',
+  arc: 'Ac',
+  bnb: 'Bn',
+  robinhood: 'Rh',
+};
+
 export function SwapCard({
   initialReverse = true, // Judge path first: leads with PUSD -> USDC (§13, §19)
   initialRecipient,
@@ -62,6 +89,8 @@ export function SwapCard({
   const solver = useSolver();
   const walletContext = useContext(WalletContext);
   const evm = walletContext?.evm ?? { status: 'disconnected', address: null };
+  const bchAddress = walletContext?.bch.address?.address ?? null;
+  const quoteSecretRef = useRef<string | null>(null);
   const copy = getModeCopy('swap');
   const priceReader = useMemo(() => new RealPriceReader(), []);
 
@@ -70,12 +99,17 @@ export function SwapCard({
 
   // Selected far chain and tokens
   const farChains = NETWORK_PROFILE.farChains;
+  const defaultChain = farChains.find((c) => c.enabled) ?? farChains[0];
   const [selectedChainId, setSelectedChainId] = useState<string | number>(
-    farChains[0]?.id ?? 8453,
+    defaultChain?.id ?? 8453,
   );
 
   const selectedChain: ChainDisplay =
-    farChains.find((c) => c.id === selectedChainId) ?? farChains[0]!;
+    farChains.find((c) => c.id === selectedChainId) ??
+    defaultChain ??
+    farChains[0]!;
+
+  const hasAnyEnabledRoute = farChains.some((c) => c.enabled);
 
   const [selectedFarToken, setSelectedFarToken] = useState<string>(
     selectedChain?.tokenSymbols[0] ?? 'USDC',
@@ -168,17 +202,21 @@ export function SwapCard({
     setQuoteLoading(true);
 
     // 1. Call solver.getQuote for legacy / mock adapter compatibility
-    solver
-      .getQuote({
-        fromToken,
-        toToken,
-        fromChain,
-        toChain,
-        fromAmount: amountNum,
-        lane,
-        userAddress: evm.address ?? undefined,
-        recipientAddress: recipientAddress.trim() || undefined,
-      })
+    // With live solvers configured the multi-solver path below is the quote; the single
+    // adapter quote only serves the standalone mock.
+    (solverUrls.length > 0
+      ? Promise.resolve(LIVE_PLACEHOLDER_QUOTE)
+      : solver.getQuote({
+          fromToken,
+          toToken,
+          fromChain,
+          toChain,
+          fromAmount: amountNum,
+          lane,
+          userAddress: evm.address ?? undefined,
+          recipientAddress: recipientAddress.trim() || undefined,
+        })
+    )
       .then((res) => {
         if (!active) return;
         setQuote(res);
@@ -191,39 +229,62 @@ export function SwapCard({
           return;
         }
 
+        // When solverUrls is empty (e.g. in standalone mock mode), use adapter quote directly
+        if (solverUrls.length === 0) {
+          setQuoteLoading(false);
+          if (res.signedQuote) {
+            const receiveAmount = isReverse
+              ? res.signedQuote.terms.evmAmount
+              : res.signedQuote.terms.bchTokenAmount;
+            setBestSolverQuote({
+              solverUrl: solver.getLabel ? solver.getLabel() : 'local',
+              latencyMs: 15,
+              quote: {
+                ...res.signedQuote,
+                signerAddress: '0x0000000000000000000000000000000000000000',
+                receiveAmount,
+              },
+            });
+            setRefusal(null);
+          }
+          return;
+        }
+
         // 2. Call bestQuote across all configured solvers (FR-14)
-        const quoteReq = {
-          direction: isReverse
-            ? ('BCH_TO_EVM' as const)
-            : ('EVM_TO_BCH' as const),
-          token: bchTokenSymbol,
-          chainId:
-            typeof selectedChain.id === 'number' ? selectedChain.id : 84532,
-          evmToken:
-            '0x036cbd53842c5426634e7929541ec2318f3dcf7e' as `0x${string}`,
-          amountIn: isReverse
-            ? BigInt(Math.max(1, Math.round(amountNum * 100)))
-            : BigInt(Math.max(1, Math.round(amountNum * 1_000_000))),
-          userEvmAddress: (isAddress(recipientAddress)
-            ? recipientAddress
-            : ((evm.address as `0x${string}` | null) ??
-              '0x' + '0'.repeat(40))) as `0x${string}`,
-          userBchLockingBytecode: ('0x76a914' +
-            '0'.repeat(40) +
-            '88ac') as `0x${string}`,
-          hashLock: ('0x' + '0'.repeat(64)) as Hex32,
+        const built = buildCoreQuoteRequest({
+          fromToken,
+          toToken,
+          fromChain,
+          toChain,
+          fromAmount: amountNum,
           lane,
-        };
+          userAddress: (isReverse ? bchAddress : evm.address) ?? undefined,
+          recipientAddress: recipientAddress.trim() || undefined,
+        });
+        if (!built) {
+          setQuoteLoading(false);
+          setRefusal({
+            reason: 'ROUTE_DISABLED',
+            asset: fromToken,
+            message: 'This route is not available in this build',
+          });
+          return;
+        }
+        quoteSecretRef.current = built.secret;
+        const quoteReq = built.request;
 
         const fetchImpl =
           typeof window !== 'undefined' ? window.fetch.bind(window) : fetch;
 
-        bestQuote(solverUrls, quoteReq, {
-          fetch: fetchImpl,
-          bchTipHeight: 170000,
-          evmTokenDecimals: 6,
-          bchTokenDecimals: 2,
-        })
+        readBchTipHeight(solverUrls[0], fetchImpl)
+          .then((tip) =>
+            bestQuote(solverUrls, quoteReq, {
+              fetch: fetchImpl,
+              bchTipHeight: tip,
+              evmTokenDecimals: built.farToken.decimals,
+              bchTokenDecimals: 2,
+            }),
+          )
           .then(async (result) => {
             if (!active) return;
             setQuoteLoading(false);
@@ -408,12 +469,14 @@ export function SwapCard({
         );
       }
       if (typeof window !== 'undefined') {
-        window.location.assign(`/swap/${orderId}`);
+        window.location.assign(ROUTES.swapOrder(orderId));
       }
     } catch (err) {
       setIsSubmitting(false);
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('rejected') || msg.includes('denied')) {
+      if (msg === LIVE_EXECUTION_MESSAGE) {
+        showToast(msg, 'error');
+      } else if (msg.includes('rejected') || msg.includes('denied')) {
         setFailureState('wallet_rejected');
       } else if (msg.includes('expired')) {
         setFailureState('quote_expired');
@@ -433,11 +496,86 @@ export function SwapCard({
     return '0.00';
   }, [bestSolverQuote, quote, isReverse]);
 
+  // Swap block adapters: Ferry's chains and tokens expressed as the block's types.
+  const reduceMotion = useReducedMotion();
+  const [pickerSide, setPickerSide] = useState<TokenSide | null>(null);
+
+  const bchBlockChain: Chain = {
+    id: 'bch',
+    name: 'Bitcoin Cash',
+    tone: 'bg-primary text-primary-foreground',
+    symbol: '₿',
+  };
+  const farBlockChains: Chain[] = farChains.map((c) => ({
+    id: String(c.id),
+    name: c.name,
+    tone: 'bg-muted text-foreground',
+    symbol: CHAIN_BADGES[c.chainKey ?? ''] ?? c.name.slice(0, 2),
+  }));
+  const bchBlockTokens: Token[] = bchTokens.map((sym) => ({
+    id: `bch:${sym}`,
+    symbol: sym,
+    name: 'Bitcoin Cash',
+    chainId: 'bch',
+    usd: 1,
+  }));
+  const farBlockTokens: Token[] = farChains.flatMap((c) =>
+    (c.tokenSymbols.length > 0 ? c.tokenSymbols : ['USDC']).map((sym) => ({
+      id: `${String(c.id)}:${sym}`,
+      symbol: sym,
+      name: c.name,
+      chainId: String(c.id),
+      usd: 1,
+      ...(c.enabled ? {} : { disabledReason: 'Not live yet' }),
+    })),
+  );
+  const bchBlockToken = bchBlockTokens.find(
+    (t) => t.symbol === selectedBchToken,
+  ) ??
+    bchBlockTokens[0] ?? { id: 'bch:', symbol: '', name: '', chainId: 'bch' };
+  const farBlockToken = farBlockTokens.find(
+    (t) =>
+      t.chainId === String(selectedChain.id) && t.symbol === selectedFarToken,
+  ) ?? {
+    id: 'far:',
+    symbol: selectedFarToken,
+    name: selectedFarToken,
+    chainId: String(selectedChain.id),
+    usd: 1,
+  };
+  const farBlockChain =
+    farBlockChains.find((c) => c.id === String(selectedChain.id)) ??
+    farBlockChains[0] ??
+    bchBlockChain;
+  const fromBlockToken = isReverse ? bchBlockToken : farBlockToken;
+  const fromBlockChain = isReverse ? bchBlockChain : farBlockChain;
+  const toBlockToken = isReverse ? farBlockToken : bchBlockToken;
+  const toBlockChain = isReverse ? farBlockChain : bchBlockChain;
+
+  const pickerOnBch =
+    (pickerSide === 'from' && isReverse) || (pickerSide === 'to' && !isReverse);
+  const pickerChains = pickerOnBch ? [bchBlockChain] : farBlockChains;
+  const pickerTokens = pickerOnBch ? bchBlockTokens : farBlockTokens;
+  const pickerSelectedId = pickerOnBch ? bchBlockToken.id : farBlockToken.id;
+
+  function handlePickToken(id: string) {
+    const [chainPart, ...rest] = id.split(':');
+    const symbol = rest.join(':');
+    if (chainPart === 'bch') {
+      setSelectedBchToken(symbol);
+    } else {
+      handleChainChange(chainPart ?? '');
+      setSelectedFarToken(symbol);
+    }
+    setPickerSide(null);
+  }
+
   const isChainDisabled = !selectedChain.enabled;
 
   const submitButtonDisabled =
     Boolean(refusal) ||
     isSubmitting ||
+    !hasAnyEnabledRoute ||
     isChainDisabled ||
     isAddressEmpty ||
     hasAddressError ||
@@ -449,6 +587,7 @@ export function SwapCard({
 
   const submitButtonText = useMemo(() => {
     if (isReadOnly) return FAILURE_COPY.readOnlyMode.button;
+    if (!hasAnyEnabledRoute) return 'No routes enabled';
     if (isChainDisabled) return 'Not live yet';
     if (isSubmitting) return 'Starting swap…';
     if (isAddressEmpty) {
@@ -462,6 +601,7 @@ export function SwapCard({
     return copy.actionLabel;
   }, [
     isReadOnly,
+    hasAnyEnabledRoute,
     isChainDisabled,
     isSubmitting,
     isAddressEmpty,
@@ -492,7 +632,7 @@ export function SwapCard({
       )}
 
       {/* Main swap card shell */}
-      <div className="card-ring relative rounded-card border border-hairline bg-surface-1 p-3.5 sm:p-4">
+      <div className="card-ring relative overflow-hidden rounded-card border border-hairline bg-surface-1 p-3.5 sm:p-4">
         {/* Lane Toggle & Liquidity Maximum Display */}
         <div className="mb-2.5 flex items-center justify-between gap-2">
           <div
@@ -539,169 +679,52 @@ export function SwapCard({
           </div>
         </div>
 
-        {/* You send Well */}
-        <div className="relative rounded-well border border-hairline bg-surface-2 p-3 transition-colors focus-within:border-lime">
-          <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-            <label htmlFor="send-input" className="font-medium">
-              {copy.sendLabel}
-            </label>
-            {!isReverse ? (
-              <div className="relative inline-flex items-center">
-                <select
-                  aria-label="Source chain"
-                  value={selectedChainId}
-                  onChange={(e) => handleChainChange(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
-                >
-                  {farChains.map((c) => (
-                    <option
-                      key={c.id}
-                      value={c.id}
-                      disabled={!c.enabled}
-                      className="bg-surface-2"
-                    >
-                      {c.name}{' '}
-                      {!c.enabled
-                        ? `(${
-                            !c.disabledReason ||
-                            c.disabledReason.toLowerCase().includes('htlc')
-                              ? 'not live yet'
-                              : c.disabledReason
-                          })`
-                        : ''}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
-              </div>
-            ) : (
-              <span className="text-[11px] text-text-dim">Bitcoin Cash</span>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <input
-              id="send-input"
-              type="number"
-              step="any"
-              min="1"
-              value={sendAmount}
-              inputMode="decimal"
-              autoComplete="off"
-              onChange={(e) => setSendAmount(e.target.value)}
-              placeholder="0.0"
-              className="w-full bg-transparent text-xl sm:text-2xl font-semibold text-text outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        {/* You pay / flip / you get: the swap block */}
+        <div className="relative">
+          <Field
+            side="from"
+            token={fromBlockToken}
+            chain={fromBlockChain}
+            amount={sendAmount}
+            onAmount={setSendAmount}
+            editable
+            quoting={false}
+            onOpenPicker={() => setPickerSide('from')}
+            labels={{ youPay: copy.sendLabel }}
+          />
+          <div className="my-1">
+            <FlipButton
+              rotation={isReverse ? 180 : 0}
+              reduce={Boolean(reduceMotion)}
+              onClick={handleFlipDirection}
             />
-            {!isReverse ? (
-              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text">
-                <span>{sendTokenSymbol}</span>
-              </div>
-            ) : (
-              <div className="relative inline-flex shrink-0 items-center">
-                <select
-                  aria-label="Send token"
-                  value={selectedBchToken}
-                  onChange={(e) => setSelectedBchToken(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2.5 pr-6 py-1 rounded-pill text-xs font-semibold text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
-                >
-                  {bchTokens.map((sym: string) => (
-                    <option key={sym} value={sym} className="bg-surface-2">
-                      {sym}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
-              </div>
-            )}
           </div>
+          <Field
+            side="to"
+            token={toBlockToken}
+            chain={toBlockChain}
+            amount={displayedReceiveAmount}
+            editable={false}
+            quoting={quoteLoading}
+            onOpenPicker={() => setPickerSide('to')}
+            labels={{ youGet: copy.receiveLabel }}
+          />
           {isChainDisabled && selectedChain.disabledReason && (
             <p className="mt-1 text-[11px] text-warn">
               Route disabled: {selectedChain.disabledReason}
             </p>
           )}
         </div>
-
-        {/* Direction Toggle button in center with micro-interaction (FR / B3-10) */}
-        <div className="relative my-[-8px] z-10 flex justify-center">
-          <button
-            type="button"
-            onClick={handleFlipDirection}
-            aria-label="Toggle swap direction"
-            className="group flex size-8 items-center justify-center rounded-full border border-hairline bg-surface-3 text-text shadow-md transition-all hover:border-lime/40 hover:text-lime cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-lime active:scale-95 motion-reduce:transform-none"
-          >
-            <ArrowUpDownIcon
-              className={`size-3.5 transition-transform duration-300 ease-out motion-reduce:transition-none motion-reduce:transform-none ${
-                isReverse ? 'rotate-180' : 'rotate-0'
-              }`}
-            />
-          </button>
-        </div>
-
-        {/* You receive Well */}
-        <div className="relative rounded-well border border-hairline bg-surface-2 p-3 transition-colors">
-          <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-            <span className="font-medium">{copy.receiveLabel}</span>
-            {isReverse ? (
-              <div className="relative inline-flex items-center">
-                <select
-                  aria-label="Destination chain"
-                  value={selectedChainId}
-                  onChange={(e) => handleChainChange(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
-                >
-                  {farChains.map((c) => (
-                    <option
-                      key={c.id}
-                      value={c.id}
-                      disabled={!c.enabled}
-                      className="bg-surface-2"
-                    >
-                      {c.name}{' '}
-                      {!c.enabled
-                        ? `(${
-                            !c.disabledReason ||
-                            c.disabledReason.toLowerCase().includes('htlc')
-                              ? 'not live yet'
-                              : c.disabledReason
-                          })`
-                        : ''}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
-              </div>
-            ) : (
-              <span className="text-[11px] text-text-dim">Bitcoin Cash</span>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xl sm:text-2xl font-semibold text-text">
-              {displayedReceiveAmount}
-            </div>
-            {isReverse ? (
-              <div className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-hairline bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text">
-                <span>{receiveTokenSymbol}</span>
-              </div>
-            ) : (
-              <div className="relative inline-flex shrink-0 items-center">
-                <select
-                  aria-label="Receive token"
-                  value={selectedBchToken}
-                  onChange={(e) => setSelectedBchToken(e.target.value)}
-                  className="appearance-none bg-surface-3 pl-2.5 pr-6 py-1 rounded-pill text-xs font-semibold text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
-                >
-                  {bchTokens.map((sym: string) => (
-                    <option key={sym} value={sym} className="bg-surface-2">
-                      {sym}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDownIcon className="pointer-events-none absolute right-1.5 size-3 text-text-muted" />
-              </div>
-            )}
-          </div>
-        </div>
+        <TokenPicker
+          open={pickerSide !== null}
+          side={pickerSide}
+          chains={pickerChains}
+          tokens={pickerTokens}
+          selectedId={pickerSelectedId}
+          onPick={handlePickToken}
+          onClose={() => setPickerSide(null)}
+          reduce={Boolean(reduceMotion)}
+        />
 
         {/* Destination Recipient Address Well (Judge Path - §13, §19) */}
         <div className="mt-2.5 rounded-well border border-hairline bg-surface-2 p-3 transition-colors focus-within:border-lime">
@@ -810,6 +833,38 @@ export function SwapCard({
                   </ul>
                 </details>
               )}
+          </div>
+        )}
+
+        {/* No routes enabled warning (B3-11) */}
+        {!hasAnyEnabledRoute && (
+          <div
+            data-testid="no-routes-enabled-alert"
+            className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn"
+            role="alert"
+          >
+            <p className="font-semibold">No swap routes currently enabled</p>
+            <p className="mt-0.5 text-[11px] text-text-muted">
+              {farChains[0]?.disabledReason ??
+                'No counterparty routes have verified HTLC deployments on this network.'}
+            </p>
+          </div>
+        )}
+
+        {/* Selected route disabled alert (B3-11) */}
+        {hasAnyEnabledRoute && isChainDisabled && (
+          <div
+            data-testid="route-disabled-alert"
+            className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn"
+            role="alert"
+          >
+            <p className="font-semibold">
+              This swap route ({selectedChain.name}) is currently disabled
+            </p>
+            <p className="mt-0.5 text-[11px] text-text-muted">
+              {selectedChain.disabledReason ??
+                'HTLC contract not deployed or route not active on this network.'}
+            </p>
           </div>
         )}
 
@@ -1069,8 +1124,19 @@ export function SwapCard({
           </div>
         )}
 
+        {/* Live mode: say plainly what works. The recovery file is offered once locking is switched on, because it must hold the real contract data. */}
+        {solver.isLive() && (
+          <p
+            data-testid="live-exec-note"
+            className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[11px] leading-relaxed text-warn"
+          >
+            Quotes and route checks are live. Locking funds from this page is
+            being switched on; until then this button does not move money.
+          </p>
+        )}
+
         {/* Real Recovery Download Action (Requirement 3) */}
-        {bestSolverQuote && (
+        {bestSolverQuote && !solver.isLive() && (
           <button
             type="button"
             onClick={handleDownloadRecovery}

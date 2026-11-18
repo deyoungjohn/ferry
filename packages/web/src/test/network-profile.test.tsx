@@ -63,6 +63,21 @@ describe('Network Profile', () => {
     expect(setting.error).toBeUndefined();
   });
 
+  it('does not switch routes off when only the banner values are missing', () => {
+    const chains = loadFarChainsFromFacts('mainnet').map((c) =>
+      c.chainKey === 'base' ? { ...c, enabled: true, disabledReason: null } : c,
+    );
+    expect(
+      isMainnetProfileConfigured(chains, 'https://solver.example.org', {
+        deckUrl: '',
+        repoUrl: 'https://github.com/deyoungjohn/ferry',
+        emberAddress: '',
+        priorRepoUrl: '',
+        priorDemoUrl: '',
+      }),
+    ).toBe(true);
+  });
+
   it('renders NetworkBlockedPage with a clear explanation', () => {
     render(<NetworkBlockedPage />);
     expect(screen.getByText(/Configuration Incomplete/i)).toBeInTheDocument();
