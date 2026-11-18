@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useGlassLens } from '../lib/glass';
 import { useGlassLayer } from '../lib/glass-layer';
 import { CheckIcon, InfoIcon, XIcon } from './icons';
 
@@ -16,7 +15,6 @@ export interface GlassToastProps {
 }
 
 export function GlassToast({ toast, onDismiss }: GlassToastProps) {
-  const lensed = useGlassLens();
   const [visible, setVisible] = useState(Boolean(toast));
 
   useGlassLayer(visible, 'toast');
@@ -39,11 +37,9 @@ export function GlassToast({ toast, onDismiss }: GlassToastProps) {
 
   return (
     <div
-      role="status"
-      aria-live="polite"
-      className={`glass glass-toast glass-toast-in fixed right-4 bottom-4 z-50 flex items-center gap-3 p-4 text-xs font-medium text-text shadow-xl ${
-        lensed ? 'glass--lensed' : ''
-      }`}
+      role={toast.type === 'error' ? 'alert' : 'status'}
+      aria-live={toast.type === 'error' ? 'assertive' : 'polite'}
+      className="glass glass-pop glass-pop--dark glass-toast glass-toast-in fixed bottom-[max(16px,env(safe-area-inset-bottom))] left-1/2 z-[95] flex w-max max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-3 px-4 py-3 text-xs font-medium text-text sm:right-4 sm:left-auto sm:translate-x-0"
     >
       {toast.type === 'success' ? (
         <CheckIcon className="size-4 text-ok" />
@@ -60,7 +56,7 @@ export function GlassToast({ toast, onDismiss }: GlassToastProps) {
           onDismiss();
         }}
         aria-label="Dismiss notification"
-        className="ml-2 text-text-muted transition-colors hover:text-text"
+        className="ml-1 rounded-full p-1 text-text-muted transition-colors hover:bg-[var(--hl)] hover:text-text"
       >
         <XIcon className="size-3.5" />
       </button>

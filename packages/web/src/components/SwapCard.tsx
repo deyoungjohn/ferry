@@ -811,13 +811,7 @@ export function SwapCard({
               setRecipientAddress(e.target.value);
               setFailureState(null);
             }}
-            placeholder={
-              isReverse
-                ? '0x...'
-                : NETWORK_PROFILE.isMainnet
-                  ? 'bitcoincash:...'
-                  : 'bchtest:...'
-            }
+            placeholder={isReverse ? '0x...' : 'bitcoincash:...'}
             className="w-full bg-transparent font-mono text-xs text-text outline-none placeholder:text-text-dim/50"
           />
           {hasAddressError && (
@@ -829,9 +823,7 @@ export function SwapCard({
               <span>
                 {isReverse
                   ? `Invalid EVM address format for ${selectedChain.name}. Must start with 0x followed by 40 hex characters.`
-                  : 'Invalid Bitcoin Cash address format. Expected CashAddr with prefix (' +
-                    (NETWORK_PROFILE.isMainnet ? 'bitcoincash' : 'bchtest') +
-                    ':...).'}
+                  : 'Invalid Bitcoin Cash address format. Paste a CashAddr address (bitcoincash:...).'}
               </span>
             </p>
           )}

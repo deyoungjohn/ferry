@@ -86,4 +86,63 @@ describe('live swap panel', () => {
     await screen.findByTestId('live-done');
     expect(calls).toEqual(['preview', 'prepare', 'execute']);
   });
+
+  it('shows what the wallet is waiting for, and lets the user cancel it', async () => {
+    const cancel = vi.fn();
+    render(
+      <LiveSwapPanel
+        open
+        onClose={() => undefined}
+        input={input}
+        wallets={
+          {
+            bch: {
+              pendingRequest: 'Sign the Bitcoin Cash lock',
+              promptHelp:
+                'Is your phone asleep? Nothing was sent to the network.',
+              cancelPendingRequest: cancel,
+            },
+            evm: {},
+          } as never
+        }
+        solverUrl="https://solver.test"
+        services={{
+          ...services,
+          execute: vi.fn(() => new Promise<never>(() => undefined)),
+        }}
+        describe={{ pay: '1.00 PUSD', receive: '0.99 USDC' }}
+      />,
+    );
+    await screen.findByTestId('live-preview-note');
+    fireEvent.click(screen.getByTestId('live-continue'));
+    await screen.findByTestId('live-keep-file-note');
+    fireEvent.click(screen.getByTestId('live-download'));
+    fireEvent.click(screen.getByTestId('live-lock'));
+    const box = await screen.findByTestId('live-wallet-request');
+    expect(box).toHaveTextContent('Sign the Bitcoin Cash lock');
+    expect(box).toHaveTextContent('phone asleep');
+    fireEvent.click(screen.getByTestId('live-wallet-cancel'));
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it('says what done means: the claim was sent, funds show once it confirms', async () => {
+    render(
+      <LiveSwapPanel
+        open
+        onClose={() => undefined}
+        input={{ ...input, direction: 'EVM_TO_BCH' } as QuoteInput}
+        wallets={{} as never}
+        solverUrl="https://solver.test"
+        services={services}
+        describe={{ pay: '1.00 USDC', receive: '0.99 PUSD' }}
+      />,
+    );
+    await screen.findByTestId('live-preview-note');
+    fireEvent.click(screen.getByTestId('live-continue'));
+    await screen.findByTestId('live-keep-file-note');
+    fireEvent.click(screen.getByTestId('live-download'));
+    fireEvent.click(screen.getByTestId('live-lock'));
+    const done = await screen.findByTestId('live-done');
+    expect(done).toHaveTextContent(/once the transaction confirms/);
+  });
 });

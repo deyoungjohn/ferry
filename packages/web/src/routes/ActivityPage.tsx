@@ -5,6 +5,13 @@ import { WalletContext } from '../lib/wallet/context';
 import { getMockActivity } from '../lib/activity/mock';
 import type { ActivityEntry } from '../lib/activity/types';
 import { useToast } from '../lib/toast/ToastContext';
+import { Pagination } from '../components/ui/pagination';
+import {
+  DEFAULT_RANGE,
+  RangeFilter,
+  filterByRange,
+  type RangeValue,
+} from '../components/ui/range-filter';
 
 export const ACTIVITY_PAGE_SIZE = 10;
 
@@ -29,14 +36,25 @@ export function ActivityPage() {
   );
   const [addressError, setAddressError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [range, setRange] = useState<RangeValue>(DEFAULT_RANGE);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
 
   // Load activity (BCH-first merge)
-  const allEntries = useMemo<ActivityEntry[]>(() => {
+  const loadedEntries = useMemo<ActivityEntry[]>(() => {
     return getMockActivity(activeAddress);
   }, [activeAddress]);
+  // The window is counted from when the list was loaded.
+  const loadedAt = useMemo(
+    () => Math.floor(Date.now() / 1000),
+    [loadedEntries],
+  );
+  const allEntries = useMemo(
+    () =>
+      filterByRange(loadedEntries, (entry) => entry.createdAt, range, loadedAt),
+    [loadedEntries, range, loadedAt],
+  );
 
   const totalPages = Math.max(
     1,
@@ -116,7 +134,7 @@ export function ActivityPage() {
               type="text"
               value={pastedAddress}
               onChange={(e) => setPastedAddress(e.target.value)}
-              placeholder={activeAddress || 'Enter CashAddr (bchtest:…)'}
+              placeholder={activeAddress || 'Paste a Bitcoin Cash address'}
               className="w-full rounded-pill border border-hairline bg-surface-2 px-4 py-2 font-mono text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
             />
           </div>
@@ -144,6 +162,15 @@ export function ActivityPage() {
           )}
         </div>
       </div>
+
+      <RangeFilter
+        value={range}
+        onChange={(next) => {
+          setRange(next);
+          setCurrentPage(1);
+        }}
+        className="mb-3"
+      />
 
       {/* Activity Table */}
       <div className="rounded-card border border-hairline bg-surface-1 overflow-hidden shadow-elev-card">
@@ -273,26 +300,11 @@ export function ActivityPage() {
             <span>
               Page {currentPage} of {totalPages}
             </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={currentPage <= 1}
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="rounded-pill border border-hairline px-3 py-1 font-medium hover:text-text disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                disabled={currentPage >= totalPages}
-                onClick={() =>
-                  setCurrentPage((p) => Math.min(totalPages, p + 1))
-                }
-                className="rounded-pill border border-hairline px-3 py-1 font-medium hover:text-text disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
-              >
-                Next
-              </button>
-            </div>
+            <Pagination
+              totalPages={totalPages}
+              page={Math.min(currentPage, totalPages)}
+              onPageChange={setCurrentPage}
+            />
           </div>
         )}
       </div>

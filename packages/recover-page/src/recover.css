@@ -1,0 +1,139 @@
+:root {
+  color-scheme: dark;
+  --bg: #080808;
+  --fg: #f4f4f5;
+  --muted: #a1a1aa;
+  --line: #27272a;
+  --lime: #c6f219;
+  --bad: #f87171;
+  --warn: #fbbf24;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    16px/1.55 system-ui,
+    sans-serif;
+}
+#app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+}
+h1 {
+  font-size: 32px;
+  margin: 0 0 8px;
+}
+h2 {
+  font-size: 18px;
+  margin: 24px 0 8px;
+}
+.lead {
+  color: var(--muted);
+}
+.card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  margin: 16px 0;
+  background: #101012;
+}
+.card h2 {
+  margin-top: 0;
+}
+button {
+  background: var(--lime);
+  color: #111;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-weight: 600;
+  cursor: pointer;
+  margin: 6px 6px 6px 0;
+}
+button.secondary {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--line);
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+textarea,
+input[type='url'],
+input[type='text'] {
+  width: 100%;
+  background: #0a0a0b;
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  font:
+    13px ui-monospace,
+    monospace;
+  margin: 8px 0;
+}
+input[type='file'] {
+  margin: 4px 0 8px;
+}
+label {
+  display: block;
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  font-size: 14px;
+}
+dt {
+  color: var(--muted);
+}
+dd {
+  margin: 0;
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+}
+pre {
+  background: #0a0a0b;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  overflow: auto;
+  font-size: 12px;
+}
+pre.wrap {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  margin: 10px 0;
+}
+.note.ok {
+  border-color: color-mix(in srgb, var(--lime) 40%, transparent);
+}
+.note.warn {
+  border-color: color-mix(in srgb, var(--warn) 50%, transparent);
+  color: var(--warn);
+}
+.note.bad {
+  border-color: color-mix(in srgb, var(--bad) 50%, transparent);
+  color: var(--bad);
+}
+.muted {
+  color: var(--muted);
+  font-size: 14px;
+}
+summary {
+  cursor: pointer;
+}

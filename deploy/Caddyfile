@@ -31,6 +31,14 @@
 	@hashedAssets path /assets/*
 	header @hashedAssets Cache-Control "public, max-age=31536000, immutable"
 
+	# The standalone recovery page is one file with its own inline script, so it needs a different
+	# policy from the app. It can reach only public blockchain servers.
+	@recoverPage path /recover.html
+	header @recoverPage {
+		>Content-Security-Policy "default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; connect-src https: wss:; img-src data:"
+		Cache-Control "no-cache"
+	}
+
 	@staticFiles path /favicon.svg /robots.txt /glass/*
 	header @staticFiles Cache-Control "public, max-age=86400"
 

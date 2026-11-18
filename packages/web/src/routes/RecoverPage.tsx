@@ -1,3 +1,5 @@
+import { listDeployedContracts } from '@ferry/chain-config/browser';
+import chainsData from '../../../chain-config/src/data/chains.json';
 import { useState, useContext, type ChangeEvent, type FormEvent } from 'react';
 import { ROUTES } from '../lib/routes';
 import { Link } from 'react-router';
@@ -21,6 +23,8 @@ import { WalletContext } from '../lib/wallet/context';
 import { CopyDiagnosticsButton } from '../components/CopyDiagnosticsButton';
 import { InfoIcon, ExternalLinkIcon } from '../components/icons';
 import { useToast } from '../lib/toast/ToastContext';
+
+const deployed = listDeployedContracts(chainsData);
 
 export function RecoverPage() {
   const walletContext = useContext(WalletContext);
@@ -288,23 +292,62 @@ export function RecoverPage() {
           </h2>
         </div>
         <p className="text-text-muted leading-relaxed">
-          A recovery file is a local, portable JSON backup created whenever you
-          initiate a swap. It contains the on-chain contract addresses, lock
-          scripts, refund deadlines, and secret hashes. Because Ferry is
-          non-custodial, this file allows you to claim your funds or execute an
-          automatic refund directly on-chain—even if this website and every
-          solver are completely unreachable.
+          A recovery file is a local JSON backup created when you start a swap.
+          It holds the contract addresses, lock scripts, refund deadlines and
+          secret hash. Ferry is non-custodial: the contracts, not this website
+          or any solver, hold your funds, and a refund after the deadline needs
+          nobody&apos;s permission.
+        </p>
+        <p className="mt-2 text-text-muted leading-relaxed">
+          <span className="font-medium text-text">
+            If this website is down:
+          </span>{' '}
+          download the standalone recovery page (one file, no installation).
+          Open it from your own computer, load your recovery file, and it reads
+          the blockchain servers directly, works out what you can do, and sends
+          the refund or claim: an EVM transaction through your browser wallet,
+          or a Bitcoin Cash transaction that needs no wallet and no signature.
+          It needs no part of Ferry to be running. You can also refund on Base
+          from the block explorer (Write Contract, then{' '}
+          <span className="font-mono">refund</span>) after the deadline.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-dim border-t border-hairline/60 pt-2.5">
-          <span>• 100% self-sovereign recovery</span>
-          <span>• Usable in this browser or offline in terminal</span>
+          {deployed.map((item) => (
+            <a
+              key={`${item.chain}-${item.address}`}
+              href={`${item.explorerUrl}/address/${item.address}#writeContract`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-lime hover:underline inline-flex items-center gap-1"
+            >
+              <span>Refund on {item.name} (block explorer)</span>
+              <ExternalLinkIcon className="size-3" />
+            </a>
+          ))}
+          <a
+            href="/recover.html"
+            download="ferry-recover.html"
+            data-testid="download-recover-page"
+            className="text-lime hover:underline inline-flex items-center gap-1"
+          >
+            <span>Download the standalone recovery page</span>
+          </a>
+          <a
+            href="https://github.com/deyoungjohn/ferry/blob/main/recover.html"
+            target="_blank"
+            rel="noreferrer"
+            className="text-lime hover:underline inline-flex items-center gap-1"
+          >
+            <span>Same file on GitHub (works when this site is down)</span>
+            <ExternalLinkIcon className="size-3" />
+          </a>
           <a
             href="https://github.com/deyoungjohn/ferry/tree/main/packages/recover-cli"
             target="_blank"
             rel="noreferrer"
             className="text-lime hover:underline inline-flex items-center gap-1"
           >
-            <span>CLI tool: @ferry/recover-cli</span>
+            <span>Command-line tool: @ferry/recover-cli</span>
             <ExternalLinkIcon className="size-3" />
           </a>
         </div>

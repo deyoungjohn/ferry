@@ -1,21 +1,56 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSolver } from '../lib/solver/useSolver';
-import type { PaginatedRecentSwaps } from '../lib/solver/types';
+import type { RecentSwap } from '../lib/solver/types';
+import { Pagination } from './ui/pagination';
+import {
+  DEFAULT_RANGE,
+  RangeFilter,
+  filterByRange,
+  type RangeValue,
+} from './ui/range-filter';
+
+/** A table on the swap page never shows more than this many rows. */
+export const RECENT_SWAPS_PAGE_SIZE = 10;
 
 export function RecentSwapsTable() {
   const solver = useSolver();
   const [currentPage, setCurrentPage] = useState(1);
-  const [data, setData] = useState<PaginatedRecentSwaps | null>(null);
+  const [all, setAll] = useState<RecentSwap[] | null>(null);
+  const [range, setRange] = useState<RangeValue>(DEFAULT_RANGE);
 
   useEffect(() => {
     let active = true;
-    solver.getRecentSwaps(currentPage, 10).then((res) => {
-      if (active) setData(res);
+    solver.getRecentSwaps(1, 100).then((res) => {
+      if (active) setAll([...res.items]);
     });
     return () => {
       active = false;
     };
-  }, [currentPage, solver]);
+  }, [solver]);
+
+  // The window is counted from when the list was loaded, not re-read on every render.
+  const loadedAt = useMemo(() => Math.floor(Date.now() / 1000), [all]);
+  const data = useMemo(() => {
+    if (!all) return null;
+    const inWindow = filterByRange(
+      all,
+      (swap) => swap.timestampSeconds,
+      range,
+      loadedAt,
+    );
+    const totalPages = Math.max(
+      1,
+      Math.ceil(inWindow.length / RECENT_SWAPS_PAGE_SIZE),
+    );
+    const page = Math.min(currentPage, totalPages);
+    const start = (page - 1) * RECENT_SWAPS_PAGE_SIZE;
+    return {
+      items: inWindow.slice(start, start + RECENT_SWAPS_PAGE_SIZE),
+      page,
+      totalPages,
+      totalCount: inWindow.length,
+    };
+  }, [all, range, loadedAt, currentPage]);
 
   return (
     <section
@@ -36,6 +71,15 @@ export function RecentSwapsTable() {
           </div>
         )}
       </div>
+
+      <RangeFilter
+        value={range}
+        onChange={(next) => {
+          setRange(next);
+          setCurrentPage(1);
+        }}
+        className="mb-3"
+      />
 
       <div className="overflow-hidden rounded-card border border-hairline bg-surface-1">
         <div className="overflow-x-auto">
@@ -147,28 +191,11 @@ export function RecentSwapsTable() {
               <span className="font-medium text-text">{data.totalPages}</span> (
               {data.totalCount} total)
             </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                data-testid="pagination-prev"
-                disabled={data.page <= 1}
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="rounded-pill border border-hairline bg-surface-2 px-3 py-1 text-xs font-medium text-text transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                data-testid="pagination-next"
-                disabled={data.page >= data.totalPages}
-                onClick={() =>
-                  setCurrentPage((p) => Math.min(data.totalPages, p + 1))
-                }
-                className="rounded-pill border border-hairline bg-surface-2 px-3 py-1 text-xs font-medium text-text transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
+            <Pagination
+              totalPages={data.totalPages}
+              page={data.page}
+              onPageChange={setCurrentPage}
+            />
           </div>
         )}
       </div>
