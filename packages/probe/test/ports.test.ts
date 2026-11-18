@@ -79,12 +79,16 @@ describe('@ferry/probe default ports and formatters', () => {
   it('exercises createDefaultEvmPort approve-lock, waitForSolverLock, claim, waitForRefundDeadline, refund', async () => {
     const writes: string[] = [];
     const publicClient = {
-      readContract: async () => [
-        SAMPLE_TERMS.solverEvmAddress,
-        SAMPLE_TERMS.evmToken,
-        SAMPLE_TERMS.userEvmAddress,
-        1_000_000n,
-      ],
+      readContract: async (args: { functionName: string }) =>
+        // The user has approved nothing yet; the lock record is read as a tuple.
+        args.functionName === 'allowance'
+          ? 0n
+          : [
+              SAMPLE_TERMS.solverEvmAddress,
+              SAMPLE_TERMS.evmToken,
+              SAMPLE_TERMS.userEvmAddress,
+              1_000_000n,
+            ],
       waitForTransactionReceipt: async () => ({ status: 'success' }),
       getBlock: async () => ({
         timestamp: BigInt(SAMPLE_TERMS.evmDeadline + 1),
@@ -132,6 +136,37 @@ describe('@ferry/probe default ports and formatters', () => {
     const refundHash = await port.refund(SAMPLE_TERMS);
     expect(refundHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(writes).toEqual(['approve', 'lock', 'claim', 'refund']);
+  });
+
+  it('a USDT-style token with a smaller non-zero allowance is reset, approved, then locked', async () => {
+    const sent: { data: Hex }[] = [];
+    const publicClient = {
+      readContract: async () => 500_000n,
+      estimateGas: async () => 60_000n,
+      waitForTransactionReceipt: async () => ({ status: 'success' }),
+    } as unknown as PublicClient;
+    const walletClient = {
+      sendTransaction: async (args: { data: Hex }) => {
+        sent.push(args);
+        return `0x${'ab'.repeat(32)}` as Hex32;
+      },
+    } as unknown as WalletClient;
+    const port = createDefaultEvmPort({
+      chainConfig: CHAIN_CONFIG,
+      publicClient,
+      walletClient,
+      userAddress: SAMPLE_TERMS.userEvmAddress,
+    });
+
+    await port.lock(SAMPLE_TERMS, {} as never);
+
+    expect(sent).toHaveLength(3);
+    // approve(spender, 0), approve(spender, amount), lock(...)
+    expect(sent[0]!.data.startsWith('0x095ea7b3')).toBe(true);
+    expect(sent[0]!.data.endsWith('0'.repeat(64))).toBe(true);
+    expect(sent[1]!.data.startsWith('0x095ea7b3')).toBe(true);
+    expect(sent[1]!.data.endsWith('0'.repeat(64))).toBe(false);
+    expect(sent[2]!.data.startsWith('0x095ea7b3')).toBe(false);
   });
 
   it('locks with a permit through the real adapter payload: two signatures, then the relay', async () => {

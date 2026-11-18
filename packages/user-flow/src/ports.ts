@@ -26,6 +26,11 @@ export interface EvmSignerPort {
     readonly data: Hex;
     readonly value?: bigint;
     readonly chainId: number;
+    /**
+     * A gas limit to use when the wallet cannot estimate it (a transaction that
+     * depends on one still waiting to be mined). Use it when present.
+     */
+    readonly gas?: bigint;
   }): Promise<Hex32>;
 }
 
