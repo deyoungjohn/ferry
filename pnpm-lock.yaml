@@ -150,6 +150,9 @@ importers:
 
   packages/e2e:
     dependencies:
+      '@bitauth/libauth':
+        specifier: 3.0.0
+        version: 3.0.0
       '@ferry/chain-config':
         specifier: workspace:*
         version: link:../chain-config
@@ -159,6 +162,9 @@ importers:
       '@ferry/core':
         specifier: workspace:*
         version: link:../core
+      '@ferry/htlc-bch':
+        specifier: workspace:*
+        version: link:../htlc-bch
       '@ferry/htlc-evm':
         specifier: workspace:*
         version: link:../htlc-evm
