@@ -118,6 +118,13 @@ export class SolverDatabase {
           note TEXT NOT NULL,
           created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
         );
+
+        CREATE TABLE IF NOT EXISTS send_link_tags (
+          tag TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL,
+          created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+        );
+        CREATE INDEX IF NOT EXISTS idx_send_link_tags_order_id ON send_link_tags(order_id);
       `);
 
       this.db.pragma(`user_version = ${SUPPORTED_SCHEMA_VERSION}`);
@@ -167,6 +174,13 @@ export class SolverDatabase {
         note TEXT NOT NULL,
         created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
       );
+
+      CREATE TABLE IF NOT EXISTS send_link_tags (
+        tag TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_send_link_tags_order_id ON send_link_tags(order_id);
     `);
   }
 
@@ -186,6 +200,58 @@ export class SolverDatabase {
       .prepare('SELECT note FROM send_link_notes WHERE order_id = ?')
       .get(orderId) as { note: string } | undefined;
     return row ? row.note : null;
+  }
+
+  /**
+   * Save a blinded view tag for a send link order.
+   * Stored beside the order, never inside its signed terms.
+   */
+  saveSendLinkTag(tag: string, orderId: string, createdAt: number): void {
+    assertSecondsTimestamp(createdAt, 'created_at');
+    const normalizedTag = tag.toLowerCase();
+    this.db
+      .prepare(
+        `INSERT INTO send_link_tags (tag, order_id, created_at) VALUES (?, ?, ?)`,
+      )
+      .run(normalizedTag, orderId, createdAt);
+  }
+
+  hasSendLinkTag(tag: string): boolean {
+    const normalizedTag = tag.toLowerCase();
+    const row = this.db
+      .prepare(`SELECT 1 FROM send_link_tags WHERE tag = ?`)
+      .get(normalizedTag);
+    return row !== undefined;
+  }
+
+  getSendLinkTagByOrderId(orderId: string): string | null {
+    const row = this.db
+      .prepare(`SELECT tag FROM send_link_tags WHERE order_id = ?`)
+      .get(orderId) as { tag: string } | undefined;
+    return row ? row.tag : null;
+  }
+
+  getOrdersBySendLinkTags(
+    tags: string[],
+  ): Array<{ tag: string; order: OrderRecord }> {
+    if (tags.length === 0) return [];
+    const normalizedTags = Array.from(
+      new Set(tags.map((t) => t.toLowerCase())),
+    );
+    const placeholders = normalizedTags.map(() => '?').join(',');
+    const stmt = this.db.prepare(`
+      SELECT t.tag, o.*
+      FROM send_link_tags t
+      JOIN orders o ON t.order_id = o.id
+      WHERE t.tag IN (${placeholders})
+    `);
+    const rows = stmt.all(...normalizedTags) as Array<
+      { tag: string } & Record<string, unknown>
+    >;
+    return rows.map((r) => ({
+      tag: r.tag,
+      order: this.mapOrderRow(r),
+    }));
   }
 
   getSetting(key: string): string | null {

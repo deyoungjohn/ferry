@@ -92,6 +92,33 @@ export class QuoteRateLimiter {
     return { allowed: true };
   }
 
+  checkIp(
+    ip: string,
+    now: number = Date.now(),
+  ): { allowed: boolean; reason?: 'ip' } {
+    const ipTimestamps = (this.ipBuckets.get(ip) || []).filter(
+      (t) => now - t < this.options.windowMs,
+    );
+    if (ipTimestamps.length >= this.options.maxPerIp) {
+      this.ipBuckets.set(ip, ipTimestamps);
+      return { allowed: false, reason: 'ip' };
+    }
+
+    if (!this.ipBuckets.has(ip) && this.ipBuckets.size >= this.maxEntries) {
+      this.prune(now);
+      if (this.ipBuckets.size >= this.maxEntries) {
+        const oldestKey = this.ipBuckets.keys().next().value;
+        if (oldestKey !== undefined) {
+          this.ipBuckets.delete(oldestKey);
+        }
+      }
+    }
+
+    ipTimestamps.push(now);
+    this.ipBuckets.set(ip, ipTimestamps);
+    return { allowed: true };
+  }
+
   prune(now: number = Date.now()): void {
     for (const [addr, timestamps] of this.addressBuckets.entries()) {
       const active = timestamps.filter((t) => now - t < this.options.windowMs);
