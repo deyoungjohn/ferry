@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck -- adapted third-party component; this project's stricter array and optional-property checks do not apply to it.
 import { getAudioContext, retainAudioContext } from './audio-context';
 
