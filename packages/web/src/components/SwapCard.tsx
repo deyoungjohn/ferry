@@ -883,7 +883,8 @@ export function SwapCard({
         </div>
 
         {/* Multi-solver Winning Badge & Collapsible Disclosure (FR-14) */}
-        {bestSolverQuote && (
+        {/* Shown only when more than one solver is configured: with one there is nothing to compare. */}
+        {bestSolverQuote && solverUrls.length > 1 && (
           <div className="mt-2.5 rounded-lg border border-hairline bg-surface-2/80 p-2 text-xs">
             <div className="flex items-center justify-between">
               <span className="text-text-dim">Winning solver</span>
