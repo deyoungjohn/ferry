@@ -11,6 +11,12 @@ import { InventoryReader } from '../pricing/inventory-reader.js';
 import { RoutePriceSource } from '../pricing/composite-source.js';
 import type { PriceSource } from '../pricing/price-source.js';
 import { formatUsdMicrosToDecimal } from '../pricing/price-source.js';
+import {
+  LiveCostModelReader,
+  calculateRouteCost,
+  applyCostModelToQuote,
+  type LiveCostInputs,
+} from '../pricing/cost-model.js';
 import { buildServer } from '../api/server.js';
 import { SolverDatabase } from '../db/database.js';
 import { SolverEngine } from '../engine/runner.js';
@@ -36,6 +42,7 @@ export interface SelfCheckOptions {
   bchClient?: BchQuorumClient | undefined;
   inventoryReader?: InventoryReader | undefined;
   priceSource?: PriceSource | undefined;
+  costModelReader?: LiveCostModelReader | undefined;
   evmAdapters?: Map<string, EvmChainAdapter> | undefined;
   evmClients?: Map<string, PublicClient> | undefined;
   routesContext?: SolverRoutesContext | undefined;
@@ -337,6 +344,30 @@ export async function runSelfCheck(
     dsproofWindowMs: config.dsproofWindowMs,
   });
 
+  const liveCostClient =
+    evmClients.get('base') ??
+    (baseAdapter as unknown as { client?: PublicClient })?.client;
+
+  const costModelReader =
+    options.costModelReader ??
+    (liveCostClient
+      ? new LiveCostModelReader({
+          client: liveCostClient,
+          bchClient,
+          ethUsdFeedAddress: config.ethUsdFeedAddress as `0x${string}`,
+          limits: {
+            ethUsdMaxAgeSeconds: config.ethUsdMaxAgeSeconds,
+            bchUsdMaxAgeSeconds: config.bchUsdMaxAgeSeconds,
+            baseGasMaxAgeSeconds: config.baseGasMaxAgeSeconds,
+            bchFeeRateMaxAgeSeconds: config.bchFeeRateMaxAgeSeconds,
+            bchUsdDisagreementPercent: config.bchUsdDisagreementPercent,
+          },
+          costSafetyPercent: config.costSafetyPercent,
+          minMarginUsdMicros: config.minMarginUsdMicros,
+          cacheTtlSeconds: config.costCacheTtlSeconds,
+        })
+      : undefined);
+
   const app =
     options.app ??
     buildServer({
@@ -350,12 +381,112 @@ export async function runSelfCheck(
       engine,
       priceSource,
       inventoryReader,
+      costModelReader,
     });
 
-  // 10. Execute $1 dryRun Quote for Each Enabled Route
-  log('5. Dry-Run $1 Quote Verification for Enabled Routes:');
-  const verdicts: RouteSelfCheckVerdict[] = [];
+  // 10. Inspect Live Cost Model Inputs & Route Economics
+  log('5. Live Cost Model Inputs & Route Economics:');
+  let liveInputs: LiveCostInputs | undefined;
   let allPassed = true;
+  if (!costModelReader) {
+    if (options.evmAdapters) {
+      log('   - Live cost model reader: not configured for mock EVM adapters');
+    } else {
+      allPassed = false;
+      log(
+        '   [FAIL] No Base EVM client configured to read live cost model inputs',
+      );
+    }
+  } else {
+    try {
+      liveInputs = await costModelReader.readLiveInputs();
+      const now = Math.floor(Date.now() / 1000);
+      const ethAge = now - liveInputs.ethUsd.asOf;
+      const bchAge = now - liveInputs.bchUsd.asOf;
+      const gasAge = now - liveInputs.baseGas.asOf;
+      const feeAge = now - liveInputs.bchFeeRate.asOf;
+
+      log(
+        `   - ETH/USD:       $${formatUsdMicrosToDecimal(liveInputs.ethUsd.usdPriceMicros)} (${liveInputs.ethUsd.source}, asOf: ${liveInputs.ethUsd.asOf}, age: ${ethAge}s)`,
+      );
+      log(
+        `   - BCH/USD:       $${formatUsdMicrosToDecimal(liveInputs.bchUsd.usdPriceMicros)} (${liveInputs.bchUsd.source}, asOf: ${liveInputs.bchUsd.asOf}, age: ${bchAge}s)`,
+      );
+      if (liveInputs.bchUsd.components.length > 0) {
+        for (const comp of liveInputs.bchUsd.components) {
+          log(
+            `     * component:   $${formatUsdMicrosToDecimal(comp.usdPriceMicros)} (${comp.source}, age: ${now - comp.asOf}s)`,
+          );
+        }
+      }
+      log(
+        `   - Base Gas:      ${(Number(liveInputs.baseGas.gasPriceWei) / 1e9).toFixed(4)} gwei (${liveInputs.baseGas.source}, age: ${gasAge}s)`,
+      );
+      log(
+        `   - BCH Fee Rate:  ${liveInputs.bchFeeRate.effectiveSatsPerByte} sats/byte (${liveInputs.bchFeeRate.source}, age: ${feeAge}s)`,
+      );
+
+      for (const enabledRoute of routesContext.enabledRoutes) {
+        for (const dir of ['EVM_TO_BCH', 'BCH_TO_EVM'] as const) {
+          const routeCost = calculateRouteCost({
+            direction: dir,
+            chainId: enabledRoute.chain,
+            inputs: liveInputs,
+            safetyMarginPercent: config.costSafetyPercent,
+            minMarginUsdMicros: config.minMarginUsdMicros,
+            bchCarrySats: config.bchCarrySats,
+          });
+
+          const gasCostUsd = formatUsdMicrosToDecimal(
+            routeCost.gasCostUsdMicros,
+          );
+          const bchCostUsd = formatUsdMicrosToDecimal(
+            routeCost.bchFeeCostUsdMicros,
+          );
+          const totalCostUsd = formatUsdMicrosToDecimal(
+            routeCost.totalCostUsdMicros,
+          );
+          const withMarginUsd = formatUsdMicrosToDecimal(
+            routeCost.costWithMarginUsdMicros,
+          );
+
+          log(
+            `   - ${enabledRoute.key} (${dir}): gas $${gasCostUsd} + bch $${bchCostUsd} = cost $${totalCostUsd} (with ${routeCost.safetyMarginPercent}% margin: $${withMarginUsd})`,
+          );
+
+          for (const testAmountUsd of [1, 5, 50]) {
+            const amountMicros = BigInt(testAmountUsd) * 1_000_000n;
+            const adj = applyCostModelToQuote({
+              amountInUsdMicros: amountMicros,
+              baseSpreadBps: config.spreadBps,
+              routeCost,
+              costModelEnabled: config.costModelEnabled,
+              staticFixedFeeUsdMicros: config.fixedFeeUsdMicros,
+            });
+
+            const feeUsd = formatUsdMicrosToDecimal(adj.totalFeeUsdMicros);
+            const netUsd = formatUsdMicrosToDecimal(
+              adj.solverNetProfitUsdMicros,
+            );
+            const sign = adj.solverNetProfitUsdMicros >= 0n ? '+' : '';
+            log(
+              `     * $${testAmountUsd} swap: fee $${feeUsd} (${adj.pricingChoice}), solver net: ${sign}$${netUsd}`,
+            );
+          }
+        }
+      }
+    } catch (err) {
+      allPassed = false;
+      log(
+        `   [FAIL] Live cost inputs error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  log('');
+
+  // 11. Execute $1 dryRun Quote for Each Enabled Route
+  log('6. Dry-Run $1 Quote Verification for Enabled Routes:');
+  const verdicts: RouteSelfCheckVerdict[] = [];
 
   for (const enabledRoute of routesContext.enabledRoutes) {
     const chainFact = routesContext.chainConfig.facts.find(

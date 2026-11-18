@@ -15,6 +15,7 @@ export * from './engine/runner.js';
 export * from './pricing/price-source.js';
 export * from './pricing/liquidity.js';
 export * from './pricing/quote-builder.js';
+export * from './pricing/cost-model.js';
 export * from './bch/lock-builder.js';
 export * from './paylink/link.js';
 export * from './api/rate-limiter.js';

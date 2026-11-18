@@ -8,6 +8,12 @@ import {
   type PricingPolicy,
 } from '@ferry/core';
 import {
+  LiveCostError,
+  LiveCostModelReader,
+  applyCostModelToQuote,
+  type CostModelQuoteAdjustment,
+} from './cost-model.js';
+import {
   absDiff,
   assertFreshPrice,
   DEFAULT_PARYON_MAX_AGE_SECONDS,
@@ -55,6 +61,7 @@ export interface BuildQuoteParams {
   inputDecimals?: number | undefined;
   outputDecimals?: number | undefined;
   fixedFeeUsdMicros?: bigint | undefined;
+  costModelEnabled?: boolean | undefined;
   termsTemplate: Omit<
     OrderTerms,
     | 'direction'
@@ -113,6 +120,8 @@ export class QuoteBuilder {
       paryonMaxAgeSeconds: DEFAULT_PARYON_MAX_AGE_SECONDS,
     },
     private readonly maxSwapUsdMicros: bigint = MAX_SWAP_USD_MICROS,
+    private readonly costModelReader?: LiveCostModelReader,
+    private readonly costModelEnabled: boolean = true,
   ) {}
 
   async buildQuote(params: BuildQuoteParams): Promise<QuoteResult> {
@@ -334,8 +343,50 @@ export class QuoteBuilder {
         ? Math.max(0, this.policy.spreadBps + skew)
         : Math.max(0, this.policy.spreadBps - skew);
 
+    let costAdjustment: CostModelQuoteAdjustment | undefined;
+    const isCostModelOn =
+      params.costModelEnabled !== undefined
+        ? params.costModelEnabled
+        : this.costModelEnabled;
+
+    if (this.costModelReader && isCostModelOn) {
+      try {
+        const routeCost = await this.costModelReader.getRouteCost(
+          params.direction,
+          params.termsTemplate.evmChainId,
+          params.nowSeconds,
+        );
+        costAdjustment = applyCostModelToQuote({
+          amountInUsdMicros: amountInMicros,
+          baseSpreadBps: effectiveSpreadBps,
+          routeCost,
+          costModelEnabled: true,
+          staticFixedFeeUsdMicros:
+            params.fixedFeeUsdMicros ?? this.policy.fixedFeeUsdMicros ?? 0n,
+        });
+      } catch (err) {
+        if (err instanceof LiveCostError) {
+          return {
+            ok: false,
+            reason: err.reason,
+            asset: params.payAsset,
+            message: err.message,
+          };
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          ok: false,
+          reason: 'PRICE_UNAVAILABLE',
+          asset: params.payAsset,
+          message: `Live cost unavailable: ${msg}`,
+        };
+      }
+    }
+
     const fixedFeeUsdMicros =
-      params.fixedFeeUsdMicros ?? this.policy.fixedFeeUsdMicros ?? 0n;
+      costAdjustment !== undefined
+        ? costAdjustment.fixedFeeUsdMicros
+        : (params.fixedFeeUsdMicros ?? this.policy.fixedFeeUsdMicros ?? 0n);
     const fixedFeeBase = usdMicrosToTokenAmount(fixedFeeUsdMicros, outDecimals);
 
     const pricingEvidence: PricingEvidence = {
@@ -343,6 +394,7 @@ export class QuoteBuilder {
       spreadBps: effectiveSpreadBps,
       fixedFeeBase,
       rounding: 'floor',
+      ...(costAdjustment ? { costs: costAdjustment.costBreakdown } : {}),
     };
 
     // 6. Calculate receive amount with floor rounding using @ferry/core quoteOut

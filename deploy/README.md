@@ -146,6 +146,16 @@ Where the values come from:
 - **`MAX_SWAP_USD_MICROS=1000000`** is the $1 cap for the first swaps.
 - **`RESERVATION_CAP_PER_ADDRESS_USD_MICROS`** (optional): active reservation cap per user address in USD micros (default: min(2 × `MAX_SWAP_USD_MICROS`, `MAX_EXPOSURE_USD_MICROS`)).
 - **`RESERVATION_CAP_PER_IP_USD_MICROS`** (optional): active reservation cap per IP in USD micros (default: min(2 × `MAX_SWAP_USD_MICROS`, `MAX_EXPOSURE_USD_MICROS`)).
+- **`COST_MODEL_ENABLED`** (optional): whether quotes floor fees at live network cost plus safety margin (default: `true`).
+- **`COST_SAFETY_PERCENT`** (optional): safety margin percent added to measured gas and BCH tx costs (default: `25`).
+- **`MIN_MARGIN_USD_MICROS`** (optional): fixed solver margin in USD micros added on top of costs (default: `0`).
+- **`COST_CACHE_TTL_SECONDS`** (optional): cost model input cache time-to-live in seconds (default: `45`).
+- **`BASE_ETH_USD_FEED_ADDRESS`** (optional): Chainlink ETH/USD feed contract on Base (default: `0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70`).
+- **`ETH_USD_MAX_AGE_SECONDS`** (optional): staleness limit for ETH/USD feed in seconds (default: `1800`).
+- **`BCH_USD_MAX_AGE_SECONDS`** (optional): staleness limit for BCH/USD feeds in seconds (default: `300`).
+- **`BASE_GAS_MAX_AGE_SECONDS`** (optional): staleness limit for Base gas price in seconds (default: `60`).
+- **`BCH_FEE_RATE_MAX_AGE_SECONDS`** (optional): staleness limit for BCH quorum fee rate in seconds (default: `300`).
+- **`BCH_USD_DISAGREEMENT_PERCENT`** (optional): maximum allowed percent divergence between public BCH/USD price feeds (default: `5`).
 
 `HOST=127.0.0.1` keeps the solver off the public network, and `TRUSTED_PROXY=true`
 is right because Caddy is the only caller. Do not set `ALLOW_DEV_KEYS` or
