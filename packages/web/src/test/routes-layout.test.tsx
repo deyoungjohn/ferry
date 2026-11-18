@@ -1,5 +1,13 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  beforeAll,
+  afterAll,
+  vi,
+} from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { ActivityPage } from '../routes/ActivityPage';
 import { RecoverPage } from '../routes/RecoverPage';
@@ -11,6 +19,16 @@ import { RouteStatusPage } from '../routes/RouteStatusPage';
 import { SolverProvider } from '../lib/solver/SolverProvider';
 import { MockSolverClient } from '../lib/solver/mock';
 import { MockWalletProvider } from '../lib/wallet/mock';
+
+/** The fixtures are dated 14 Nov 2024; pin the clock so the default 90-day window includes them. */
+const FIXTURE_NOW = new Date('2024-11-15T12:00:00Z');
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(FIXTURE_NOW);
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 describe('New Routes Layout & Responsive Viewports (FR-13, FR-17, FR-18)', () => {
   beforeEach(() => {

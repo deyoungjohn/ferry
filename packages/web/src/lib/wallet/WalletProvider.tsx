@@ -4,6 +4,7 @@ import {
   lazy,
   Suspense,
   useMemo,
+  useContext,
   type ReactNode,
 } from 'react';
 const MockWalletProvider = lazy(async () => {
@@ -74,6 +75,17 @@ export function WalletProvider({ children }: { readonly children: ReactNode }) {
     };
   }, []);
 
+  const [real, setReal] = useState<WalletSet | null>(null);
+  // Created once: a new element each render would re-render the host and loop through the bridge.
+  const realHost = useMemo(
+    () => (
+      <RealWalletProvider>
+        <WalletBridge onValue={setReal} />
+      </RealWalletProvider>
+    ),
+    [],
+  );
+
   const inertValue: WalletSet = useMemo(() => {
     return {
       evm: {
@@ -126,17 +138,28 @@ export function WalletProvider({ children }: { readonly children: ReactNode }) {
     );
   }
 
-  if (!activated) {
-    return (
-      <WalletContext.Provider value={inertValue}>
-        {children}
-      </WalletContext.Provider>
-    );
-  }
-
+  // One stable tree. The real wallet code is rendered BESIDE the page and hands its value up
+  // through a bridge; swapping the page's own parent would unmount and remount the whole page
+  // (and close the Connect dialog the moment it opened).
   return (
-    <Suspense fallback={<WalletLoading />}>
-      <RealWalletProvider>{children}</RealWalletProvider>
-    </Suspense>
+    <WalletContext.Provider
+      value={activated ? (real ?? inertValue) : inertValue}
+    >
+      {children}
+      {activated && <Suspense fallback={null}>{realHost}</Suspense>}
+    </WalletContext.Provider>
   );
+}
+
+/** Reads the real wallet value from inside the real provider and passes it up. */
+function WalletBridge({
+  onValue,
+}: {
+  readonly onValue: (value: WalletSet) => void;
+}) {
+  const value = useContext(WalletContext);
+  useEffect(() => {
+    if (value) onValue(value);
+  }, [value, onValue]);
+  return null;
 }

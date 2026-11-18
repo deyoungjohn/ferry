@@ -123,6 +123,7 @@ Without those variables the default is the mainnet profile, which shows what is 
 ## Credits
 
 The swap card's layout and token picker are adapted from the Swap block at <https://beui.dev/components/blocks/swap>, used with the maintainer's permission.
+The pagination control and the date range picker (under `packages/web/src/components/ui`) are adapted from beui.dev components, also used with the maintainer's permission.
 
 ## Known limitations
 

@@ -352,6 +352,22 @@ async function runSmokeSuite() {
       const baseRoute = page.locator('[data-testid="mainnet-route-base"]');
       await baseRoute.waitFor({ state: 'visible' });
 
+      // The wallet connect flow, in the real (non-mock) mode: the dialog must open AND stay open
+      // (activating the wallet code once remounted the page and closed it), and the
+      // Bitcoin Cash button must lead to the WizardConnect QR.
+      await page.locator('header button:has-text("Connect")').first().click();
+      const walletDialog = page.locator('[role="dialog"]');
+      await walletDialog.waitFor({ state: 'visible' });
+      await page.waitForTimeout(1500);
+      if ((await walletDialog.count()) !== 1) {
+        throw new Error('The Connect dialog closed by itself after opening');
+      }
+      await page.getByRole('button', { name: 'Connect BCH Wallet' }).click();
+      await page
+        .locator('text=Connect a BCH wallet')
+        .first()
+        .waitFor({ state: 'visible', timeout: 15000 });
+
       if (screenshotPath) {
         await page.screenshot({ path: screenshotPath });
         console.log(`[smoke] Saved screenshot: ${screenshotPath}`);

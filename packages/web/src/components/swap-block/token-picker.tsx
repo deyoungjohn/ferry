@@ -91,7 +91,7 @@ export function TokenPicker({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2, ease: EASE }}
-            className="absolute inset-0 z-10 cursor-default bg-background/40 backdrop-blur-sm"
+            className="overlay-backdrop absolute inset-0 z-10 cursor-default"
           />
 
           <motion.div
@@ -109,10 +109,10 @@ export function TokenPicker({
             }
             transition={reduce ? { duration: 0.18, ease: EASE } : SPRING_PANEL}
             className={cn(
-              'absolute z-20 flex flex-col border border-border bg-card shadow-2xl',
+              'glass glass-pop glass-pop--dark absolute z-20 flex flex-col',
               compact
-                ? 'inset-x-2 top-2 max-h-[80%] rounded-2xl'
-                : 'inset-x-0 bottom-0 max-h-[92%] rounded-t-3xl border-x-0 border-b-0',
+                ? 'inset-x-2 top-2 max-h-[80%] rounded-[22px]'
+                : 'inset-x-0 bottom-0 max-h-[92%] rounded-b-none! rounded-t-[28px]!',
             )}
             role="dialog"
             aria-modal="true"

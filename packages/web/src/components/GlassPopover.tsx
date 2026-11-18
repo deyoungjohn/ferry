@@ -1,6 +1,5 @@
 import * as Popover from '@radix-ui/react-popover';
 import type { ReactNode } from 'react';
-import { useGlassLens } from '../lib/glass';
 import { useGlassLayer } from '../lib/glass-layer';
 import { useState } from 'react';
 
@@ -12,7 +11,6 @@ export interface GlassPopoverProps {
 
 export function GlassPopover({ trigger, children, label }: GlassPopoverProps) {
   const [open, setOpen] = useState(false);
-  const lensed = useGlassLens();
 
   useGlassLayer(open, label ?? 'popover');
 
@@ -22,12 +20,9 @@ export function GlassPopover({ trigger, children, label }: GlassPopoverProps) {
       <Popover.Portal>
         <Popover.Content
           sideOffset={8}
-          className={`glass glass-popover z-50 max-w-xs p-3 text-xs leading-5 text-text-muted outline-none shadow-xl ${
-            lensed ? 'glass--lensed' : ''
-          }`}
+          className="glass glass-pop glass-pop--dark glass-popover z-50 max-w-xs p-3 text-xs leading-5 text-text outline-none"
         >
           {children}
-          <Popover.Arrow className="fill-surface-2" />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

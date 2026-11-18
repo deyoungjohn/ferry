@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, NavLink } from 'react-router';
+import { Link, NavLink, useLocation } from 'react-router';
+import { isInternalPath } from './Footer';
 import { NETWORK_LABEL, IS_MAINNET } from '../lib/config';
 import { APP_NAV, PUBLIC_NAV } from '../lib/site-config';
 import { OPEN_WALLETS_EVENT } from '../lib/site';
@@ -22,7 +23,10 @@ export function NavBar() {
   const { evm, bch } = useWallets();
 
   const isConnected = evm.status === 'connected' || bch.status === 'connected';
-  const links = isConnected ? APP_NAV : PUBLIC_NAV;
+  // The tabs follow the page, not the wallet: public pages always show Features, How it works
+  // and Stats; the app and shared links show the app tabs.
+  const internal = isInternalPath(useLocation().pathname);
+  const links = internal ? APP_NAV : PUBLIC_NAV;
 
   useEffect(() => {
     const open = () => setWalletSheetOpen(true);
@@ -52,7 +56,7 @@ export function NavBar() {
       <header
         className={`relative mx-auto flex h-16 max-w-[1240px] items-center gap-6 px-3 transition-[background,border-color] duration-300 sm:px-4 ${
           scrolled
-            ? 'glass glass-nav rounded-full!'
+            ? 'glass-nav site-bar glass-pop--dark rounded-full border'
             : 'rounded-full border border-transparent'
         }`}
       >
@@ -70,8 +74,10 @@ export function NavBar() {
               to={item.to}
               end
               className={({ isActive }) =>
-                `flex h-10 items-center rounded-full px-4 text-[14px] font-medium transition-colors hover:bg-surface-2 ${
-                  isActive ? 'text-text bg-surface-2' : 'text-text-muted'
+                `flex h-10 items-center rounded-full px-4 text-[14px] font-medium transition-colors hover:bg-[var(--hl-soft)] ${
+                  isActive
+                    ? 'text-text bg-[var(--hl)] shadow-[inset_0_0_0_1px_var(--hl-edge)]'
+                    : 'text-text-muted'
                 }`
               }
             >
@@ -106,6 +112,15 @@ export function NavBar() {
                 : 'This environment runs on test networks only. Balances and addresses here do not use real funds.'}
             </p>
           </GlassPopover>
+
+          {isConnected && !internal && (
+            <Link
+              to={APP_NAV[0]!.to}
+              className="hidden h-11 items-center rounded-full border border-hairline px-5 text-[14px] font-medium text-text transition-colors hover:bg-[var(--hl-soft)] sm:inline-flex"
+            >
+              Open app
+            </Link>
+          )}
 
           <button
             type="button"

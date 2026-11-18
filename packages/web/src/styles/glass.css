@@ -7,24 +7,52 @@
   }
 }
 
-.glass {
-  border-radius: var(--r-card);
-  background:
+/* Liquid glass, from the formula: tokens first, then two kinds of surface.
+   Card glass is a visible frosted gradient for content that sits on the page. Pop-up glass is
+   nearly clear with a light blur, and works because a scrim dims and blurs the page behind it.
+   Never write `-webkit-backdrop-filter` by hand: the build adds the prefix, and writing both
+   lines once kept only the prefixed one, which Chrome ignores. */
+:root {
+  --edge: rgba(255, 255, 255, 0.14);
+  --edge2: rgba(255, 255, 255, 0.24);
+
+  /* Highlights for hover, selected and pressed states: Ferry lime where the formula uses orange. */
+  --hl: color-mix(in srgb, var(--lime) 26%, transparent);
+  --hl-edge: color-mix(in srgb, var(--lime) 50%, transparent);
+  --hl-strong: color-mix(in srgb, var(--lime) 46%, transparent);
+  --hl-soft: color-mix(in srgb, var(--lime) 12%, transparent);
+  --hl-soft-edge: color-mix(in srgb, var(--lime) 26%, transparent);
+
+  /* Pop-up glass: ONE pair of tokens used by every pop-up that opens over a scrim. */
+  --pop-bg: rgba(255, 255, 255, 0.008);
+  --pop-blur: blur(4px);
+  --pop-bg-fallback: rgba(0, 0, 0, 0.88);
+
+  /* The darker variant, for pop-ups with no scrim behind them (toasts, popovers, the nav pill):
+     the page is not dimmed there, so the glass needs a little body to keep text readable. */
+  --pop-bg-dark:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.1) 0%,
-      rgba(255, 255, 255, 0.03) 40%,
-      rgba(255, 255, 255, 0.02) 100%
+      rgba(255, 255, 255, 0.07),
+      rgba(255, 255, 255, 0.02)
     ),
-    rgba(8, 8, 10, 0.6);
-  -webkit-backdrop-filter: blur(22px) saturate(185%) brightness(1.05);
-  backdrop-filter: blur(22px) saturate(185%) brightness(1.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+    rgba(0, 0, 0, 0.58);
+  --pop-blur-dark: blur(26px) saturate(160%);
+}
+
+.glass {
+  border-radius: var(--r-card);
+  border: 1px solid var(--edge);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.075),
+    rgba(255, 255, 255, 0.028)
+  );
+  backdrop-filter: blur(24px) saturate(150%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
-    inset 0 0 24px rgba(255, 255, 255, 0.03),
-    0 24px 64px rgba(0, 0, 0, 0.5);
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+    0 30px 70px -35px rgba(0, 0, 0, 0.9);
 }
 
 .glass::before {
@@ -35,39 +63,82 @@
   pointer-events: none;
   background: radial-gradient(
     240px circle at var(--mx, 50%) var(--my, 0%),
-    rgba(255, 255, 255, 0.1),
+    rgba(255, 255, 255, 0.08),
     transparent 60%
   );
   mix-blend-mode: soft-light;
 }
 
+/* Written after .glass so it replaces the fill, blur and shadow. Change the tokens, never a
+   pop-up's background inside a component. */
+.glass-pop {
+  background: var(--pop-bg);
+  backdrop-filter: var(--pop-blur);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 24px 60px -28px rgba(0, 0, 0, 0.7);
+}
+
+/* The header bar and floating controls: glass at about 1% fill. Declared before the darker pop-up variant, which the scrolled nav
+   pill adds on top so text stays readable over scrolling content. */
+.site-bar {
+  background: rgba(255, 255, 255, 0.008);
+  border-color: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(3px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.glass-pop--dark {
+  background: var(--pop-bg-dark);
+  backdrop-filter: var(--pop-blur-dark);
+}
+
+/* The full-page layer behind modals and sheets. */
+.overlay-backdrop {
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+/* The highlight that moves between items (nav, menus). It moves with a CSS transition, not a
+   JS spring, so a busy page cannot make it snap. */
+.glide-pill {
+  background: var(--hl);
+  box-shadow: inset 0 0 0 1px var(--hl-edge);
+  transition:
+    background-color 160ms var(--ease-glass, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    box-shadow 160ms var(--ease-glass, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+
+/* Glassy buttons and select triggers. */
+.glass-button {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+
+.glass-button:hover {
+  background: var(--hl-soft);
+  border-color: var(--edge2);
+}
+
 .glass--lensed {
-  -webkit-backdrop-filter: blur(22px) saturate(185%) brightness(1.05);
   backdrop-filter: url(#ferry-lens) blur(18px) saturate(185%);
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .glass,
-  .glass--lensed {
-    -webkit-backdrop-filter: none;
+  .glass--lensed,
+  .glass-pop,
+  .site-bar,
+  .overlay-backdrop {
     backdrop-filter: none;
     background: var(--surface-3);
   }
 }
 
-.glass-scrim {
-  background: rgba(0, 0, 0, 0.25);
-}
-
 .glass-nav {
   position: sticky;
-  border-top: 0;
-  border-right: 0;
-  border-left: 0;
-  border-radius: 0;
-  box-shadow:
-    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
-    0 12px 32px rgba(0, 0, 0, 0.28);
 }
 
 .glass-modal {
@@ -83,7 +154,7 @@
 }
 
 .glass-toast {
-  border-radius: var(--r-well);
+  border-radius: 18px;
 }
 
 .glass-toast-in {
@@ -163,6 +234,39 @@
   (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
 ) {
   .glass {
-    background: var(--surface-3);
+    background: rgba(0, 0, 0, 0.9);
+  }
+
+  .glass-pop,
+  .glass-pop--dark,
+  .site-bar {
+    background: var(--pop-bg-fallback);
+  }
+}
+
+/* Dialog entrance: fade, slight scale and rise. Reduced motion: opacity only. */
+.glass-pop-in {
+  animation: glass-pop-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes glass-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.overlay-in {
+  animation: glass-fade-in 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-pop-in {
+    animation: glass-fade-in 150ms linear;
   }
 }

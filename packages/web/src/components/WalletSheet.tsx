@@ -91,7 +91,11 @@ export function WalletSheet({ open, onClose }: WalletSheetProps) {
           {evm.status !== 'connected' && (REOWN_PROJECT_ID || usingMocks) && (
             <button
               type="button"
-              onClick={() => evm.connect()}
+              onClick={() => {
+                // The wallet picker opens on top; ours must get out of its way.
+                evm.connect();
+                onClose();
+              }}
               disabled={evm.status === 'connecting'}
               className="flex w-full items-center justify-center gap-2 rounded-pill bg-surface-3 border border-hairline px-4 py-2.5 text-xs font-semibold text-text hover:bg-surface-4 transition-colors cursor-pointer"
             >
@@ -125,14 +129,18 @@ export function WalletSheet({ open, onClose }: WalletSheetProps) {
             </div>
           )}
 
-          {evm.error && <p className="mt-2 text-xs text-warn">{evm.error}</p>}
+          {evm.error && (REOWN_PROJECT_ID || usingMocks) && (
+            <p className="mt-2 text-xs text-warn">{evm.error}</p>
+          )}
         </div>
 
         {/* --- BCH Section --- */}
         <div className="rounded-xl border border-hairline bg-surface-2 p-3.5">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-              Bitcoin Cash ({NETWORK_PROFILE.bch.name})
+              {NETWORK_PROFILE.bch.name === 'Bitcoin Cash'
+                ? 'Bitcoin Cash'
+                : `Bitcoin Cash (${NETWORK_PROFILE.bch.name})`}
             </span>
             {bch.status === 'connected' && (
               <span className="inline-flex items-center gap-1 rounded-pill bg-ok/10 px-2 py-0.5 text-[11px] font-medium text-ok">
@@ -174,7 +182,11 @@ export function WalletSheet({ open, onClose }: WalletSheetProps) {
             <div className="space-y-2">
               <button
                 type="button"
-                onClick={() => bch.connect()}
+                onClick={() => {
+                  // The wallet's own QR dialog opens on top; ours must get out of its way.
+                  bch.connect();
+                  onClose();
+                }}
                 disabled={bch.status === 'connecting'}
                 className="flex w-full items-center justify-center gap-2 rounded-pill bg-surface-3 border border-hairline px-4 py-2.5 text-xs font-semibold text-text hover:bg-surface-4 transition-colors cursor-pointer"
               >

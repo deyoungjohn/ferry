@@ -1,8 +1,26 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  beforeAll,
+  afterAll,
+} from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { ActivityPage, ACTIVITY_PAGE_SIZE } from '../routes/ActivityPage';
 import { getMockActivity } from '../lib/activity/mock';
+
+/** The fixtures are dated 14 Nov 2024; pin the clock so the default 90-day window includes them. */
+const FIXTURE_NOW = new Date('2024-11-15T12:00:00Z');
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(FIXTURE_NOW);
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 describe('ActivityPage (/activity) - BCH-first history (FR-13)', () => {
   beforeEach(() => {

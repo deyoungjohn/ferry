@@ -1,9 +1,19 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { SwapCard } from '../components/SwapCard';
 import { RecentSwapsTable } from '../components/RecentSwapsTable';
 import { SolverProvider } from '../lib/solver/SolverProvider';
 import { MockSolverClient } from '../lib/solver/mock';
+
+/** The fixtures are dated 14 Nov 2024; pin the clock so the default 90-day window includes them. */
+const FIXTURE_NOW = new Date('2024-11-15T12:00:00Z');
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(FIXTURE_NOW);
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 describe('Mock labelling and explorer link safety', () => {
   it('renders "Mock interface, no funds move" clearly on screen', async () => {
