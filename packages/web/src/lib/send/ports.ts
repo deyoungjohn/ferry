@@ -1,0 +1,36 @@
+import type { Hex32 } from '@ferry/core';
+import type {
+  QuoteResponse,
+  RelayClaimRequest,
+  RelayClaimResponse,
+  SendLinkDetailsResponse,
+  SendQuoteRequest,
+} from '@ferry/core/api';
+import type {
+  BchChainPort,
+  BchSignerPort,
+  EvmChainPort,
+  EvmSignerPort,
+  RecoveryStorePort,
+} from '@ferry/user-flow';
+
+export interface SendLinkSolverPort {
+  quoteSendLink(request: SendQuoteRequest): Promise<QuoteResponse>;
+  getSendLink?(id: string): Promise<SendLinkDetailsResponse>;
+  relayClaim?(
+    orderId: Hex32,
+    request: RelayClaimRequest,
+  ): Promise<RelayClaimResponse>;
+}
+
+export interface SendLinkDependencies {
+  readonly solver: SendLinkSolverPort;
+  readonly bchSigner: BchSignerPort;
+  readonly bchChain: BchChainPort;
+  readonly store: RecoveryStorePort;
+  readonly bchCashAddress: string;
+  readonly bchNetwork: 'mainnet' | 'chipnet';
+  readonly evmSigner?: EvmSignerPort | undefined;
+  readonly evmChain?: EvmChainPort | undefined;
+  readonly downloadFile?: (filename: string, json: string) => boolean;
+}

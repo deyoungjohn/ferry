@@ -1,9 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useContext } from 'react';
 import { ROUTES } from '../lib/routes';
 import { useParams, useNavigate, Link } from 'react-router';
 import { getModeCopy } from '../lib/copy';
-import { useSolver } from '../lib/solver/useSolver';
+import { SolverContext } from '../lib/solver/context';
 import type { SendLinkView } from '../lib/solver/types';
+import { extractSecretFromHash } from '../lib/send/secret';
+import {
+  claimSendLinkLive,
+  type ClaimSendLinkDependencies,
+} from '../lib/send/claim-send-link';
+import { WalletContext } from '../lib/wallet/context';
+import { evmSignerFromWallet } from '../lib/live/ports';
+import { SolverClient } from '@ferry/solver-client';
+import type { SendLinkSolverPort } from '../lib/send/ports';
+import type { SendLinkWaitState } from '../lib/send/types';
+import type { Hex32 } from '@ferry/core';
+import { useToast } from '../lib/toast/ToastContext';
 
 type Load =
   | { readonly state: 'loading' }
@@ -17,20 +29,65 @@ function formatDeadline(seconds: number): string {
   }).format(new Date(seconds * 1000));
 }
 
-export function SendLinkPage() {
+export function computeWaitState(
+  status: string,
+  expiresAt: number | null,
+): SendLinkWaitState {
+  if (status === 'pending_lock') {
+    return "the sender's funds are being locked";
+  }
+  if (status === 'claimed') {
+    return 'claimed';
+  }
+  if (
+    status === 'expired' ||
+    status === 'refunded' ||
+    (expiresAt !== null && expiresAt * 1000 < Date.now())
+  ) {
+    return 'expired: the sender gets their funds back';
+  }
+  return 'ready to claim';
+}
+
+export interface SendLinkPageProps {
+  readonly isLive?: boolean | undefined;
+  readonly dependencies?: ClaimSendLinkDependencies | undefined;
+  readonly initialSecret?: string | undefined;
+}
+
+export function SendLinkPage({
+  isLive: propIsLive,
+  dependencies,
+  initialSecret,
+}: SendLinkPageProps = {}) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const solver = useSolver();
+  const { showToast } = useToast();
+  const solverContext = useContext(SolverContext);
+  const wallets = useContext(WalletContext);
   const copy = getModeCopy('send-link');
   const [load, setLoad] = useState<Load>({ state: 'loading' });
   const [claiming, setClaiming] = useState(false);
+  const [claimedLocally, setClaimedLocally] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isLive = propIsLive ?? import.meta.env?.VITE_LIVE_EXECUTION === '1';
+
+  const [secret] = useState<Hex32 | null>(() => {
+    if (initialSecret) return extractSecretFromHash(initialSecret);
+    return typeof window !== 'undefined'
+      ? extractSecretFromHash(window.location.hash)
+      : null;
+  });
+
+  const solver = solverContext;
 
   useEffect(() => {
     let active = true;
     setLoad({ state: 'loading' });
-    const read = solver.getSendLink?.(id ?? '') ?? Promise.resolve(null);
+    const read = solver?.getSendLink?.(id ?? '') ?? Promise.resolve(null);
     read.then(
-      (link) => {
+      (link: SendLinkView | null) => {
         if (active)
           setLoad(link ? { state: 'ready', link } : { state: 'missing' });
       },
@@ -43,15 +100,86 @@ export function SendLinkPage() {
     };
   }, [id, solver]);
 
-  function handleClaim() {
+  const rawLink = load.state === 'ready' ? load.link : null;
+  const link = rawLink
+    ? {
+        ...rawLink,
+        status: claimedLocally ? ('claimed' as const) : rawLink.status,
+      }
+    : null;
+
+  const waitState: SendLinkWaitState | null = link
+    ? computeWaitState(link.status, link.expiresAt)
+    : null;
+
+  const isReadyToClaim = waitState === 'ready to claim';
+  const isPendingLock = waitState === "the sender's funds are being locked";
+  const isClaimed = waitState === 'claimed';
+  const isExpired = waitState === 'expired: the sender gets their funds back';
+
+  const claimable = isReadyToClaim && !claiming;
+
+  async function handleClaim() {
+    if (isLive) {
+      setClaiming(true);
+      setError(null);
+      try {
+        const activeSecret =
+          secret ??
+          (typeof window !== 'undefined'
+            ? extractSecretFromHash(window.location.hash)
+            : null);
+
+        if (!activeSecret) {
+          throw new Error(
+            'Claim secret is missing from the link fragment (#...).',
+          );
+        }
+
+        const solverUrl =
+          (import.meta.env?.VITE_SOLVER_URLS as string | undefined)?.split(
+            ',',
+          )[0] ?? 'http://localhost:3000';
+
+        const liveSolver: SendLinkSolverPort =
+          dependencies?.solver ??
+          (solver as unknown as SendLinkSolverPort) ??
+          new SolverClient({ baseUrl: solverUrl });
+
+        const evmSigner =
+          dependencies?.evmSigner ??
+          (wallets?.evm ? evmSignerFromWallet(wallets.evm) : undefined);
+
+        await claimSendLinkLive(
+          {
+            id: id ?? '',
+            secret: activeSecret,
+          },
+          {
+            solver: liveSolver,
+            evmSigner,
+            chainId: dependencies?.chainId,
+            htlcAddress: dependencies?.htlcAddress,
+            solverEvmAddress: dependencies?.solverEvmAddress,
+            hashLock: dependencies?.hashLock,
+          },
+        );
+
+        setClaimedLocally(true);
+        showToast('Funds claimed successfully!', 'success');
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setClaiming(false);
+      }
+      return;
+    }
+
+    // Default mock path (VITE_LIVE_EXECUTION off)
     setClaiming(true);
     const orderId = `sendlink-${id ?? 'claim'}`;
     void navigate(ROUTES.swapOrder(orderId));
   }
-
-  const link = load.state === 'ready' ? load.link : null;
-  const claimable =
-    link !== null && (link.status === 'open' || link.status === 'locked');
 
   return (
     <div className="mx-auto max-w-md px-4 py-8 sm:px-6">
@@ -86,9 +214,19 @@ export function SendLinkPage() {
         {link && (
           <>
             <div className="mb-4 border-b border-hairline pb-3">
-              <span className="text-xs font-semibold uppercase tracking-wider text-lime">
-                Send Link
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-lime">
+                  Send Link
+                </span>
+                {waitState && (
+                  <span
+                    data-testid="send-link-status"
+                    className="rounded-pill bg-surface-2 px-2.5 py-0.5 text-[11px] font-medium text-text border border-hairline"
+                  >
+                    {waitState}
+                  </span>
+                )}
+              </div>
               <h1 className="mt-1 text-xl font-bold text-text">
                 {link.amount !== null
                   ? `Receive ${link.amount.toFixed(2)} ${link.token}`
@@ -147,6 +285,12 @@ export function SendLinkPage() {
               )}
             </div>
 
+            {error && (
+              <p className="mb-3 text-danger text-xs" role="alert">
+                {error}
+              </p>
+            )}
+
             <button
               type="button"
               disabled={claiming || !claimable}
@@ -156,11 +300,15 @@ export function SendLinkPage() {
               <span>
                 {claiming
                   ? 'Processing claim…'
-                  : claimable
-                    ? copy.actionLabel
-                    : link.status === 'claimed'
-                      ? 'Already claimed'
-                      : 'This link is no longer open'}
+                  : isPendingLock
+                    ? "the sender's funds are being locked"
+                    : isReadyToClaim
+                      ? copy.actionLabel
+                      : isClaimed
+                        ? 'Claimed'
+                        : isExpired
+                          ? 'expired: the sender gets their funds back'
+                          : 'This link is no longer open'}
               </span>
             </button>
 
