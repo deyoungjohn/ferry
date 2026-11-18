@@ -56,6 +56,8 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
   const [fileJson, setFileJson] = useState<string | null>(null);
   const sessionRef = useRef<UserSwapSession | null>(null);
   const running = useRef(false);
+  const [checking, setChecking] = useState(false);
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
 
   function depsFor(json: string): UserSwapDependencies {
     if (dependencies) return dependencies;
@@ -124,6 +126,24 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
     } finally {
       running.current = false;
       if (sessionRef.current) setState(sessionRef.current.state);
+    }
+  }
+
+  // Looks at the chains now, even while the long wait is running, and shows when it looked.
+  async function checkAgain() {
+    const session = sessionRef.current;
+    if (!session || checking) return;
+    setChecking(true);
+    setError(null);
+    try {
+      await session.refresh();
+      setState(session.state);
+      setCheckedAt(new Date());
+      if (!running.current) await carryOn(session, false);
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -306,10 +326,11 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
             <button
               type="button"
               data-testid="order-resume"
-              onClick={() => void carryOn(sessionRef.current!, false)}
+              disabled={checking}
+              onClick={() => void checkAgain()}
               className="h-10 rounded-pill border border-hairline bg-surface-2 px-5 font-medium text-text"
             >
-              Check again
+              {checking ? 'Checking…' : 'Check again'}
             </button>
           )}
         <button
@@ -320,6 +341,14 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
           Download recovery file
         </button>
       </div>
+      {checkedAt && (
+        <p
+          className="mt-3 text-xs text-text-dim"
+          data-testid="order-checked-at"
+        >
+          Last checked {checkedAt.toLocaleTimeString()}
+        </p>
+      )}
       <p className="mt-4 text-xs text-text-dim">
         You can close this page and come back to it: the swap carries on from
         the chains. If anything stops, your own refund stays available.

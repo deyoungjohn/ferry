@@ -132,3 +132,30 @@
       var(--shadow-card);
   }
 }
+
+/* Every button answers the pointer: a pointer cursor and a lift on hover, a press on click, and a
+   grey, inert look when it cannot be used. Zero specificity (:where) so a component can still
+   restyle itself; unlayered so it also shows on Tailwind-styled buttons. */
+:where(button, [role='button']):where(:not(:disabled, [aria-disabled='true'])) {
+  cursor: pointer;
+  transition:
+    filter 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+:where(button, [role='button']):where(
+    :not(:disabled, [aria-disabled='true'])
+  ):hover {
+  filter: brightness(1.15);
+}
+:where(button, [role='button']):where(
+    :not(:disabled, [aria-disabled='true'])
+  ):active {
+  filter: brightness(0.92);
+}
+:where(button, [role='button']):where(:disabled, [aria-disabled='true']) {
+  cursor: not-allowed;
+  opacity: 0.45;
+  filter: grayscale(1);
+}
