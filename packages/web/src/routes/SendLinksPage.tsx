@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useContext, type FormEvent } from 'react';
 import { SEND_LINK_NOTE_MAX_LENGTH } from '@ferry/core/api';
+import { SolverClient } from '@ferry/solver-client';
 import { Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
 import { isAddress } from 'viem';
@@ -18,8 +19,28 @@ import {
   listSendLinks,
   saveSendLink,
 } from '../lib/paylink/send-store';
+import { WalletContext } from '../lib/wallet/context';
+import { SolverContext } from '../lib/solver/context';
+import { createBrowserBchChain } from '../lib/live/bch-chain';
+import { bchSignerFromWallet } from '../lib/live/ports';
+import { createLocalRecoveryStore } from '../lib/live/recovery-store';
+import { downloadJson } from '../lib/send/download';
+import type {
+  SendLinkDependencies,
+  SendLinkSolverPort,
+} from '../lib/send/ports';
+import { createSendLinkLive } from '../lib/send/create-send-link';
+import { resumeSendLinkLock } from '../lib/send/resume-send-link';
 
-export function SendLinksPage() {
+export interface SendLinksPageProps {
+  readonly isLive?: boolean | undefined;
+  readonly dependencies?: SendLinkDependencies | undefined;
+}
+
+export function SendLinksPage({
+  isLive: propIsLive,
+  dependencies: propDependencies,
+}: SendLinksPageProps = {}) {
   const { showToast } = useToast();
   const farChains = NETWORK_PROFILE.farChains;
   const [destChain, setDestChain] = useState(farChains[0]?.name ?? 'Base');
@@ -38,8 +59,45 @@ export function SendLinksPage() {
   const [activeCreated, setActiveCreated] = useState<SendLinkData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [resumingId, setResumingId] = useState<string | null>(null);
 
-  function handleCreate(e: FormEvent) {
+  const wallets = useContext(WalletContext);
+  const solverContext = useContext(SolverContext);
+
+  const isLive = propIsLive ?? import.meta.env?.VITE_LIVE_EXECUTION === '1';
+
+  function resolveDependencies(): SendLinkDependencies {
+    if (propDependencies) return propDependencies;
+
+    const bchAddress = wallets?.bch.address?.address;
+    if (!bchAddress || !wallets?.bch) {
+      throw new Error('Connect a Bitcoin Cash wallet first.');
+    }
+
+    const solverUrl =
+      (import.meta.env?.VITE_SOLVER_URLS as string | undefined)?.split(
+        ',',
+      )[0] ?? 'http://localhost:3000';
+
+    const solver: SendLinkSolverPort =
+      typeof (solverContext as unknown as SendLinkSolverPort)?.quoteSendLink ===
+      'function'
+        ? (solverContext as unknown as SendLinkSolverPort)
+        : new SolverClient({ baseUrl: solverUrl });
+
+    return {
+      solver,
+      bchSigner: bchSignerFromWallet(wallets.bch),
+      bchChain: createBrowserBchChain({ solverUrl }),
+      store: createLocalRecoveryStore(),
+      bchCashAddress: bchAddress,
+      bchNetwork: NETWORK_PROFILE.bch.network,
+      downloadFile: downloadJson,
+    };
+  }
+
+  async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError(null);
 
@@ -63,6 +121,54 @@ export function SendLinksPage() {
       return;
     }
 
+    if (isLive) {
+      setIsSubmitting(true);
+      try {
+        const deps = resolveDependencies();
+        const result = await createSendLinkLive(
+          {
+            recipientEvmAddress: trimmed,
+            destChain,
+            destToken,
+            amount: numAmount,
+            windowSeconds: window.windowSeconds,
+            note: cleanNote(note),
+          },
+          deps,
+        );
+
+        const newLink: SendLinkData = {
+          id: result.orderId,
+          orderId: result.orderId,
+          destinationChain: destChain,
+          destinationToken: destToken,
+          recipientEvmAddress: trimmed,
+          amount: numAmount,
+          windowSeconds: window.windowSeconds,
+          expiresAt: result.expiresAt,
+          note: cleanNote(note),
+          status: 'open',
+          createdAt: Math.floor(now / 1000),
+          secret: result.secret,
+          refundDate: result.refundDate,
+          txId: result.bchLockTxId,
+          recoveryJson: result.recoveryJson,
+          lockStatus: 'locked',
+        };
+
+        setCreatedLinks(listSendLinks());
+        setActiveCreated(newLink);
+        showToast('Send link created and Bitcoin Cash funds locked', 'success');
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+        setCreatedLinks(listSendLinks());
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // Default mock path (VITE_LIVE_EXECUTION off)
     const newId = 'sl-' + Math.random().toString(36).substring(2, 10);
     const newLink: SendLinkData = {
       id: newId,
@@ -82,12 +188,37 @@ export function SendLinksPage() {
     setActiveCreated(newLink);
   }
 
+  async function handleResume(link: SendLinkData) {
+    setError(null);
+    setResumingId(link.id);
+    try {
+      const deps = resolveDependencies();
+      const result = await resumeSendLinkLock(link, deps);
+      setCreatedLinks(listSendLinks());
+      const updated: SendLinkData = {
+        ...link,
+        lockStatus: 'locked',
+        txId: result.bchLockTxId,
+      };
+      setActiveCreated(updated);
+      showToast('Send link lock completed successfully', 'success');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setResumingId(null);
+    }
+  }
+
   function handleCopy(url: string) {
     void navigator.clipboard.writeText(url);
     setCopied(true);
     showToast('Send link copied to clipboard', 'success');
     setTimeout(() => setCopied(false), 2000);
   }
+
+  const activeUrl = activeCreated
+    ? sendLinkUrl(activeCreated.id, activeCreated.secret)
+    : '';
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
@@ -254,9 +385,10 @@ export function SendLinksPage() {
 
             <button
               type="submit"
-              className="w-full rounded-pill bg-olive py-2.5 font-semibold text-text hover:bg-olive/90 transition-colors cursor-pointer"
+              disabled={isSubmitting}
+              className="w-full rounded-pill bg-olive py-2.5 font-semibold text-text hover:bg-olive/90 transition-colors cursor-pointer disabled:opacity-50"
             >
-              Generate Send Link
+              {isSubmitting ? 'Creating Send Link…' : 'Generate Send Link'}
             </button>
           </form>
         </div>
@@ -270,13 +402,21 @@ export function SendLinksPage() {
                   Your Send Link is Ready
                 </h2>
                 <span className="rounded-pill bg-ok/10 px-2 py-0.5 text-[10px] font-medium text-ok border border-ok/20">
-                  Open
+                  {activeCreated.lockStatus === 'pending_lock'
+                    ? 'Pending Lock'
+                    : 'Open'}
                 </span>
+              </div>
+
+              {/* Inform that anyone with the whole link (including fragment) can claim */}
+              <div className="mb-4 rounded-well border border-hairline bg-surface-2 p-2.5 text-[11px] text-text-muted">
+                Anyone with the whole link, including the part after #, can
+                claim.
               </div>
 
               <div className="flex justify-center my-4 p-4 rounded-xl bg-surface-2 border border-hairline">
                 <div className="rounded-lg bg-white p-3">
-                  <QRCodeSVG value={sendLinkUrl(activeCreated.id)} size={160} />
+                  <QRCodeSVG value={activeUrl} size={160} />
                 </div>
               </div>
 
@@ -287,17 +427,31 @@ export function SendLinksPage() {
                   </span>
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-mono text-text truncate">
-                      {sendLinkUrl(activeCreated.id)}
+                      {activeUrl}
                     </span>
                     <button
                       type="button"
-                      onClick={() => handleCopy(sendLinkUrl(activeCreated.id))}
+                      onClick={() => handleCopy(activeUrl)}
                       className="shrink-0 rounded-pill bg-surface-3 px-3 py-1 font-semibold text-text hover:text-lime cursor-pointer transition-colors"
                     >
                       {copied ? 'Copied ✓' : 'Copy'}
                     </button>
                   </div>
                 </div>
+
+                {activeCreated.refundDate && (
+                  <div
+                    data-testid="created-refund-date"
+                    className="rounded-well border border-hairline bg-surface-2 p-2.5 text-[11px]"
+                  >
+                    <span className="text-text-dim block mb-0.5">
+                      Refund Date
+                    </span>
+                    <span className="text-text">
+                      {activeCreated.refundDate}
+                    </span>
+                  </div>
+                )}
 
                 {activeCreated.note && (
                   <div
@@ -352,13 +506,24 @@ export function SendLinksPage() {
                       {link.id}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveCreated(link)}
-                    className="rounded-pill bg-surface-3 px-2.5 py-1 text-[11px] font-semibold text-text hover:text-lime cursor-pointer"
-                  >
-                    View QR
-                  </button>
+                  {link.lockStatus === 'pending_lock' ? (
+                    <button
+                      type="button"
+                      onClick={() => handleResume(link)}
+                      disabled={resumingId === link.id}
+                      className="rounded-pill bg-lime/20 border border-lime/40 px-2.5 py-1 text-[11px] font-semibold text-lime hover:bg-lime/30 cursor-pointer disabled:opacity-50"
+                    >
+                      {resumingId === link.id ? 'Resuming…' : 'Resume'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setActiveCreated(link)}
+                      className="rounded-pill bg-surface-3 px-2.5 py-1 text-[11px] font-semibold text-text hover:text-lime cursor-pointer"
+                    >
+                      View QR
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

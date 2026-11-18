@@ -26,6 +26,13 @@ export interface SendLinkData {
   readonly note?: string | undefined;
   readonly status: 'open' | 'claimed' | 'expired';
   readonly createdAt: number;
+  readonly secret?: string | undefined;
+  readonly orderId?: string | undefined;
+  readonly refundDate?: string | undefined;
+  readonly txId?: string | undefined;
+  readonly recoveryJson?: string | undefined;
+  readonly lockStatus?:
+    'pending_lock' | 'locked' | 'claimed' | 'expired' | undefined;
 }
 
 /**
@@ -47,6 +54,9 @@ export function payLinkUrl(id: string): string {
   return siteUrl(`/pay/${id}`);
 }
 
-export function sendLinkUrl(id: string): string {
-  return siteUrl(`/send/${id}`);
+export function sendLinkUrl(id: string, secret?: string): string {
+  const base = siteUrl(`/send/${id}`);
+  if (!secret) return base;
+  const clean = secret.replace(/^0x/i, '');
+  return `${base}#${clean}`;
 }
