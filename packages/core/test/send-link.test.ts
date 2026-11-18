@@ -4,6 +4,7 @@ import {
   DEFAULT_TIMING_CONFIG,
   MAX_SEND_LINK_WINDOW_SECONDS,
   SEND_LINK_WINDOWS_SECONDS,
+  deriveSendLinkTag,
   invariantR,
   parseSendLink,
   planSendLinkWindow,
@@ -170,4 +171,28 @@ describe('SendLink schema and window planner', () => {
       { numRuns: runs(25) },
     );
   }, 30_000);
+
+  it('derives blinded send link tags with HMAC-SHA-256(viewKey, "ferry:send-links:v1:" + n)', async () => {
+    const viewKey = '0x' + '42'.repeat(32);
+    const tag0 = await deriveSendLinkTag(viewKey, 0);
+    const tag1 = await deriveSendLinkTag(viewKey, 1);
+    const tag0Again = await deriveSendLinkTag(viewKey, 0);
+
+    expect(tag0).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(tag1).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(tag0).toBe(tag0Again);
+    expect(tag0).not.toBe(tag1);
+
+    // Verify raw Uint8Array key acceptance and without 0x prefix
+    const keyBytes = new Uint8Array(32).fill(0x42);
+    const tagBytes0 = await deriveSendLinkTag(keyBytes, 0);
+    expect(tagBytes0).toBe(tag0);
+    const tagNoPrefix0 = await deriveSendLinkTag('42'.repeat(32), 0);
+    expect(tagNoPrefix0).toBe(tag0);
+
+    // Error handling on invalid inputs
+    await expect(deriveSendLinkTag(viewKey, -1)).rejects.toThrow(RangeError);
+    await expect(deriveSendLinkTag(viewKey, 1.5)).rejects.toThrow(RangeError);
+    await expect(deriveSendLinkTag('0x1234', 0)).rejects.toThrow(RangeError);
+  });
 });

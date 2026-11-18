@@ -1,7 +1,8 @@
+import { newTestEngine } from './support/test-engine.js';
 import { describe, expect, it, vi } from 'vitest';
 import crypto from 'node:crypto';
 import { SolverDatabase } from '../src/db/database.js';
-import { SolverEngine, stringifyTerms } from '../src/engine/runner.js';
+import { stringifyTerms } from '../src/engine/runner.js';
 import type {
   BchChainPort,
   EvmChainPort,
@@ -90,7 +91,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
         isOnChain: async () => true,
       };
 
-      const engine = new SolverEngine(db, mockBchPort, mockEvmPort);
+      const engine = newTestEngine(db, mockBchPort, mockEvmPort);
       expect(engine.isQuotingEnabled()).toBe(true);
 
       // Quorum loses health
@@ -146,7 +147,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
         isOnChain: async () => false,
       };
 
-      const engine = new SolverEngine(db, mockBchPort, mockEvmPort, {
+      const engine = newTestEngine(db, mockBchPort, mockEvmPort, {
         dsproofWindowMs: 50,
       });
 
@@ -205,7 +206,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
         isOnChain: async () => evmOnChain,
       };
 
-      const engine = new SolverEngine(db, mockBchPort, mockEvmPort, {
+      const engine = newTestEngine(db, mockBchPort, mockEvmPort, {
         dsproofWindowMs: 10,
       });
 
@@ -269,7 +270,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
       };
 
       // State 0: QUOTED, no lock yet
-      let engine = new SolverEngine(db, bchPort, evmPort);
+      let engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('ord-fwd-chaos')?.status).toBe('QUOTED');
 
@@ -277,14 +278,14 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
       engine.stop();
       evmLockState = { status: 'locked', txid: 'evm_user_lock_tx' };
       evmIsFinal = false;
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('ord-fwd-chaos')?.status).toBe('USER_LOCK_SEEN');
 
       // KILL & RESTART -> EVM lock finalizes
       engine.stop();
       evmIsFinal = true;
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       // Solver locks on BCH
       expect(db.getOrder('ord-fwd-chaos')?.status).toBe('SOLVER_LOCK_SEEN');
@@ -292,7 +293,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
 
       // KILL & RESTART during SOLVER_LOCK_SEEN (reconciliation must NOT rebroadcast)
       engine.stop();
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('ord-fwd-chaos')?.status).toBe('SOLVER_LOCK_SEEN');
       expect(bchBroadcastSpy).toHaveBeenCalledTimes(1);
@@ -300,7 +301,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
       // KILL & RESTART -> User claims on BCH revealing secret
       engine.stop();
       bchHistory = [{ tx_hash: 'bch_user_claim_tx', height: 330005 }];
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
 
       // Solver claims on EVM and completes swap
@@ -309,7 +310,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
 
       // KILL & RESTART after DONE -> order stays DONE, zero duplicate broadcasts
       engine.stop();
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('ord-fwd-chaos')?.status).toBe('DONE');
       expect(bchBroadcastSpy).toHaveBeenCalledTimes(1);
@@ -367,14 +368,14 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
       };
 
       // State 0: QUOTED, no BCH lock yet
-      let engine = new SolverEngine(db, bchPort, evmPort);
+      let engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('ord-rev-chaos')?.status).toBe('QUOTED');
 
       // KILL & RESTART -> User locks on BCH (height > 0)
       engine.stop();
       bchHistory = [{ tx_hash: 'tx_bch_user_lock', height: 330001 }];
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
 
       // Solver counter-locks on EVM
@@ -383,7 +384,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
 
       // KILL & RESTART during SOLVER_LOCK_SEEN
       engine.stop();
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('ord-rev-chaos')?.status).toBe('SOLVER_LOCK_SEEN');
       expect(evmBroadcastSpy).toHaveBeenCalledTimes(1);
@@ -395,7 +396,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
         txid: 'tx_evm_user_claim',
         secret: defaultSecret,
       };
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
 
       // Solver claims on BCH and completes swap
@@ -404,7 +405,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
 
       // KILL & RESTART after DONE
       engine.stop();
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('ord-rev-chaos')?.status).toBe('DONE');
       expect(evmBroadcastSpy).toHaveBeenCalledTimes(1);
@@ -450,7 +451,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
         isOnChain: async () => false,
       };
 
-      const engine = new SolverEngine(db, bchPort, evmPort);
+      const engine = newTestEngine(db, bchPort, evmPort);
       await expect(engine.reconcileOrders()).rejects.toThrow(
         /mandatory-script-verify-flag-failed/,
       );
@@ -500,7 +501,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
       };
 
       // Case A: NOT on chain -> throws, deletes action, flags order
-      const engine = new SolverEngine(db, bchPort, evmPort);
+      const engine = newTestEngine(db, bchPort, evmPort);
       await expect(engine.reconcileOrders()).rejects.toThrow(
         /Ambiguous node error/,
       );
@@ -564,7 +565,7 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
         isOnChain: async () => false,
       };
 
-      const engine = new SolverEngine(db, bchPort, evmPort);
+      const engine = newTestEngine(db, bchPort, evmPort);
 
       // Pass 1: Connection refused -> throws, but KEEPS intent in DB, does NOT flag terminal failure
       await expect(engine.reconcileOrders()).rejects.toThrow(/ECONNREFUSED/);

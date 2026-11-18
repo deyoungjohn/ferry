@@ -1,4 +1,17 @@
 import * as libauth from '@bitauth/libauth';
+import {
+  assertP2sh32Matches,
+  buildClaimTransaction,
+  buildLockTransaction,
+  deriveHtlcAddresses,
+  encodeHtlcParameters,
+  parseHtlcSpendInput,
+  type CashAddressNetwork,
+  type ElectrumUtxo,
+  type LockUtxo,
+} from '@ferry/htlc-bch';
+import { assertValidSecret, isValidSecret, type OrderTerms } from '@ferry/core';
+import type { SolverOrderRecord } from '../state-machine/types.js';
 
 export function computeTxId(txHex: string): string {
   const raw = libauth.hexToBin(txHex);
@@ -43,7 +56,7 @@ export async function deriveBchKeyDetails(
     privateKey: decoded.privateKey,
     p2pkhBytecode,
     p2pkhBytecodeHex,
-    lockingBytecodeHex: p2pkhBytecodeHex,
+    lockingBytecodeHex: `0x${p2pkhBytecodeHex}` as `0x${string}`,
     scriptHash,
     address,
   };
@@ -76,4 +89,165 @@ export function extractSecretFromClaimUnlock(
   }
 
   return null;
+}
+
+/**
+ * Derives the 32-byte hex Electrum scripthash for an HTLC order covenant.
+ */
+export function getHtlcScriptHash(
+  terms: OrderTerms,
+  network: CashAddressNetwork = 'chipnet',
+): string {
+  const canonicalParams = encodeHtlcParameters(terms);
+  const htlcDerivation = deriveHtlcAddresses(canonicalParams, network);
+  const hash = libauth.sha256.hash(htlcDerivation.lockingBytecode);
+  const reversed = new Uint8Array(hash.length);
+  for (let i = 0; i < hash.length; i++) {
+    reversed[i] = hash[hash.length - 1 - i]!;
+  }
+  return libauth.binToHex(reversed);
+}
+
+/**
+ * Parses the spending transaction's inputs to extract the secret preimage revealed upon covenant claim.
+ */
+export function extractSecretFromSpendTx(
+  txHex: string,
+  expectedHashLock?: string,
+): `0x${string}` | null {
+  const decoded = libauth.decodeTransaction(libauth.hexToBin(txHex));
+  if (typeof decoded === 'string') return null;
+
+  for (const input of decoded.inputs) {
+    const spendInfo = parseHtlcSpendInput(input.unlockingBytecode);
+    if (spendInfo?.secret) {
+      const secretHex =
+        `0x${libauth.binToHex(spendInfo.secret)}` as `0x${string}`;
+      if (
+        !expectedHashLock ||
+        isValidSecret(secretHex, expectedHashLock as `0x${string}`)
+      ) {
+        return secretHex;
+      }
+    }
+    if (expectedHashLock) {
+      const extracted = extractSecretFromClaimUnlock(
+        input.unlockingBytecode,
+        expectedHashLock,
+      );
+      if (extracted) return extracted;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Forward swap: builds the solver's real Bitcoin Cash lock transaction.
+ * Selects solver UTXOs, binds covenant with P2SH32 check, signs with solver key,
+ * and executes local Libauth script VM verification before returning.
+ */
+export async function buildSolverBchLock(params: {
+  order: SolverOrderRecord;
+  solverBchWif: string;
+  utxos: Array<ElectrumUtxo | LockUtxo | unknown>;
+  network?: CashAddressNetwork;
+}): Promise<{
+  txid: string;
+  txHex: string;
+  feeSats: bigint;
+  inputs: Array<{ txid: string; vout: number; satoshis: bigint }>;
+}> {
+  const network = params.network ?? 'chipnet';
+  const solverKeys = await deriveBchKeyDetails(
+    params.solverBchWif,
+    network === 'mainnet' ? 'bitcoincash' : 'bchtest',
+  );
+
+  const canonicalParams = encodeHtlcParameters(params.order.terms);
+  const htlcDerivation = deriveHtlcAddresses(canonicalParams, network);
+
+  // Covenant output must strictly match P2SH32 commitment to redeem script
+  assertP2sh32Matches(
+    htlcDerivation.lockingBytecode,
+    htlcDerivation.redeemScript,
+  );
+
+  const result = buildLockTransaction({
+    params: canonicalParams,
+    utxos: params.utxos,
+    changeAddress: solverKeys.lockingBytecodeHex,
+    tokenChangeAddress: solverKeys.lockingBytecodeHex,
+    bchCarrySats: params.order.terms.bchCarrySats,
+    wif: params.solverBchWif,
+    network,
+  });
+
+  if (!result.signed) {
+    throw new Error('Failed to sign solver BCH lock transaction');
+  }
+
+  return {
+    txid: result.signed.txid,
+    txHex: result.signed.txHex,
+    feeSats: result.feeSats,
+    inputs: result.selectedInputs.allInputs.map((i) => ({
+      txid: i.txid,
+      vout: i.vout,
+      satoshis: i.satoshis,
+    })),
+  };
+}
+
+/**
+ * Reverse swap: builds the solver's real Bitcoin Cash claim transaction.
+ * Validates secret preimage against hashLock, constructs claim, and verifies
+ * in local Libauth script VM.
+ */
+export function buildSolverBchClaim(params: {
+  order: SolverOrderRecord;
+  utxo: {
+    txid: string;
+    vout: number;
+    satoshis: bigint | number;
+    lockingBytecode?: string | Uint8Array;
+  };
+  secret: `0x${string}`;
+  network?: CashAddressNetwork;
+  feeSats?: bigint | number;
+}): {
+  txid: string;
+  txHex: string;
+} {
+  const secretHex = params.secret;
+  const hashLockHex = params.order.hashLock;
+  assertValidSecret(secretHex, hashLockHex, 'solver BCH claim secret');
+
+  const network = params.network ?? 'chipnet';
+  const canonicalParams = encodeHtlcParameters(params.order.terms);
+
+  const result = buildClaimTransaction({
+    params: canonicalParams,
+    utxo: {
+      txid: params.utxo.txid,
+      vout: params.utxo.vout,
+      satoshis: params.utxo.satoshis,
+      ...(params.utxo.lockingBytecode
+        ? {
+            lockingBytecode:
+              typeof params.utxo.lockingBytecode === 'string'
+                ? params.utxo.lockingBytecode
+                : libauth.binToHex(params.utxo.lockingBytecode),
+          }
+        : {}),
+    },
+    secret: secretHex,
+    network,
+    ...(params.feeSats !== undefined ? { feeSats: params.feeSats } : {}),
+  });
+
+  return {
+    txid: result.txid,
+    txHex: result.txHex,
+  };
 }

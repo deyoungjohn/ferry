@@ -1,7 +1,8 @@
+import { newTestEngine } from './support/test-engine.js';
 import { describe, expect, it } from 'vitest';
 import crypto from 'node:crypto';
 import { SolverDatabase } from '../src/db/database.js';
-import { SolverEngine, stringifyTerms } from '../src/engine/runner.js';
+import { stringifyTerms } from '../src/engine/runner.js';
 import type {
   BchChainPort,
   EvmChainPort,
@@ -131,7 +132,7 @@ describe('Chaos & Failure Tests (Blueprint §11.3)', () => {
       };
 
       // State: QUOTED -> Kill & restart
-      let engine = new SolverEngine(db, bchPort, evmPort);
+      let engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('chaos-fwd-order')?.status).toBe('QUOTED');
       engine.stop();
@@ -139,21 +140,21 @@ describe('Chaos & Failure Tests (Blueprint §11.3)', () => {
       // User locks on EVM -> Kill & restart
       evmLockState = { status: 'locked', txid: 'evm_lock_tx' };
       evmIsFinal = false;
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('chaos-fwd-order')?.status).toBe('USER_LOCK_SEEN');
       engine.stop();
 
       // EVM lock finalizes -> Solver counter-locks on BCH
       evmIsFinal = true;
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('chaos-fwd-order')?.status).toBe('SOLVER_LOCK_SEEN');
       expect(bchBroadcasts.length).toBe(1);
       engine.stop();
 
       // Crash & restart during SOLVER_LOCK_SEEN -> reconciliation must NOT rebroadcast
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('chaos-fwd-order')?.status).toBe('SOLVER_LOCK_SEEN');
       expect(bchBroadcasts.length).toBe(1);
@@ -161,14 +162,14 @@ describe('Chaos & Failure Tests (Blueprint §11.3)', () => {
 
       // User claims BCH revealing secret -> Solver claims EVM
       bchHistory = [{ tx_hash: 'bch_user_claim', height: 330005 }];
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('chaos-fwd-order')?.status).toBe('DONE');
       expect(evmBroadcasts.length).toBe(1);
       engine.stop();
 
       // Post-terminal restart -> stays DONE, no rebroadcasts
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('chaos-fwd-order')?.status).toBe('DONE');
       expect(bchBroadcasts.length).toBe(1);
@@ -227,14 +228,14 @@ describe('Chaos & Failure Tests (Blueprint §11.3)', () => {
       };
 
       // State: QUOTED -> Kill & restart
-      let engine = new SolverEngine(db, bchPort, evmPort);
+      let engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('chaos-rev-order')?.status).toBe('QUOTED');
       engine.stop();
 
       // User locks on BCH with 10 confirmations -> Solver locks on EVM
       bchHistory = [{ tx_hash: 'bch_user_lock_final', height: 329980 }];
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('chaos-rev-order')?.status).toBe('SOLVER_LOCK_SEEN');
       expect(evmBroadcasts.length).toBe(1);
@@ -242,7 +243,7 @@ describe('Chaos & Failure Tests (Blueprint §11.3)', () => {
 
       // Crash & restart during SOLVER_LOCK_SEEN -> reconciliation must NOT rebroadcast
       evmLockState = { status: 'locked', txid: 'evm_lock_tx' };
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('chaos-rev-order')?.status).toBe('SOLVER_LOCK_SEEN');
       expect(evmBroadcasts.length).toBe(1);
@@ -254,14 +255,14 @@ describe('Chaos & Failure Tests (Blueprint §11.3)', () => {
         txid: 'evm_user_claim_tx',
         secret: defaultSecret,
       };
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('chaos-rev-order')?.status).toBe('DONE');
       expect(bchBroadcasts.length).toBe(1);
       engine.stop();
 
       // Post-terminal restart -> stays DONE, no rebroadcasts
-      engine = new SolverEngine(db, bchPort, evmPort);
+      engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
       expect(db.getOrder('chaos-rev-order')?.status).toBe('DONE');
       expect(evmBroadcasts.length).toBe(1);
