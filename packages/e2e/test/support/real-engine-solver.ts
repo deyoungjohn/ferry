@@ -8,21 +8,17 @@ import {
   ripemd160,
   binToHex,
 } from '@bitauth/libauth';
-import {
-  createPublicClient,
-  createWalletClient,
-  decodeEventLog,
-  http,
-} from 'viem';
+import { createPublicClient, createWalletClient, http } from 'viem';
 import type { Address, Chain, Hex, PublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { EvmChainAdapter } from '@ferry/chain-evm';
-import { ferryHtlcAbi } from '@ferry/htlc-evm/abi';
 import {
   MockPriceSource,
   SolverDatabase,
   SolverEngine,
   buildServer,
+  createBchPort,
+  createEvmPort,
   loadConfigFromEnv,
 } from '@ferry/solver';
 import type { BchQuorumClient, EvmChainPort } from '@ferry/solver';
@@ -181,7 +177,8 @@ export async function startRealEngineSolver(params: {
   await bchClient.connect();
 
   const faults: BchFaults = { loseNextBroadcastReply: false };
-  const basePort = params.bchChain.createPort(bchClient);
+  // The solver's own port over the real quorum client (which runs on the simulated chain).
+  const basePort = createBchPort(bchClient);
   const bchPort = {
     ...basePort,
     broadcast: async (txHex: string) => {
@@ -197,28 +194,15 @@ export async function startRealEngineSolver(params: {
   };
 
   const evmConfirmations = { value: 1 };
+  // The solver's own EVM port over the real adapter; only the finality rule is replaced, so a test
+  // can choose how many confirmations count.
+  const realEvmPort = createEvmPort({ evmAdapter });
   const evmPort: EvmChainPort = {
+    ...realEvmPort,
     getTip: async () => ({
       height: Number(await publicClient.getBlockNumber()),
       finalized: true,
     }),
-    getLock: async (lockId: string) => {
-      const lock = await evmAdapter.getLock(lockId);
-      switch (lock.status) {
-        case 'absent':
-          return { status: 'none' as const };
-        case 'locked':
-          return { status: 'locked' as const, txid: lock.lockTx.txId };
-        case 'claimed':
-          return {
-            status: 'claimed' as const,
-            txid: lock.claimTx.txId,
-            ...(lock.secret ? { secret: lock.secret } : {}),
-          };
-        case 'refunded':
-          return { status: 'refunded' as const, txid: lock.refundTx.txId };
-      }
-    },
     isFinal: async (txid: string) => {
       try {
         const receipt = await publicClient.getTransactionReceipt({
@@ -232,35 +216,6 @@ export async function startRealEngineSolver(params: {
       } catch {
         return false;
       }
-    },
-    broadcast: async (txHex: string) => txHex,
-    isOnChain: async (txid: string) => {
-      try {
-        await publicClient.getTransactionReceipt({ hash: txid as Hex });
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    extractSecretFromClaim: async (txid: string) => {
-      const receipt = await publicClient.getTransactionReceipt({
-        hash: txid as Hex,
-      });
-      for (const log of receipt.logs) {
-        try {
-          const decoded = decodeEventLog({
-            abi: ferryHtlcAbi,
-            data: log.data,
-            topics: log.topics,
-          });
-          if (decoded.eventName === 'Claimed') {
-            return decoded.args.secret as `0x${string}`;
-          }
-        } catch {
-          // Not a contract event.
-        }
-      }
-      return null;
     },
   };
 
