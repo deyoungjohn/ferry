@@ -26,7 +26,7 @@ describe('navigation', () => {
       { timeout: 30_000 },
     );
     const nav = within(main);
-    for (const label of ['Features', 'How it works', 'Proof']) {
+    for (const label of ['Features', 'How it works', 'Stats']) {
       expect(nav.getByRole('link', { name: label })).toBeInTheDocument();
     }
     for (const label of [
@@ -60,7 +60,7 @@ describe('page structure', { timeout: 45_000 }, () => {
   it.each([
     ['/', /Move dollars onto Bitcoin Cash/],
     ['/features', /What Ferry does/],
-    ['/proof', /Proof/],
+    ['/stats', /Stats/],
     ['/how-it-works', /How it works/],
     ['/user-guide', /User Guide/],
     ['/app/user-guide', /User Guide/],
@@ -119,8 +119,8 @@ describe('page structure', { timeout: 45_000 }, () => {
     ).toBeInTheDocument();
   });
 
-  it('proof page lists the deployed contract with an explorer link', async () => {
-    renderAt('/proof');
+  it('stats page lists the deployed contract with an explorer link', async () => {
+    renderAt('/stats');
     const link = await screen.findByRole(
       'link',
       {

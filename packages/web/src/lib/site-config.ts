@@ -22,7 +22,7 @@ export interface NavItem {
 export const PUBLIC_NAV: readonly NavItem[] = [
   { label: 'Features', to: '/features' },
   { label: 'How it works', to: '/how-it-works' },
-  { label: 'Proof', to: '/proof' },
+  { label: 'Stats', to: '/stats' },
 ];
 
 /** Shown once a wallet is connected. The guide and GitHub live in the footer. */
@@ -45,7 +45,7 @@ export function footerColumns(): readonly FooterColumn[] {
       links: [
         { label: 'Features', to: '/features' },
         { label: 'How it works', to: '/how-it-works' },
-        { label: 'Proof', to: '/proof' },
+        { label: 'Stats', to: '/stats' },
       ],
     },
     {

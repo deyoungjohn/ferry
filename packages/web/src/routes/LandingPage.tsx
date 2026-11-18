@@ -82,10 +82,10 @@ export function LandingPage() {
           what was tested, and what has not been independently reviewed yet.
         </p>
         <Link
-          to="/proof"
+          to="/stats"
           className="mt-6 inline-flex h-11 items-center rounded-pill border border-hairline bg-surface-2 px-6 text-sm font-medium text-text transition-colors hover:border-lime/40"
         >
-          See the proof
+          See the stats
         </Link>
       </section>
     </div>

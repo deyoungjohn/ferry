@@ -50,6 +50,8 @@ export interface BuildQuoteParams {
   quotingEnabled?: boolean;
   skewBps?: number | undefined;
   minSwapUsdMicros?: bigint | undefined;
+  maxSwapUsdMicros?: bigint | undefined;
+  dryRun?: boolean | undefined;
   inputDecimals?: number | undefined;
   outputDecimals?: number | undefined;
   fixedFeeUsdMicros?: bigint | undefined;
@@ -110,6 +112,7 @@ export class QuoteBuilder {
       refuseUsdMicros: DEFAULT_SOURCE_DISAGREEMENT_REFUSE_USD_MICROS,
       paryonMaxAgeSeconds: DEFAULT_PARYON_MAX_AGE_SECONDS,
     },
+    private readonly maxSwapUsdMicros: bigint = MAX_SWAP_USD_MICROS,
   ) {}
 
   async buildQuote(params: BuildQuoteParams): Promise<QuoteResult> {
@@ -123,7 +126,7 @@ export class QuoteBuilder {
       };
     }
 
-    // 2. Bounds check ($1.00 to $50.00)
+    // 2. Bounds check ($1.00 to configurable maximum swap)
     const inDecimals =
       params.inputDecimals ?? (params.direction === 'EVM_TO_BCH' ? 6 : 2);
     const outDecimals =
@@ -140,6 +143,7 @@ export class QuoteBuilder {
         message: `Amount is below minimum swap of $${formatUsdMicrosToDecimal(minSwap)}`,
       };
     }
+
     if (amountInMicros >= 999_999_999_999_999n) {
       return {
         ok: false,
@@ -149,13 +153,17 @@ export class QuoteBuilder {
         message: 'Only 100 available',
       };
     }
-    if (amountInMicros > MAX_SWAP_USD_MICROS) {
+
+    const maxSwap =
+      params.maxSwapUsdMicros ?? this.maxSwapUsdMicros ?? MAX_SWAP_USD_MICROS;
+    if (amountInMicros > maxSwap) {
+      const maxFormatted = (Number(maxSwap) / 1e6).toFixed(2);
       return {
         ok: false,
         reason: 'OVER_MAX_SWAP',
-        maxAmount: (MAX_SWAP_USD_MICROS / 1_000_000n).toString(),
+        maxAmount: maxFormatted,
         asset: params.payAsset,
-        message: 'Amount exceeds maximum swap of $50.00',
+        message: `Amount exceeds maximum swap of $${maxFormatted}`,
       };
     }
 
@@ -355,6 +363,7 @@ export class QuoteBuilder {
       openExposure: params.openExposure,
       nowSeconds: params.nowSeconds,
       ttlSeconds: QUOTE_TTL_S,
+      dryRun: params.dryRun,
     });
 
     if (!reserveResult.success) {

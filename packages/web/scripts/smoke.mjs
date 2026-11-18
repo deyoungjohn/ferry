@@ -232,7 +232,7 @@ async function runSmokeSuite() {
     // Public pages render without a wallet
     for (const [route, heading] of [
       ['/features', 'What Ferry does'],
-      ['/proof', 'Proof'],
+      ['/stats', 'Stats'],
       ['/how-it-works', 'How it works'],
     ]) {
       await testUrl(
