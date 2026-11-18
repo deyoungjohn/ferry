@@ -260,9 +260,7 @@ export function RouteStatusPage() {
         route: string;
         available: string;
         decimals?: number;
-      }) =>
-        r.asset.toUpperCase().replace(/^T/, '') === targetSymbol ||
-        r.route.toUpperCase().includes(targetSymbol),
+      }) => r.asset.toUpperCase().replace(/^T/, '') === targetSymbol,
     );
     if (!found) return 'Unknown';
     const dec = found.decimals ?? (targetSymbol === 'USDC' ? 6 : 2);
