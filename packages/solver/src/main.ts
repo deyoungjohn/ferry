@@ -7,16 +7,10 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia } from 'viem/chains';
-import {
-  decodeHtlcLog,
-  EvmChainAdapter,
-  type EvmChainAdapterOptions,
-} from '@ferry/chain-evm';
-import type { Hex32, OrderTerms } from '@ferry/core';
+import { EvmChainAdapter, type EvmChainAdapterOptions } from '@ferry/chain-evm';
 import { createBchPriceSource } from '@ferry/bch-prices';
 import type { ChainId } from '@ferry/chain-config';
 import { buildServer } from './api/server.js';
-import { extractSecretFromSpendTx } from './bch/lock-builder.js';
 import { BchQuorumClient } from './bch/quorum-client.js';
 import { loadConfigFromEnv, type SolverConfig } from './config.js';
 import { SolverDatabase } from './db/database.js';

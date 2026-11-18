@@ -2,7 +2,7 @@ import { newTestEngine } from './support/test-engine.js';
 import { describe, expect, it, vi } from 'vitest';
 import crypto from 'node:crypto';
 import { SolverDatabase } from '../src/db/database.js';
-import { SolverEngine, stringifyTerms } from '../src/engine/runner.js';
+import { stringifyTerms } from '../src/engine/runner.js';
 import type {
   BchChainPort,
   EvmChainPort,
