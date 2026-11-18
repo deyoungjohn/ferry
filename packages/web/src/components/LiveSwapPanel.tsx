@@ -187,6 +187,23 @@ export function LiveSwapPanel({
     }
   }
 
+  // What the wallets are waiting on. Only the user's wallet can answer, so say so, and let them
+  // cancel a request that never arrives.
+  const walletRequest = (() => {
+    for (const wallet of [wallets?.bch, wallets?.evm]) {
+      if (wallet?.pendingRequest) {
+        return {
+          text: wallet.pendingRequest,
+          help: wallet.promptHelp ?? null,
+          cancel: wallet.cancelPendingRequest
+            ? () => wallet.cancelPendingRequest?.()
+            : null,
+        };
+      }
+    }
+    return null;
+  })();
+
   // Once a lock exists the user's own refund is always the way out; the
   // session only runs it when the recovery planner says its deadline passed.
   const refundPossible = refundFlag || state?.txids.userLock != null;
@@ -282,6 +299,30 @@ export function LiveSwapPanel({
             </div>
           )}
 
+        {phase === 'running' && walletRequest && (
+          <div
+            data-testid="live-wallet-request"
+            className="rounded-lg border border-hairline bg-surface-2 p-3 text-xs"
+          >
+            <p className="font-medium text-text">
+              Waiting for your wallet: {walletRequest.text}
+            </p>
+            {walletRequest.help && (
+              <p className="mt-1 text-warn">{walletRequest.help}</p>
+            )}
+            {walletRequest.cancel && (
+              <button
+                type="button"
+                onClick={walletRequest.cancel}
+                data-testid="live-wallet-cancel"
+                className="mt-2 rounded-pill border border-warn/30 px-3 py-1 text-warn hover:bg-warn/10"
+              >
+                Cancel request
+              </button>
+            )}
+          </div>
+        )}
+
         {phase === 'running' && (
           <p className="text-text-dim">
             Keep this page open. If it closes, reopen it and your swap resumes
@@ -291,7 +332,9 @@ export function LiveSwapPanel({
 
         {phase === 'done' && (
           <p className="text-ok" data-testid="live-done">
-            Done. Your funds have arrived.
+            {input.direction === 'EVM_TO_BCH'
+              ? 'Done. Your claim was sent. The Bitcoin Cash balance shows in your wallet once the transaction confirms, which can take several minutes.'
+              : 'Done. Your claim was sent. The USDC shows in your wallet once the transaction is mined.'}
           </p>
         )}
 

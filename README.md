@@ -21,6 +21,10 @@
 
 Because the user holds the secret and always has the longer timeout on the first lock (`T_src > T_dst`), the solver cannot steal funds or force an asymmetric stall.
 
+## Recovery without the website
+
+`recover.html` in the repository root is a single self-contained page. Download it, open it from your own computer, load your recovery file, and it reads the blockchain servers directly and sends the refund or claim: an EVM transaction through your browser wallet, or a Bitcoin Cash transaction that needs no wallet and no signature. It needs no Ferry website and no solver. The same file is served at `/recover.html` on the site. It is built by `pnpm --filter @ferry/recover-page build`; a test fails if the committed file is out of date. `pnpm --filter @ferry/recover-page test` runs its checks, and `FERRY_RUN_E2E=1` adds the real-browser run against a local chain, with the internet blocked.
+
 ## Trust model: trust-minimised, not trustless
 
 **What you do not trust the solver with:**

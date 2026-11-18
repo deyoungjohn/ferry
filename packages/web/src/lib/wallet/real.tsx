@@ -24,6 +24,7 @@ import { wagmiConfig } from './evm-config';
 import { validateBchAddressPrefix } from './chain';
 import { wizardConnectTheme } from './wizard-theme';
 import { useBchReconnectTimeout } from './reconnect-timeout';
+import { wizardSignParams } from './wizard-sign';
 import { addressFromPubkey } from '../bch/address';
 import {
   clearRememberedBchWallet,
@@ -381,10 +382,7 @@ function useRealBchWallet(
       }, 8000);
       try {
         const response = await wizard.manager.signTransaction(
-          {
-            transaction: request.transaction as never,
-            inputPaths: request.inputPaths as never,
-          },
+          wizardSignParams(request) as never,
           { signal: controller.signal },
         );
         return response.signedTransaction;
