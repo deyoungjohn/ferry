@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useContext, useRef } from 'react';
-import { isAddress } from 'viem';
+import { isAddress, parseUnits } from 'viem';
 import {
   formatQuoteRefusalMessage,
   verifyPricing,
@@ -15,7 +15,7 @@ import {
   type VerifiedSolverQuote,
 } from '@ferry/solver-client';
 import { getModeCopy, FAILURE_COPY } from '../lib/copy';
-import { NETWORK_PROFILE } from '../lib/config';
+import { LIVE_EXECUTION_ENABLED, NETWORK_PROFILE } from '../lib/config';
 import { useSolver } from '../lib/solver/useSolver';
 import { WalletContext } from '../lib/wallet/context';
 import { RealPriceReader } from '../lib/pricing/real';
@@ -27,7 +27,9 @@ import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
 import { useReducedMotion } from 'motion/react';
 import { ROUTES } from '../lib/routes';
-import { buildCoreQuoteRequest } from '../lib/solver/core-quote';
+import { buildCoreQuoteRequest, farTokenFacts } from '../lib/solver/core-quote';
+import { LiveSwapPanel } from './LiveSwapPanel';
+import type { QuoteInput } from '@ferry/user-flow';
 import { readBchTipHeight } from '../lib/solver/tip';
 import { LIVE_EXECUTION_MESSAGE } from '../lib/solver/real';
 import { Field } from './swap-block/field';
@@ -138,6 +140,7 @@ export function SwapCard({
   const [liquidity, setLiquidity] = useState<LiquidityResponse | null>(null);
   const [recoveryDownloaded, setRecoveryDownloaded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [livePanelOpen, setLivePanelOpen] = useState(false);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const { showToast } = useToast();
 
@@ -454,8 +457,52 @@ export function SwapCard({
     showToast('Recovery file downloaded', 'success');
   }
 
+  /** What a real swap needs from the form, or the plain reason it cannot start. */
+  function liveSwapInput(): { input: QuoteInput } | { problem: string } {
+    const far = farTokenFacts(selectedChain.name, selectedFarToken);
+    if (!far) return { problem: 'This route is not configured in this build.' };
+    if (!evm.address) return { problem: 'Connect your EVM wallet first.' };
+    if (!bchAddress)
+      return { problem: 'Connect your Bitcoin Cash wallet first.' };
+    const bchToken = (
+      isReverse ? selectedBchToken : receiveTokenSymbolRaw
+    ).replace(/^t/, '');
+    if (bchToken !== 'PUSD' && bchToken !== 'MUSD') {
+      return { problem: 'This token is not available for live swaps.' };
+    }
+    let amountIn: bigint;
+    try {
+      amountIn = parseUnits(sendAmount.trim(), isReverse ? 2 : far.decimals);
+    } catch {
+      return { problem: 'Enter a valid amount.' };
+    }
+    return {
+      input: {
+        direction: isReverse ? 'BCH_TO_EVM' : 'EVM_TO_BCH',
+        token: bchToken,
+        chainId: far.chainId,
+        evmToken: far.address,
+        amountIn,
+        evmTokenDecimals: far.decimals,
+        bchTokenDecimals: 2,
+        lane,
+      },
+    };
+  }
+  const receiveTokenSymbolRaw = isReverse ? selectedFarToken : selectedBchToken;
+  const liveSwap = livePanelOpen ? liveSwapInput() : null;
+
   async function handleSwap() {
     if (isReadOnly || !isValidRecipient) return;
+    if (solver.isLive() && LIVE_EXECUTION_ENABLED) {
+      const prepared = liveSwapInput();
+      if ('problem' in prepared) {
+        showToast(prepared.problem, 'error');
+        return;
+      }
+      setLivePanelOpen(true);
+      return;
+    }
     setIsSubmitting(true);
     try {
       const orderId =
@@ -1125,7 +1172,7 @@ export function SwapCard({
         )}
 
         {/* Live mode: say plainly what works. The recovery file is offered once locking is switched on, because it must hold the real contract data. */}
-        {solver.isLive() && (
+        {solver.isLive() && !LIVE_EXECUTION_ENABLED && (
           <p
             data-testid="live-exec-note"
             className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[11px] leading-relaxed text-warn"
@@ -1133,6 +1180,20 @@ export function SwapCard({
             Quotes and route checks are live. Locking funds from this page is
             being switched on; until then this button does not move money.
           </p>
+        )}
+
+        {liveSwap && 'input' in liveSwap && walletContext && (
+          <LiveSwapPanel
+            open={livePanelOpen}
+            onClose={() => setLivePanelOpen(false)}
+            input={liveSwap.input}
+            wallets={{ evm: walletContext.evm, bch: walletContext.bch }}
+            solverUrl={solverUrls[0] ?? ''}
+            describe={{
+              pay: `${sendAmount} ${sendTokenSymbol}`,
+              receive: `${displayedReceiveAmount} ${receiveTokenSymbol}`,
+            }}
+          />
         )}
 
         {/* Real Recovery Download Action (Requirement 3) */}

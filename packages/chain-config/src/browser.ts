@@ -9,7 +9,7 @@ export {
   PREDICTED_FERRY_HTLC_ADDRESS,
   predictHtlcAddress,
 } from './htlc.js';
-export { loadChainDisplay } from './config.js';
+export { loadChainConfig, loadChainDisplay } from './config.js';
 export type {
   ChainDisplayConfig,
   ChainDisplayResult,

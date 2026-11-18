@@ -14,6 +14,7 @@ import {
 import {
   useAccount,
   useDisconnect,
+  useSendTransaction,
   useSignTypedData,
   WagmiProvider,
 } from 'wagmi';
@@ -30,6 +31,7 @@ import {
   saveRememberedBchWallet,
   type RememberedBchWallet,
 } from './remembered';
+import type { WizardConnectSignRequest } from '@ferry/htlc-bch';
 import type {
   BchAddressInfo,
   BchSignTransactionRequest,
@@ -47,6 +49,7 @@ function useRealEvmWallet(): EvmWallet {
   const { disconnectAsync } = useDisconnect();
   const { open } = useAppKit();
   const { signTypedDataAsync } = useSignTypedData();
+  const { sendTransactionAsync } = useSendTransaction();
 
   const [error, setError] = useState<string | null>(null);
   const [pendingRequest, setPendingRequest] = useState<string | null>(null);
@@ -125,6 +128,34 @@ function useRealEvmWallet(): EvmWallet {
         evmAbortRef.current = null;
         setPendingRequest(null);
         setPromptHelp(null);
+      }
+    },
+    sendTransaction: async (tx) => {
+      setPendingRequest('Confirm the transaction in your wallet');
+      const controller = new AbortController();
+      evmAbortRef.current = controller;
+      try {
+        const hash = await sendTransactionAsync({
+          to: tx.to,
+          data: tx.data,
+          value: tx.value ?? 0n,
+          chainId: tx.chainId,
+        } as never);
+        return hash as Hex;
+      } catch (cause) {
+        if (controller.signal.aborted) {
+          throw new Error(
+            'Request cancelled. Nothing was sent to the network.',
+            { cause },
+          );
+        }
+        setError(
+          cause instanceof Error ? cause.message : 'Transaction rejected',
+        );
+        throw cause;
+      } finally {
+        evmAbortRef.current = null;
+        setPendingRequest(null);
       }
     },
     readTokenBalance: async () => 0n,
@@ -321,6 +352,42 @@ function useRealBchWallet(
         );
         const txHex = response.signedTransaction;
         return { txHex, txid: txidOf(txHex) };
+      } catch (cause) {
+        if (controller.signal.aborted) {
+          throw new Error(
+            'Request cancelled. Nothing was sent to the network. Start again when your wallet is awake.',
+            { cause },
+          );
+        }
+        throw cause;
+      } finally {
+        clearTimeout(timer);
+        signAbort.current = null;
+        setPendingRequest(null);
+        setPromptHelp(null);
+      }
+    },
+    signWizardRequest: async (request: WizardConnectSignRequest) => {
+      if (!wizard.manager) {
+        throw new Error('Connect a WizardConnect wallet first');
+      }
+      setPendingRequest(
+        request.transaction.userPrompt ?? 'Sign the Bitcoin Cash lock',
+      );
+      const controller = new AbortController();
+      signAbort.current = controller;
+      const timer = setTimeout(() => {
+        setPromptHelp('Is your phone asleep? Nothing was sent to the network.');
+      }, 8000);
+      try {
+        const response = await wizard.manager.signTransaction(
+          {
+            transaction: request.transaction as never,
+            inputPaths: request.inputPaths as never,
+          },
+          { signal: controller.signal },
+        );
+        return response.signedTransaction;
       } catch (cause) {
         if (controller.signal.aborted) {
           throw new Error(

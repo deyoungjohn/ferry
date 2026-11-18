@@ -83,3 +83,10 @@ export const FIXED_FEE_USD = 0.05; // $0.05 fixed network cost offset
 
 export const REOWN_PROJECT_ID =
   (import.meta.env?.VITE_REOWN_PROJECT_ID as string | undefined) ?? '';
+
+/**
+ * Whether the page may lock funds for a swap. Off unless the build says so, and
+ * the solver must also be accepting quotes; until then the swap button says so.
+ */
+export const LIVE_EXECUTION_ENABLED =
+  import.meta.env?.VITE_LIVE_EXECUTION === '1';
