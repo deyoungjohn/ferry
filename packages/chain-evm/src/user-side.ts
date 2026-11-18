@@ -19,10 +19,17 @@ export const INTENT_VALIDITY_AFTER_QUOTE_SECONDS = 3600;
 
 /**
  * Upper bound for the gas of `lock` when it cannot be simulated yet (the approval
- * it depends on has not been mined). Rehearsals on forks of the four launch
- * chains measured at most 206,001 gas for an approve and a lock together.
+ * it depends on has not been mined). Fork rehearsals measured at most 208,214 gas
+ * for a lock of real USDT, and 206,001 for an approve and a lock together.
  */
 export const LOCK_GAS_UPPER_BOUND = 250_000n;
+
+/**
+ * Upper bound for an exact-amount approve that follows a reset to zero, which the
+ * node cannot simulate before the reset is mined. A fork of Ethereum measured
+ * 48,549 gas for that approve on real USDT.
+ */
+export const APPROVE_GAS_UPPER_BOUND = 80_000n;
 
 export class UserSideError extends Error {
   constructor(message: string) {
@@ -444,12 +451,17 @@ export async function prepareApproveAndLock(input: {
     args: [owner, requireAddress(terms.evmHtlc, 'Contract address')],
   });
   const plan = planApproveAndLock({ terms, allowance });
-  const approvalsPending = plan.some((tx) => tx.kind !== 'lock');
   return Promise.all(
-    plan.map(async (tx): Promise<WalletTransaction> => {
-      // The lock cannot be simulated until the approval before it is mined.
-      if (tx.kind === 'lock' && approvalsPending) {
+    plan.map(async (tx, index): Promise<WalletTransaction> => {
+      // A transaction that depends on one before it cannot be simulated until that
+      // one is mined: the lock needs its approval, and a USDT-style approve needs
+      // the reset to zero (the node reverts it while the old allowance stands).
+      const earlier = plan.slice(0, index).map((t) => t.kind);
+      if (tx.kind === 'lock' && earlier.length > 0) {
         return { ...tx, gas: LOCK_GAS_UPPER_BOUND, gasSource: 'bound' };
+      }
+      if (tx.kind === 'approve' && earlier.includes('reset-approval')) {
+        return { ...tx, gas: APPROVE_GAS_UPPER_BOUND, gasSource: 'bound' };
       }
       const gas = await client.estimateGas({
         account: owner,
