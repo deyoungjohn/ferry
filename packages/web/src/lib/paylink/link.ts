@@ -18,7 +18,12 @@ export interface SendLinkData {
   readonly destinationToken: string;
   readonly recipientEvmAddress: string;
   readonly amount: number;
-  readonly durationHours: number;
+  /** How long the receiver has to claim, in seconds. */
+  readonly windowSeconds: number;
+  /** When the claim window ends (Unix seconds). */
+  readonly expiresAt: number;
+  /** The sender's message for the receiver. Plain text; anyone with the link can read it. */
+  readonly note?: string | undefined;
   readonly status: 'open' | 'claimed' | 'expired';
   readonly createdAt: number;
 }

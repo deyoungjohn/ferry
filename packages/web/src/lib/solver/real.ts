@@ -1,4 +1,5 @@
 import type {
+  SendLinkView,
   SolverClient,
   QuoteRequest,
   QuoteResponse,
@@ -13,7 +14,8 @@ import type {
   RecentSwap,
 } from './types';
 import { orderTermsFromJson, type LiquidityResponse } from '@ferry/core';
-import { buildCoreQuoteRequest } from './core-quote';
+import { SendLinkDetailsResponseSchema } from '@ferry/core/api';
+import { buildCoreQuoteRequest, describeFarToken } from './core-quote';
 
 export const LIVE_EXECUTION_MESSAGE =
   'Live swap execution is not switched on in this release yet. You can quote and check routes; locking funds from the page comes next.';
@@ -325,6 +327,39 @@ export class RealSolverClient implements SolverClient {
       };
     } catch {
       return empty;
+    }
+  }
+
+  async getSendLink(id: string): Promise<SendLinkView | null> {
+    if (!this.baseUrl) return null;
+    try {
+      const res = await this.fetchFn(
+        `${this.baseUrl}/v1/send-links/${encodeURIComponent(id)}`,
+      );
+      if (!res.ok) return null;
+      const body = SendLinkDetailsResponseSchema.parse(await res.json());
+      const token = describeFarToken(body.chainId, body.evmToken);
+      const decimals = token?.decimals ?? null;
+      return {
+        id: body.id,
+        status:
+          body.status === 'pending_lock'
+            ? 'pending_lock'
+            : body.status === 'locked'
+              ? 'open'
+              : body.status,
+        amount:
+          body.amountOut !== undefined && decimals !== null
+            ? Number(body.amountOut) / 10 ** decimals
+            : null,
+        token: token?.symbol ?? 'USDC',
+        chain: token?.chain ?? `Chain ${body.chainId}`,
+        recipientEvmAddress: body.recipientEvmAddress,
+        expiresAt: body.evmDeadline,
+        note: body.note,
+      };
+    } catch {
+      return null;
     }
   }
 

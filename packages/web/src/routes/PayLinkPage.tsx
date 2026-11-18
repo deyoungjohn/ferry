@@ -10,6 +10,7 @@ import { chunkCashaddr } from '../lib/paylink/link';
 import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse } from '../lib/solver/types';
 import { useToast } from '../lib/toast/ToastContext';
+import { Select } from '../components/ui/select';
 
 export function PayLinkPage() {
   const { id } = useParams<{ id: string }>();
@@ -212,18 +213,17 @@ export function PayLinkPage() {
           <div className="rounded-well border border-hairline bg-surface-2 p-3 print:hidden">
             <div className="flex items-center justify-between text-xs text-text-muted mb-1">
               <span>{copy.sendLabel}</span>
-              <select
-                aria-label="Payer chain"
-                value={selectedChainId}
-                onChange={(e) => setSelectedChainId(Number(e.target.value))}
-                className="appearance-none bg-surface-3 pl-2 pr-6 py-0.5 rounded-pill text-xs font-medium text-text border border-hairline cursor-pointer focus:outline-none focus:border-lime"
-              >
-                {farChains.map((c) => (
-                  <option key={c.id} value={c.id} className="bg-surface-2">
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <Select
+                label="Payer chain"
+                value={String(selectedChainId)}
+                onValueChange={(value) => setSelectedChainId(Number(value))}
+                options={farChains.map((c) => ({
+                  value: String(c.id),
+                  label: c.name,
+                }))}
+                className="w-40"
+                triggerClassName="py-1 text-xs"
+              />
             </div>
             <div className="text-xl font-semibold text-text">
               {quote

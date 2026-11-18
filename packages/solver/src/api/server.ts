@@ -2614,6 +2614,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       userBchLockingBytecode,
       hashLock,
       windowSeconds,
+      ...(raw.note !== undefined ? { note: raw.note } : {}),
       lane,
     };
 
@@ -2750,6 +2751,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       createdAt: now,
       updatedAt: now,
     });
+    // The note is kept beside the order, not inside its signed terms.
+    if (request.note !== undefined) {
+      db.saveSendLinkNote(orderIdHex, request.note, now);
+    }
 
     const response = {
       orderId: (orderIdHex.startsWith('0x')
@@ -2818,6 +2823,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         status = 'expired';
       }
 
+      const note = db.getSendLinkNote(order.id);
       const response = {
         id: order.id,
         orderId: (order.id.startsWith('0x')
@@ -2833,6 +2839,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         hashLock: terms.hashLock as Hex32,
         evmDeadline: terms.evmDeadline,
         bchRefundHeight: terms.bchRefundHeight,
+        ...(note !== null ? { note } : {}),
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
       };

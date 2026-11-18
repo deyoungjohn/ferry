@@ -1,3 +1,7 @@
+import {
+  MAX_SEND_LINK_WINDOW_SECONDS,
+  MIN_SEND_LINK_WINDOW_SECONDS,
+} from '../pricing.js';
 import { isAddress } from 'viem';
 import { z } from 'zod';
 import {
@@ -611,6 +615,26 @@ export const CancelPayLinkResponseSchema = z.strictObject({
 
 export type CancelPayLinkResponse = z.infer<typeof CancelPayLinkResponseSchema>;
 
+/** The longest note a send link may carry, in characters. */
+export const SEND_LINK_NOTE_MAX_LENGTH = 140;
+
+/**
+ * A short message from the sender that the receiver sees. Plain text only: no line breaks or other
+ * control characters. It is visible to anyone who holds the link, so it is not private.
+ */
+export const sendLinkNoteSchema = z
+  .string()
+  .trim()
+  .min(1, 'A note cannot be empty')
+  .max(
+    SEND_LINK_NOTE_MAX_LENGTH,
+    `A note is at most ${SEND_LINK_NOTE_MAX_LENGTH} characters`,
+  )
+  // eslint-disable-next-line no-control-regex
+  .refine((value) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(value), {
+    message: 'A note is plain text: no line breaks or control characters',
+  });
+
 export const SendQuoteRequestSchema = z.strictObject({
   token: z.enum(['PUSD', 'MUSD']),
   chainId: positiveUint,
@@ -620,7 +644,12 @@ export const SendQuoteRequestSchema = z.strictObject({
   userEvmAddress: evmAddressSchema,
   userBchLockingBytecode: hexSchema,
   hashLock: hex32Schema,
-  windowSeconds: positiveUint,
+  /** Claim window in seconds: from one hour to seven days. */
+  windowSeconds: positiveUint
+    .min(MIN_SEND_LINK_WINDOW_SECONDS)
+    .max(MAX_SEND_LINK_WINDOW_SECONDS),
+  /** Optional message for the receiver. */
+  note: sendLinkNoteSchema.optional(),
   lane: z.enum(['fast', 'safe']),
 });
 
@@ -639,6 +668,8 @@ export const SendLinkDetailsResponseSchema = z.strictObject({
   hashLock: hex32Schema,
   evmDeadline: unixTimestampSeconds,
   bchRefundHeight: positiveUint,
+  /** The sender's message, when there is one. */
+  note: sendLinkNoteSchema.optional(),
   createdAt: unixTimestampSeconds,
   updatedAt: unixTimestampSeconds,
 });

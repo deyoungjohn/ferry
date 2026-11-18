@@ -1,10 +1,23 @@
 import { useState, type FormEvent } from 'react';
+import { SEND_LINK_NOTE_MAX_LENGTH } from '@ferry/core/api';
 import { Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
 import { isAddress } from 'viem';
 import { sendLinkUrl, type SendLinkData } from '../lib/paylink/link';
 import { NETWORK_PROFILE } from '../lib/config';
 import { useToast } from '../lib/toast/ToastContext';
+import { Select } from '../components/ui/select';
+import { ClaimWindowField } from '../components/ui/claim-window';
+import {
+  claimWindow,
+  defaultCustomExpiry,
+  type ClaimWindowChoice,
+} from '../lib/paylink/claim-window';
+import {
+  cleanNote,
+  listSendLinks,
+  saveSendLink,
+} from '../lib/paylink/send-store';
 
 export function SendLinksPage() {
   const { showToast } = useToast();
@@ -13,19 +26,15 @@ export function SendLinksPage() {
   const [destToken, setDestToken] = useState('USDC');
   const [recipientEvm, setRecipientEvm] = useState('');
   const [amount, setAmount] = useState('20.00');
-  const [durationHours, setDurationHours] = useState('24');
-  const [createdLinks, setCreatedLinks] = useState<SendLinkData[]>([
-    {
-      id: 'sl-sample-01',
-      destinationChain: 'Base',
-      destinationToken: 'USDC',
-      recipientEvmAddress: '0x1111222233334444555566667777888899990000',
-      amount: 50.0,
-      durationHours: 24,
-      status: 'open',
-      createdAt: Math.floor(Date.now() / 1000) - 1800,
-    },
-  ]);
+  const [windowChoice, setWindowChoice] = useState<ClaimWindowChoice>('24h');
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [customExpiry, setCustomExpiry] = useState(() =>
+    defaultCustomExpiry(Date.now()),
+  );
+  const [note, setNote] = useState('');
+  const [createdLinks, setCreatedLinks] = useState<SendLinkData[]>(() =>
+    listSendLinks(),
+  );
   const [activeCreated, setActiveCreated] = useState<SendLinkData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -46,6 +55,14 @@ export function SendLinksPage() {
       return;
     }
 
+    const now = Date.now();
+    setNowMs(now);
+    const window = claimWindow(windowChoice, customExpiry, now);
+    if (!window.ok) {
+      setError(window.message);
+      return;
+    }
+
     const newId = 'sl-' + Math.random().toString(36).substring(2, 10);
     const newLink: SendLinkData = {
       id: newId,
@@ -53,11 +70,14 @@ export function SendLinksPage() {
       destinationToken: destToken,
       recipientEvmAddress: trimmed,
       amount: numAmount,
-      durationHours: parseInt(durationHours, 10) || 24,
+      windowSeconds: window.windowSeconds,
+      expiresAt: Math.floor(window.expiresAtMs / 1000),
+      note: cleanNote(note),
       status: 'open',
-      createdAt: Math.floor(Date.now() / 1000),
+      createdAt: Math.floor(now / 1000),
     };
 
+    saveSendLink(newLink);
     setCreatedLinks((prev) => [newLink, ...prev]);
     setActiveCreated(newLink);
   }
@@ -124,11 +144,10 @@ export function SendLinksPage() {
                 <label className="block text-text-muted mb-1">
                   Destination Chain
                 </label>
-                <select
-                  aria-label="Destination Chain"
+                <Select
+                  label="Destination Chain"
                   value={destChain}
-                  onChange={(e) => {
-                    const newChainName = e.target.value;
+                  onValueChange={(newChainName) => {
                     setDestChain(newChainName);
                     const chain = farChains.find(
                       (c) => c.name === newChainName,
@@ -137,35 +156,27 @@ export function SendLinksPage() {
                       setDestToken(chain.tokenSymbols[0]);
                     }
                   }}
-                  className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 text-xs text-text focus:border-lime focus:outline-none cursor-pointer"
-                >
-                  {farChains.map((c) => (
-                    <option key={c.id} value={c.name} disabled={!c.enabled}>
-                      {c.name}{' '}
-                      {!c.enabled && c.disabledReason
-                        ? `(${c.disabledReason})`
-                        : ''}
-                    </option>
-                  ))}
-                </select>
+                  options={farChains.map((c) => ({
+                    value: c.name,
+                    label:
+                      !c.enabled && c.disabledReason
+                        ? `${c.name} (${c.disabledReason})`
+                        : c.name,
+                    disabled: !c.enabled,
+                  }))}
+                />
               </div>
               <div>
                 <label className="block text-text-muted mb-1">Token</label>
-                <select
-                  aria-label="Token"
+                <Select
+                  label="Token"
                   value={destToken}
-                  onChange={(e) => setDestToken(e.target.value)}
-                  className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 text-xs text-text focus:border-lime focus:outline-none cursor-pointer"
-                >
-                  {(
+                  onValueChange={setDestToken}
+                  options={(
                     farChains.find((c) => c.name === destChain)
                       ?.tokenSymbols ?? ['USDC']
-                  ).map((sym) => (
-                    <option key={sym} value={sym}>
-                      {sym}
-                    </option>
-                  ))}
-                </select>
+                  ).map((sym) => ({ value: sym, label: sym }))}
+                />
               </div>
             </div>
 
@@ -193,23 +204,46 @@ export function SendLinksPage() {
             </div>
 
             <div>
-              <label
-                htmlFor="send-claim-window"
-                className="block text-text-muted mb-1"
-              >
-                Claim Window
+              <label className="block text-text-muted mb-1">Claim Window</label>
+              <ClaimWindowField
+                choice={windowChoice}
+                custom={customExpiry}
+                nowMs={nowMs}
+                onChoiceChange={(next) => {
+                  setNowMs(Date.now());
+                  setWindowChoice(next);
+                }}
+                onCustomChange={(next) => {
+                  setNowMs(Date.now());
+                  setCustomExpiry(next);
+                }}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="send-note" className="block text-text-muted mb-1">
+                Note for the receiver (optional)
               </label>
-              <select
-                id="send-claim-window"
-                aria-label="Claim Window"
-                value={durationHours}
-                onChange={(e) => setDurationHours(e.target.value)}
-                className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 text-xs text-text focus:border-lime focus:outline-none cursor-pointer"
-              >
-                <option value="24">24 hours</option>
-                <option value="72">3 days</option>
-                <option value="168">7 days</option>
-              </select>
+              <textarea
+                id="send-note"
+                value={note}
+                onChange={(e) =>
+                  setNote(e.target.value.replace(/[\r\n]+/g, ' '))
+                }
+                maxLength={SEND_LINK_NOTE_MAX_LENGTH}
+                rows={2}
+                placeholder="Say what it is for"
+                className="w-full resize-none rounded-well border border-hairline bg-surface-2 p-2.5 text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
+              />
+              <p className="mt-1 flex justify-between text-[11px] text-text-dim">
+                <span>
+                  Anyone who has the link can read this note. Do not put secrets
+                  in it.
+                </span>
+                <span data-testid="note-count">
+                  {note.length}/{SEND_LINK_NOTE_MAX_LENGTH}
+                </span>
+              </p>
             </div>
 
             {error && (
@@ -264,6 +298,18 @@ export function SendLinksPage() {
                     </button>
                   </div>
                 </div>
+
+                {activeCreated.note && (
+                  <div
+                    data-testid="created-note"
+                    className="rounded-well border border-hairline bg-surface-2 p-2.5 text-[11px]"
+                  >
+                    <span className="text-text-dim block mb-0.5">Note</span>
+                    <span className="text-text break-words">
+                      {activeCreated.note}
+                    </span>
+                  </div>
+                )}
 
                 <div className="rounded-well border border-hairline bg-surface-2 p-2.5 text-[11px]">
                   <span className="text-text-dim block mb-0.5">

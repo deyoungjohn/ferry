@@ -105,3 +105,31 @@ export function buildCoreQuoteRequest(
   }
   return { request, secret, farToken: far };
 }
+
+/** The chain and token a far-chain address is, from the bundled chain facts. */
+export function describeFarToken(
+  chainId: number,
+  address: string,
+): { chain: string; symbol: string; decimals: number | null } | null {
+  const chains = (
+    chainsData as unknown as {
+      chains: Record<
+        string,
+        { name?: string; mainnet: { chainId: number; tokens: TokenFact[] } }
+      >;
+    }
+  ).chains;
+  for (const entry of Object.values(chains)) {
+    if (entry.mainnet.chainId !== chainId) continue;
+    const token = entry.mainnet.tokens.find(
+      (t) => t.address?.toLowerCase() === address.toLowerCase(),
+    );
+    if (!token) return null;
+    return {
+      chain: entry.name ?? `Chain ${chainId}`,
+      symbol: token.symbol,
+      decimals: token.decimals,
+    };
+  }
+  return null;
+}

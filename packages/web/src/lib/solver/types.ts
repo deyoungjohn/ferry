@@ -147,6 +147,22 @@ export interface OperatorRouteInfo {
   readonly lastError?: string | null;
 }
 
+/** What the receiver's page shows for a send link. */
+export interface SendLinkView {
+  readonly id: string;
+  readonly status:
+    'open' | 'locked' | 'claimed' | 'refunded' | 'expired' | 'pending_lock';
+  /** Null when the token's decimals are not known to this page. */
+  readonly amount: number | null;
+  readonly token: string;
+  readonly chain: string;
+  readonly recipientEvmAddress: string;
+  /** Unix seconds: when the claim window ends. */
+  readonly expiresAt: number | null;
+  /** The sender's note, as plain text. */
+  readonly note?: string | undefined;
+}
+
 export interface SolverClient {
   isLive(): boolean;
   getLabel(): string;
@@ -157,6 +173,8 @@ export interface SolverClient {
   getRecentSwaps(page: number, pageSize: number): Promise<PaginatedRecentSwaps>;
   getPegPrices(): Promise<readonly PegPrice[]>;
   getOrder(orderId: string): Promise<SwapOrder | null>;
+  /** The receiver's view of a send link, or null when there is none with this id. */
+  getSendLink?(id: string): Promise<SendLinkView | null>;
   createOrder?(quote: SignedQuote, userAddress?: string): Promise<SwapOrder>;
   submitLock?(orderId: string, txHash: string): Promise<SwapOrder>;
   getHealth?(): Promise<SolverHealthResponse>;

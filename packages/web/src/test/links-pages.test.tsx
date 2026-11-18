@@ -7,6 +7,7 @@ import { SendLinksPage } from '../routes/SendLinksPage';
 import { SendLinkPage } from '../routes/SendLinkPage';
 import { SolverProvider } from '../lib/solver/SolverProvider';
 import { MockSolverClient } from '../lib/solver/mock';
+import { saveSendLink } from '../lib/paylink/send-store';
 
 describe('Pay Links & Send Links Pages (Task B3-03)', () => {
   beforeEach(() => {
@@ -97,21 +98,71 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
     });
   });
 
-  it('renders SendLinkPage with enforced recipient and They receive copy', () => {
-    render(
-      <MemoryRouter initialEntries={['/s/sl-sample-01']}>
-        <Routes>
-          <Route path="/s/:id" element={<SendLinkPage />} />
-        </Routes>
+  const sampleLink = {
+    id: 'sl-sample-01',
+    destinationChain: 'Base',
+    destinationToken: 'USDC',
+    recipientEvmAddress: '0x1111222233334444555566667777888899990000',
+    amount: 50,
+    windowSeconds: 86_400,
+    expiresAt: Math.floor(Date.now() / 1000) + 86_400,
+    note: 'Thanks for dinner, see you Friday',
+    status: 'open' as const,
+    createdAt: Math.floor(Date.now() / 1000) - 60,
+  };
+
+  function renderSendLink(id: string) {
+    return render(
+      <MemoryRouter initialEntries={[`/s/${id}`]}>
+        <SolverProvider client={new MockSolverClient()}>
+          <Routes>
+            <Route path="/s/:id" element={<SendLinkPage />} />
+          </Routes>
+        </SolverProvider>
       </MemoryRouter>,
     );
+  }
 
-    expect(screen.getByText('Send Link')).toBeInTheDocument();
+  it('renders SendLinkPage with enforced recipient, the claim deadline and the sender note', async () => {
+    window.localStorage.clear();
+    saveSendLink(sampleLink);
+    renderSendLink('sl-sample-01');
+
     expect(
-      screen.getByRole('heading', { name: /Receive 50\.00 USDC/i }),
+      await screen.findByRole('heading', { name: /Receive 50\.00 USDC/i }),
     ).toBeInTheDocument();
+    expect(screen.getByText('Send Link')).toBeInTheDocument();
     expect(screen.getByText('They receive')).toBeInTheDocument();
     expect(screen.getByText('Enforced Recipient Address')).toBeInTheDocument();
+    expect(screen.getByText('Claim before')).toBeInTheDocument();
+    expect(screen.getByTestId('send-link-note')).toHaveTextContent(
+      'Thanks for dinner, see you Friday',
+    );
+  });
+
+  it('shows a note that contains markup as plain text and never runs it', async () => {
+    window.localStorage.clear();
+    saveSendLink({
+      ...sampleLink,
+      id: 'sl-markup',
+      note: '<img src=x onerror=alert(1)><b>bold</b>',
+    });
+    const { container } = renderSendLink('sl-markup');
+    const note = await screen.findByTestId('send-link-note');
+    expect(note).toHaveTextContent('<img src=x onerror=alert(1)><b>bold</b>');
+    expect(container.querySelector('img')).toBeNull();
+    expect(note.querySelector('b')).toBeNull();
+  });
+
+  it('a link without a note shows no note block, and an unknown link says so', async () => {
+    window.localStorage.clear();
+    saveSendLink({ ...sampleLink, id: 'sl-plain', note: undefined });
+    renderSendLink('sl-plain');
+    await screen.findByRole('heading', { name: /Receive 50\.00 USDC/i });
+    expect(screen.queryByTestId('send-link-note')).toBeNull();
+
+    renderSendLink('sl-nothing');
+    expect(await screen.findByTestId('send-link-missing')).toBeInTheDocument();
   });
 
   it('strictly adheres to wording rules: never uses invoice, bill, or tip', () => {
@@ -136,9 +187,11 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
     );
     const { container: sendLinkContainer } = render(
       <MemoryRouter initialEntries={['/s/test']}>
-        <Routes>
-          <Route path="/s/:id" element={<SendLinkPage />} />
-        </Routes>
+        <SolverProvider client={new MockSolverClient()}>
+          <Routes>
+            <Route path="/s/:id" element={<SendLinkPage />} />
+          </Routes>
+        </SolverProvider>
       </MemoryRouter>,
     );
 

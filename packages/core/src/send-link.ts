@@ -1,6 +1,7 @@
 import { isAddress } from 'viem';
 import { z } from 'zod';
 import { MAX_SEND_LINK_WINDOW_SECONDS } from './pricing.js';
+import { sendLinkNoteSchema } from './api/index.js';
 import { unixTimestampSeconds, type Hex, type Hex32 } from './terms.js';
 import {
   DEFAULT_TIMING_CONFIG,
@@ -47,6 +48,8 @@ export const SendLinkSchema = z.strictObject({
     .max((1n << 256n) - 1n),
   windowSeconds: z.number().int().positive().max(MAX_SEND_LINK_WINDOW_SECONDS),
   claimAfter: unixTimestampSeconds.optional(),
+  /** The sender's message for the receiver. */
+  note: sendLinkNoteSchema.optional(),
   status: z.enum(SEND_LINK_STATUSES),
   createdAt: unixTimestampSeconds,
 });

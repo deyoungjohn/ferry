@@ -112,6 +112,12 @@ export class SolverDatabase {
           value TEXT NOT NULL,
           updated_at INTEGER NOT NULL CHECK (updated_at < 100000000000)
         );
+
+        CREATE TABLE IF NOT EXISTS send_link_notes (
+          order_id TEXT PRIMARY KEY,
+          note TEXT NOT NULL,
+          created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+        );
       `);
 
       this.db.pragma(`user_version = ${SUPPORTED_SCHEMA_VERSION}`);
@@ -155,7 +161,31 @@ export class SolverDatabase {
         value TEXT NOT NULL,
         updated_at INTEGER NOT NULL CHECK (updated_at < 100000000000)
       );
+
+      CREATE TABLE IF NOT EXISTS send_link_notes (
+        order_id TEXT PRIMARY KEY,
+        note TEXT NOT NULL,
+        created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+      );
     `);
+  }
+
+  /** The sender's note for a send link, kept apart from the order so the signed terms never change. */
+  saveSendLinkNote(orderId: string, note: string, createdAt: number): void {
+    assertSecondsTimestamp(createdAt, 'created_at');
+    this.db
+      .prepare(
+        `INSERT INTO send_link_notes (order_id, note, created_at) VALUES (?, ?, ?)
+         ON CONFLICT(order_id) DO UPDATE SET note = excluded.note`,
+      )
+      .run(orderId, note, createdAt);
+  }
+
+  getSendLinkNote(orderId: string): string | null {
+    const row = this.db
+      .prepare('SELECT note FROM send_link_notes WHERE order_id = ?')
+      .get(orderId) as { note: string } | undefined;
+    return row ? row.note : null;
   }
 
   getSetting(key: string): string | null {

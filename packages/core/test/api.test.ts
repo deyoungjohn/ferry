@@ -445,3 +445,58 @@ describe('QuoteRequestSchema dryRun', () => {
     expect(() => QuoteRequestSchema.parse({ ...base, dryRun: 1 })).toThrow();
   });
 });
+
+describe('send link notes and claim windows', () => {
+  const base = {
+    token: 'PUSD',
+    chainId: 8453,
+    evmToken: EVM_ADDR,
+    amountIn: '500',
+    recipientEvmAddress: EVM_ADDR,
+    userEvmAddress: EVM_ADDR,
+    userBchLockingBytecode: BCH_LOCKING,
+    hashLock: HEX32,
+    windowSeconds: 86400,
+    lane: 'safe',
+  };
+
+  it('accepts a plain note up to 140 characters, trimmed', () => {
+    expect(
+      SendQuoteRequestSchema.parse({ ...base, note: '  Thanks for dinner  ' })
+        .note,
+    ).toBe('Thanks for dinner');
+    expect(
+      SendQuoteRequestSchema.parse({ ...base, note: 'x'.repeat(140) }).note,
+    ).toHaveLength(140);
+  });
+
+  it('refuses an empty note, one that is too long, and one with line breaks', () => {
+    for (const note of [
+      '',
+      '   ',
+      'x'.repeat(141),
+      'a\nb',
+      'a\tb',
+      'a\u2028b',
+    ]) {
+      expect(() => SendQuoteRequestSchema.parse({ ...base, note })).toThrow();
+    }
+  });
+
+  it('keeps the window between one hour and seven days', () => {
+    expect(
+      SendQuoteRequestSchema.parse({ ...base, windowSeconds: 3600 })
+        .windowSeconds,
+    ).toBe(3600);
+    expect(
+      SendQuoteRequestSchema.parse({ ...base, windowSeconds: 7 * 86400 })
+        .windowSeconds,
+    ).toBe(7 * 86400);
+    expect(() =>
+      SendQuoteRequestSchema.parse({ ...base, windowSeconds: 3599 }),
+    ).toThrow();
+    expect(() =>
+      SendQuoteRequestSchema.parse({ ...base, windowSeconds: 7 * 86400 + 1 }),
+    ).toThrow();
+  });
+});

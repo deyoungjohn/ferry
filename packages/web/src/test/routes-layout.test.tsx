@@ -19,6 +19,7 @@ import { RouteStatusPage } from '../routes/RouteStatusPage';
 import { SolverProvider } from '../lib/solver/SolverProvider';
 import { MockSolverClient } from '../lib/solver/mock';
 import { MockWalletProvider } from '../lib/wallet/mock';
+import { saveSendLink } from '../lib/paylink/send-store';
 
 /** The fixtures are dated 14 Nov 2024; pin the clock so the default 90-day window includes them. */
 const FIXTURE_NOW = new Date('2024-11-15T12:00:00Z');
@@ -124,7 +125,18 @@ describe('New Routes Layout & Responsive Viewports (FR-13, FR-17, FR-18)', () =>
       ).toBeInTheDocument();
     });
 
-    it('renders SendLinkPage with claim card and CTA', () => {
+    it('renders SendLinkPage with claim card and CTA', async () => {
+      saveSendLink({
+        id: 'sl-sample-01',
+        destinationChain: 'Base',
+        destinationToken: 'USDC',
+        recipientEvmAddress: '0x1111222233334444555566667777888899990000',
+        amount: 50,
+        windowSeconds: 86_400,
+        expiresAt: Math.floor(FIXTURE_NOW.getTime() / 1000) + 86_400,
+        status: 'open',
+        createdAt: Math.floor(FIXTURE_NOW.getTime() / 1000),
+      });
       render(
         <MemoryRouter initialEntries={['/s/sl-sample-01']}>
           <MockWalletProvider>
@@ -138,7 +150,10 @@ describe('New Routes Layout & Responsive Viewports (FR-13, FR-17, FR-18)', () =>
       );
 
       expect(
-        screen.getByRole('heading', { level: 1, name: /Receive 50\.00 USDC/i }),
+        await screen.findByRole('heading', {
+          level: 1,
+          name: /Receive 50\.00 USDC/i,
+        }),
       ).toBeInTheDocument();
       expect(
         screen.getByRole('button', { name: /Send link ›/i }),

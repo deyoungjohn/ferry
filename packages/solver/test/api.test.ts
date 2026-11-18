@@ -649,6 +649,96 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(body.terms.bchRefundHeight).toBeGreaterThan(0);
     });
 
+    // Each call uses a different recipient so the per-address rate limit never trips.
+    let recipientCounter = 0x1000;
+    async function sendQuote(extra: Record<string, unknown>) {
+      recipientCounter += 1;
+      const recipient = `0x${recipientCounter.toString(16).padStart(40, '0')}`;
+      return app.inject({
+        method: 'POST',
+        url: '/v1/send-quotes',
+        payload: {
+          destinationChainId: 8453,
+          token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          amount: '10000000',
+          recipientAddress: recipient,
+          windowSeconds: 86400,
+          bchToken: 'PUSD',
+          hashLock: sha256(('0x' + '77'.repeat(32)) as `0x${string}`),
+          ...extra,
+        },
+      });
+    }
+
+    it('a send link carries a note, and the receiver reads it from the link details', async () => {
+      const note = 'Happy birthday! Dinner is on me.';
+      const res = await sendQuote({ note });
+      expect(res.statusCode).toBe(200);
+      const { orderId } = res.json();
+
+      const details = await app.inject({
+        method: 'GET',
+        url: `/v1/send-links/${orderId}`,
+      });
+      expect(details.statusCode).toBe(200);
+      expect(details.json().note).toBe(note);
+    });
+
+    it('a send link without a note has none in its details', async () => {
+      const res = await sendQuote({
+        hashLock: sha256(('0x' + '78'.repeat(32)) as `0x${string}`),
+      });
+      expect(res.statusCode).toBe(200);
+      const details = await app.inject({
+        method: 'GET',
+        url: `/v1/send-links/${res.json().orderId}`,
+      });
+      expect(details.json().note).toBeUndefined();
+    });
+
+    it('refuses a note that is too long, empty, or has line breaks', async () => {
+      for (const note of [
+        'x'.repeat(141),
+        '   ',
+        'line one\nline two',
+        'tab\there',
+      ]) {
+        const res = await sendQuote({ note });
+        expect(res.statusCode).toBe(400);
+      }
+    });
+
+    it('trims a note and stores it as plain text, never as markup the page would run', async () => {
+      const res = await sendQuote({
+        note: '  <img src=x onerror=alert(1)>  ',
+        hashLock: sha256(('0x' + '79'.repeat(32)) as `0x${string}`),
+      });
+      expect(res.statusCode).toBe(200);
+      const details = await app.inject({
+        method: 'GET',
+        url: `/v1/send-links/${res.json().orderId}`,
+      });
+      // Stored exactly as typed (trimmed); the page shows it as text, which the web test covers.
+      expect(details.json().note).toBe('<img src=x onerror=alert(1)>');
+    });
+
+    it('accepts a custom claim window between one hour and seven days, and sets the deadline from it', async () => {
+      const before = Math.floor(Date.now() / 1000);
+      const res = await sendQuote({
+        windowSeconds: 5 * 3600 + 1800,
+        hashLock: sha256(('0x' + '7a'.repeat(32)) as `0x${string}`),
+      });
+      expect(res.statusCode).toBe(200);
+      const deadline = res.json().terms.evmDeadline as number;
+      expect(deadline - before).toBeGreaterThanOrEqual(5 * 3600 + 1800 - 5);
+      expect(deadline - before).toBeLessThanOrEqual(5 * 3600 + 1800 + 30);
+
+      const tooLong = await sendQuote({ windowSeconds: 7 * 86_400 + 1 });
+      expect(tooLong.statusCode).toBe(400);
+      const tooShort = await sendQuote({ windowSeconds: 3_599 });
+      expect(tooShort.statusCode).toBe(400);
+    });
+
     it('GET /v1/send-links/:id returns send-link details without exposing the secret', async () => {
       // Create a dummy send link order in DB
       const id = ('0x' + 'ab'.repeat(32)) as `0x${string}`;

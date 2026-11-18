@@ -20,6 +20,7 @@
   --color-foreground: var(--text);
   --color-card: var(--surface-1);
   --color-border: var(--hairline);
+  --color-border-strong: var(--edge2);
   --color-muted: var(--surface-3);
   --color-muted-foreground: var(--text-muted);
   --color-primary: var(--lime);

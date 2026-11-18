@@ -11,9 +11,11 @@ import {
   type QuoteRefusal,
 } from '@ferry/core';
 import { SPREAD_BPS, FIXED_FEE_USD } from '../config';
+import { loadSendLink } from '../paylink/send-store';
 import { formatPricingEvidence } from './pricing-display';
 import { defaultMockServer } from './mock-fetch';
 import type {
+  SendLinkView,
   SolverClient,
   QuoteRequest,
   QuoteResponse,
@@ -938,6 +940,24 @@ export class MockSolverClient implements SolverClient {
         asOf: now,
       },
     ];
+  }
+
+  async getSendLink(id: string): Promise<SendLinkView | null> {
+    // Links made in this browser (the solver does not hold them in mock mode).
+    const link = loadSendLink(id);
+    if (!link) return null;
+    const expired = link.expiresAt * 1000 < Date.now();
+    return {
+      id: link.id,
+      status:
+        link.status === 'claimed' ? 'claimed' : expired ? 'expired' : 'open',
+      amount: link.amount,
+      token: link.destinationToken,
+      chain: link.destinationChain,
+      recipientEvmAddress: link.recipientEvmAddress,
+      expiresAt: link.expiresAt,
+      note: link.note,
+    };
   }
 
   async getOrder(orderId: string): Promise<SwapOrder | null> {

@@ -164,6 +164,8 @@ export function effectiveSpreadBps(
 
 export const DEFAULT_HOLD_FEE_BPS_PER_DAY = 10;
 export const MAX_SEND_LINK_WINDOW_SECONDS = 7 * 86_400;
+/** The shortest claim window a send link may have: one hour. */
+export const MIN_SEND_LINK_WINDOW_SECONDS = 3_600;
 
 /**
  * Compute send-link hold fee in basis points: HOLD_FEE_BPS_PER_DAY * ceil(windowDays).
