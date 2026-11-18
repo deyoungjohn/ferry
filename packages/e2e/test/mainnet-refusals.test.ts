@@ -1,3 +1,4 @@
+import { makeFundedInventory } from './harness.js';
 import { describe, expect, it } from 'vitest';
 import { sha256 } from 'viem';
 import {
@@ -106,6 +107,7 @@ function makeStubHarness(
     bchClient,
     engine,
     priceSource,
+    inventoryReader: makeFundedInventory(),
   });
 
   return {

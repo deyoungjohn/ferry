@@ -19,7 +19,7 @@ const FeaturesPage = lazyPage(
   () => import('./routes/FeaturesPage'),
   'FeaturesPage',
 );
-const ProofPage = lazyPage(() => import('./routes/ProofPage'), 'ProofPage');
+const StatsPage = lazyPage(() => import('./routes/StatsPage'), 'StatsPage');
 const HowItWorksPage = lazyPage(
   () => import('./routes/HowItWorksPage'),
   'HowItWorksPage',
@@ -102,11 +102,12 @@ export function App() {
               </Page>
             }
           />
+          <Route path="/proof" element={<Navigate to="/stats" replace />} />
           <Route
-            path="/proof"
+            path="/stats"
             element={
               <Page>
-                <ProofPage />
+                <StatsPage />
               </Page>
             }
           />
