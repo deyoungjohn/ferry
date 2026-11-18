@@ -1,3 +1,4 @@
+import { formatUnits } from 'viem';
 import {
   quoteOut,
   type Direction,
@@ -421,16 +422,20 @@ export class QuoteBuilder {
     });
 
     if (!reserveResult.success) {
-      const isLiquidity = reserveResult.reason.includes('available');
+      // Show the limit as the amount of the token the person would receive, in plain decimals.
+      const tokenUnits =
+        reserveResult.maxAmountUnit === 'token'
+          ? reserveResult.maxAmount
+          : (reserveResult.maxAmount * 10n ** BigInt(outDecimals)) / 1_000_000n;
+      const maxHuman = formatUnits(tokenUnits, outDecimals);
+      const isLiquidity = reserveResult.maxAmountUnit === 'token';
       return {
         ok: false,
-        reason: isLiquidity
-          ? 'INSUFFICIENT_LIQUIDITY'
-          : 'INSUFFICIENT_LIQUIDITY',
-        maxAmount: reserveResult.maxAmount.toString(),
+        reason: 'INSUFFICIENT_LIQUIDITY',
+        maxAmount: maxHuman,
         asset: params.receiveAsset,
         message: isLiquidity
-          ? `Only ${reserveResult.maxAmount} ${params.receiveAsset} available`
+          ? `Only ${maxHuman} ${params.receiveAsset} available`
           : reserveResult.reason,
       };
     }

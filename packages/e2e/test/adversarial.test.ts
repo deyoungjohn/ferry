@@ -340,13 +340,15 @@ describe('Adversarial Security Suite (Blueprint §9)', () => {
         });
         expect(q1.orderId).toMatch(/^0x/);
 
+        // A second quote from the same address replaces the first (abandoned previews never fill
+        // the limit), so the cap is about one swap at a time: a single quote above it is refused.
         await expect(
           capped.client.quote({
             direction: 'BCH_TO_EVM',
             token: 'PUSD',
             chainId: anvil.chainId,
             evmToken: tokenAddress,
-            amountIn: 500n,
+            amountIn: 800n, // 8.00 PUSD, above the $6.00 cap
             userEvmAddress: userAccount.address,
             userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
             hashLock: freshSecret('cap-2').hashLock,

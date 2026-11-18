@@ -125,9 +125,20 @@ export function SwapCard({
   );
 
   // Recipient address (Paste-address flow)
-  const [recipientAddress, setRecipientAddress] = useState<string>(
-    initialRecipient ?? evm.address ?? '',
+  // The destination follows the connected wallet for the direction (an EVM wallet when you receive
+  // on an EVM chain, the Bitcoin Cash wallet when you receive Bitcoin Cash). The person can type
+  // another address instead. A flip clears a typed address: it belonged to the other chain.
+  const [customRecipient, setCustomRecipient] = useState<string>(
+    initialRecipient ?? '',
   );
+  const [useCustomRecipient, setUseCustomRecipient] = useState<boolean>(
+    initialRecipient !== undefined && initialRecipient !== '',
+  );
+  const walletRecipient = (isReverse ? evm.address : bchAddress) ?? '';
+  const usingWalletRecipient = !useCustomRecipient && walletRecipient !== '';
+  const recipientAddress = usingWalletRecipient
+    ? walletRecipient
+    : customRecipient;
 
   // Send amount
   const [sendAmount, setSendAmount] = useState<string>('20.00');
@@ -372,6 +383,8 @@ export function SwapCard({
 
   function handleFlipDirection() {
     setIsReverse((prev) => !prev);
+    setCustomRecipient('');
+    setUseCustomRecipient(false);
   }
 
   function handleChainChange(newChainId: string | number) {
@@ -797,23 +810,61 @@ export function SwapCard({
               {isReverse ? 'Paste any EVM address' : 'CashAddr format'}
             </span>
           </div>
-          <input
-            id="recipient-address-input"
-            data-testid="recipient-address-input"
-            type="text"
-            value={recipientAddress}
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            autoComplete="off"
-            inputMode="text"
-            onChange={(e) => {
-              setRecipientAddress(e.target.value);
-              setFailureState(null);
-            }}
-            placeholder={isReverse ? '0x...' : 'bitcoincash:...'}
-            className="w-full bg-transparent font-mono text-xs text-text outline-none placeholder:text-text-dim/50"
-          />
+          {usingWalletRecipient ? (
+            <div className="flex items-center justify-between gap-2">
+              <span
+                data-testid="recipient-from-wallet"
+                className="min-w-0 truncate font-mono text-xs text-text"
+                title={walletRecipient}
+              >
+                {walletRecipient}
+              </span>
+              <button
+                type="button"
+                data-testid="recipient-use-other"
+                onClick={() => {
+                  setCustomRecipient('');
+                  setUseCustomRecipient(true);
+                }}
+                className="shrink-0 text-[11px] font-medium text-lime hover:underline cursor-pointer"
+              >
+                Use a different address
+              </button>
+            </div>
+          ) : (
+            <>
+              <input
+                id="recipient-address-input"
+                data-testid="recipient-address-input"
+                type="text"
+                value={recipientAddress}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="off"
+                inputMode="text"
+                onChange={(e) => {
+                  setCustomRecipient(e.target.value);
+                  setFailureState(null);
+                }}
+                placeholder={isReverse ? '0x...' : 'bitcoincash:...'}
+                className="w-full bg-transparent font-mono text-xs text-text outline-none placeholder:text-text-dim/50"
+              />
+              {walletRecipient !== '' && (
+                <button
+                  type="button"
+                  data-testid="recipient-use-wallet"
+                  onClick={() => {
+                    setCustomRecipient('');
+                    setUseCustomRecipient(false);
+                  }}
+                  className="mt-1.5 text-[11px] font-medium text-lime hover:underline cursor-pointer"
+                >
+                  Use my connected wallet
+                </button>
+              )}
+            </>
+          )}
           {hasAddressError && (
             <p
               data-testid="address-validation-error"

@@ -98,6 +98,9 @@ export function buildCoreQuoteRequest(
       : lockingBytecodeFor(req.recipientAddress),
     hashLock,
     lane: req.lane,
+    // A price shown on the card reserves nothing: only the quote made when the person commits
+    // holds the solver's funds. Otherwise retyping an amount uses up their own limit.
+    dryRun: true,
   } as CoreQuoteRequest;
   if (!request.userEvmAddress?.startsWith('0x')) {
     (request as { userEvmAddress: `0x${string}` }).userEvmAddress =

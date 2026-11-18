@@ -272,10 +272,10 @@ describe('Checkable quotes, price sources, and liquidity reservations (blueprint
       expect(quote2.ok).toBe(false);
       if (!quote2.ok) {
         expect(quote2.reason).toBe('INSUFFICIENT_LIQUIDITY');
-        // Available was 2500 - 2490 = 10 units
-        expect(quote2.maxAmount).toBe('10');
+        // Available was 2500 - 2490 = 10 units of 0.01 = 0.1 PUSD, shown as a plain decimal
+        expect(quote2.maxAmount).toBe('0.1');
         expect(quote2.asset).toBe('PUSD');
-        expect(quote2.message).toContain('Only 10 PUSD available');
+        expect(quote2.message).toContain('Only 0.1 PUSD available');
       }
     });
 
@@ -369,6 +369,73 @@ describe('Checkable quotes, price sources, and liquidity reservations (blueprint
       expect(liquidityManager.getActiveReservationsForAsset('PUSD', now)).toBe(
         0n,
       );
+    });
+
+    it('a new quote from the same address for the same asset replaces its earlier quote, so repeated previews never hit the cap', () => {
+      // Cap of $100 per address; each quote is $40.
+      const manager = new LiquidityManager(100_000_000n, 100_000_000n);
+      const now = 1000;
+      const quote = (id: string) =>
+        manager.reserveQuote({
+          quoteId: id,
+          userAddress: '0xAlice',
+          userIp: '1.1.1.1',
+          asset: 'USDC',
+          amount: 40_000_000n,
+          amountMicros: 40_000_000n,
+          currentInventory: 500_000_000n,
+          openExposure: 0n,
+          nowSeconds: now,
+        });
+      // Five quotes in a row (a person retyping an amount) all succeed.
+      for (let i = 0; i < 5; i++) expect(quote(`q${i}`).success).toBe(true);
+      // Only the latest is held.
+      expect(manager.getActiveReservationsForAsset('USDC', now)).toBe(
+        40_000_000n,
+      );
+      expect(manager.getActiveReservationsForAddress('0xAlice', now)).toBe(
+        40_000_000n,
+      );
+    });
+
+    it('a different address still counts against the shared limits, and one address cannot exceed its own cap with one quote', () => {
+      const manager = new LiquidityManager(100_000_000n, 100_000_000n);
+      const now = 1000;
+      const base = {
+        asset: 'USDC',
+        currentInventory: 500_000_000n,
+        openExposure: 0n,
+        nowSeconds: now,
+        userIp: '1.1.1.1',
+      };
+      expect(
+        manager.reserveQuote({
+          ...base,
+          quoteId: 'a',
+          userAddress: '0xA',
+          amount: 60_000_000n,
+          amountMicros: 60_000_000n,
+        }).success,
+      ).toBe(true);
+      // Same IP, other address: 60 + 60 passes the per-address cap but not the per-IP cap.
+      const second = manager.reserveQuote({
+        ...base,
+        quoteId: 'b',
+        userAddress: '0xB',
+        amount: 60_000_000n,
+        amountMicros: 60_000_000n,
+      });
+      expect(second.success).toBe(false);
+      // One quote over the cap on its own is refused.
+      const big = manager.reserveQuote({
+        ...base,
+        quoteId: 'c',
+        userAddress: '0xC',
+        userIp: '9.9.9.9',
+        amount: 150_000_000n,
+        amountMicros: 150_000_000n,
+      });
+      expect(big.success).toBe(false);
     });
 
     it('GET /v1/liquidity data function reports inventory, exposure, and active reservations', () => {

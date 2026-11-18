@@ -410,42 +410,29 @@ describe('B4-10: Limits, Self-Check, and Refusal Reasons with Numbers', () => {
         priceSource: mockPrices,
       });
 
-      // First quote for $1.00 reserves $1.00
-      const quote1 = await lowCapServer.inject({
+      // One quote above the cap is refused with the numbers. (A second quote from the same
+      // address would replace the first, so the cap is about one swap at a time.)
+      const over = await lowCapServer.inject({
         method: 'POST',
         url: '/v1/quotes',
         payload: {
           direction: 'EVM_TO_BCH',
           bchToken: 'PUSD',
-          amountIn: '1000000', // $1.00
-          userEvmAddress: '0x2222222222222222222222222222222222222222',
-          userBchLockingBytecode:
-            '0x76a914111111111111111111111111111111111111111188ac',
-          hashLock: sha256('0x01'),
-        },
-      });
-      expect(quote1.statusCode).toBe(200);
-
-      // Second quote for $1.00 from same address exceeds $1.50 cap
-      const quote2 = await lowCapServer.inject({
-        method: 'POST',
-        url: '/v1/quotes',
-        payload: {
-          direction: 'EVM_TO_BCH',
-          bchToken: 'PUSD',
-          amountIn: '1000000', // $1.00
+          amountIn: '2000000', // $2.00
           userEvmAddress: '0x2222222222222222222222222222222222222222',
           userBchLockingBytecode:
             '0x76a914111111111111111111111111111111111111111188ac',
           hashLock: sha256('0x02'),
         },
       });
-      expect(quote2.statusCode).toBe(422);
-      const body2 = JSON.parse(quote2.body);
+      expect(over.statusCode).toBe(422);
+      const body2 = JSON.parse(over.body);
       expect(body2.reason).toBe('INSUFFICIENT_LIQUIDITY');
       expect(body2.message).toMatch(
-        /Address active reservation cap exceeded: active reservations \$0\.9[89] \+ requested \$0\.9[89] exceeds cap of \$1\.50/,
+        /Address active reservation cap exceeded: active reservations \$0\.00 \+ requested \$1\.9[89] exceeds cap of \$1\.50/,
       );
+      // The limit is shown as a plain amount of the token, not raw units.
+      expect(body2.maxAmount).toBe('1.5');
 
       await lowCapServer.close();
     });

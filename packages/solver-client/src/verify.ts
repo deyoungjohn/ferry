@@ -35,6 +35,11 @@ export interface VerifiedQuote {
 }
 
 const DEFAULT_MAX_REF_AGE_SECONDS = 300;
+/**
+ * A Chainlink stablecoin feed is only updated when the price moves or its heartbeat (24 hours on
+ * Base USDC/USD) runs out, so a reading hours old is normal. The solver applies the same rule.
+ */
+const CHAINLINK_MAX_REF_AGE_SECONDS = 24 * 3600 + 300;
 const DEFAULT_MAX_CLOCK_SKEW_SECONDS = 30;
 
 function sameHex(left: string, right: string): boolean {
@@ -193,7 +198,11 @@ export async function verifyQuote(
   const pricing = terms.pricing;
 
   for (const ref of pricing.refs) {
-    const maxAge = context.maxRefAgeBySource?.[ref.source] ?? defaultMaxRefAge;
+    const maxAge =
+      context.maxRefAgeBySource?.[ref.source] ??
+      (ref.source.startsWith('chainlink:')
+        ? Math.max(defaultMaxRefAge, CHAINLINK_MAX_REF_AGE_SECONDS)
+        : defaultMaxRefAge);
     assertField(
       ref.asOf <= nowSeconds + maxClockSkew,
       'pricing.refs',

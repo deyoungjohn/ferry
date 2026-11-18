@@ -24,6 +24,7 @@ import { wagmiConfig } from './evm-config';
 import { validateBchAddressPrefix } from './chain';
 import { wizardConnectTheme } from './wizard-theme';
 import { useBchReconnectTimeout } from './reconnect-timeout';
+import { revokeAccountAccess } from './revoke';
 import { wizardSignParams } from './wizard-sign';
 import { addressFromPubkey } from '../bch/address';
 import {
@@ -45,8 +46,14 @@ import type {
 const queryClient = new QueryClient();
 
 function useRealEvmWallet(): EvmWallet {
-  const { address, chainId, isConnected, isConnecting, isReconnecting } =
-    useAccount();
+  const {
+    address,
+    chainId,
+    connector,
+    isConnected,
+    isConnecting,
+    isReconnecting,
+  } = useAccount();
   const { disconnectAsync } = useDisconnect();
   const { open } = useAppKit();
   const { signTypedDataAsync } = useSignTypedData();
@@ -94,7 +101,10 @@ function useRealEvmWallet(): EvmWallet {
       void open();
     },
     disconnect: async () => {
+      // Taken before disconnecting: afterwards the connector no longer hands it out.
+      const provider = await connector?.getProvider?.().catch(() => null);
       await disconnectAsync();
+      await revokeAccountAccess(provider);
       setPendingRequest(null);
       setPromptHelp(null);
     },
