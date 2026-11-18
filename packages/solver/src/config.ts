@@ -95,6 +95,7 @@ export const SolverConfigSchema = z
       ),
     allowMockPaylinkSignatures: z.coerce.boolean().default(false),
     allowDevKeys: z.coerce.boolean().default(false),
+    executionReady: z.coerce.boolean().default(true),
     allowedOrigins: z.string().default('*'),
     logLevel: z
       .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])

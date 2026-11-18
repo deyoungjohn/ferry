@@ -234,6 +234,50 @@ curl -fsS -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","
 curl -fsS http://127.0.0.1:8787/v1/health | jq .costFeeds
 ```
 
+### Autonomous Swap Execution & Watching Orders
+
+With real on-chain transaction builders and execution ports active (`executionReady: true`), the solver engine operates autonomously through its reconciliation loop:
+
+1. **What the solver does autonomously:**
+   - **Forward Swaps (EVM to BCH):**
+     - Watches the Base HTLC contract for user locks.
+     - Once finality is reached (1 confirmation on the fast lane, finalized on the safe lane), builds, signs with `SOLVER_BCH_WIF`, and broadcasts the real BCH lock transaction (Libauth VM verified) locking PUSD or MUSD to the P2SH32 covenant.
+     - Monitors Electrum history on the covenant script hash. When the user spends the covenant, extracts the secret preimage from the unlocking script.
+     - Claims the user's locked USDC on Base via `evmAdapter.claim`.
+   - **Reverse Swaps (BCH to EVM):**
+     - Watches the BCH covenant for user lock transactions (monitoring double-spend proofs for fast-lane 0-conf safety).
+     - Counter-locks USDC on Base via `evmAdapter.lock`.
+     - Watches Base contract events for the user's `Claimed` transaction and decodes the secret preimage.
+     - Claims the user's locked PUSD or MUSD on BCH using CashScript and broadcasts the claim transaction.
+
+2. **Funding requirements:**
+   - **Bitcoin Cash (`SOLVER_BCH_WIF` address):**
+     - CashTokens: **PUSD** / **MUSD** tokens for forward lock obligations.
+     - Satoshis: **BCH** satoshis for UTXO carry amounts (3,000 sats per output) and network miner fees.
+   - **Base (`SOLVER_EVM_PRIVATE_KEY` address):**
+     - ERC-20: **USDC** tokens for reverse counter-lock obligations.
+     - Native Gas: **ETH** on Base to pay gas for EVM locks and claims (self-check verifies that ETH balance covers estimated claim gas).
+
+3. **How to watch an order go through:**
+   - **Query SQLite order state:**
+     ```bash
+     sqlite3 /var/lib/ferry/solver.db \
+       "SELECT id, direction, status, hashLock, secret, userLockTxId, solverLockTxId, userClaimTxId, solverClaimTxId FROM orders ORDER BY createdAt DESC LIMIT 5;"
+     ```
+   - **Query write-ahead action intents:**
+     ```bash
+     sqlite3 /var/lib/ferry/solver.db \
+       "SELECT orderId, actionType, status, txid FROM action_intents;"
+     ```
+   - **Tail solver engine logs:**
+     ```bash
+     # Follow live solver systemd service journal
+     sudo journalctl -u ferry-solver -f
+
+     # Or tail file logs if LOG_FILE_PATH is configured in /etc/ferry/solver.env
+     tail -f /var/log/ferry/solver.log
+     ```
+
 ## 8. Update
 
 The everyday commands are one script, run as the normal login user:
