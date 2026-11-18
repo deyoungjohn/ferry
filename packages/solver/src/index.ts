@@ -21,4 +21,5 @@ export * from './api/rate-limiter.js';
 export * from './api/schemas.js';
 export * from './api/server.js';
 export * from './ops/self-check.js';
+export * from './ops/selfcheck.js';
 export * from './main.js';

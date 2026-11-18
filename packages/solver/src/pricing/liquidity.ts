@@ -303,7 +303,7 @@ export class LiquidityManager {
     if (addrReserved + effectiveMicros > this.maxReservedPerAddress) {
       return {
         success: false,
-        reason: 'Address active reservation cap exceeded',
+        reason: `Address active reservation cap exceeded: active reservations $${(Number(addrReserved) / 1e6).toFixed(2)} + requested $${(Number(effectiveMicros) / 1e6).toFixed(2)} exceeds cap of $${(Number(this.maxReservedPerAddress) / 1e6).toFixed(2)}`,
         maxAmount:
           this.maxReservedPerAddress > addrReserved
             ? this.maxReservedPerAddress - addrReserved
@@ -315,7 +315,7 @@ export class LiquidityManager {
     if (ipReserved + effectiveMicros > this.maxReservedPerIp) {
       return {
         success: false,
-        reason: 'IP active reservation cap exceeded',
+        reason: `IP active reservation cap exceeded: active reservations $${(Number(ipReserved) / 1e6).toFixed(2)} + requested $${(Number(effectiveMicros) / 1e6).toFixed(2)} exceeds cap of $${(Number(this.maxReservedPerIp) / 1e6).toFixed(2)}`,
         maxAmount:
           this.maxReservedPerIp > ipReserved
             ? this.maxReservedPerIp - ipReserved

@@ -20,6 +20,7 @@
     "dev": "tsx --conditions=ferry-source src/dev.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --cache src test",
+    "selfcheck": "tsx --conditions=ferry-source src/selfcheck.ts",
     "start": "node dist/main.js",
     "test": "vitest run --config vitest.config.ts"
   },

@@ -248,14 +248,19 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     config.solverEvmPrivateKey as `0x${string}`,
   );
 
-  const maxReservationCap =
+  const defaultReservationCap =
     config.maxSwapUsdMicros * 2n < config.maxExposureUsdMicros
       ? config.maxSwapUsdMicros * 2n
       : config.maxExposureUsdMicros;
 
+  const reservationCapPerAddress =
+    config.reservationCapPerAddressUsdMicros ?? defaultReservationCap;
+  const reservationCapPerIp =
+    config.reservationCapPerIpUsdMicros ?? defaultReservationCap;
+
   const liquidityManager = new LiquidityManager(
-    maxReservationCap,
-    maxReservationCap,
+    reservationCapPerAddress,
+    reservationCapPerIp,
   );
 
   const inventoryReader =
@@ -292,6 +297,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         minSwapUsd: (Number(config.minSwapUsdMicros) / 1e6).toFixed(2),
         maxSwapUsd: (Number(config.maxSwapUsdMicros) / 1e6).toFixed(2),
         maxExposureUsd: (Number(config.maxExposureUsdMicros) / 1e6).toFixed(2),
+        reservationCapPerAddressUsd: (
+          Number(reservationCapPerAddress) / 1e6
+        ).toFixed(2),
+        reservationCapPerIpUsd: (Number(reservationCapPerIp) / 1e6).toFixed(2),
         spreadBps: config.spreadBps,
         fixedFeeUsd: (Number(config.fixedFeeUsdMicros) / 1e6).toFixed(2),
         quoteTtlSeconds: config.quoteTtlSeconds,
@@ -425,7 +434,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         reason: 'INSUFFICIENT_LIQUIDITY' as const,
         maxAmount: '0',
         asset: request.bchToken,
-        message: 'Bitcoin Cash node tip is stale or unhealthy',
+        message: `Bitcoin Cash node tip is stale or unhealthy (tip: ${quorum.quorumTip ?? 0}, age: ${quorum.ageSeconds}s, max: ${config.tipMaxAgeBchSeconds}s)`,
       };
       QuoteRefusalSchema.parse(refusal);
       return reply.status(422).send(refusal);
@@ -618,6 +627,45 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       };
       QuoteRefusalSchema.parse(refusal);
       return reply.status(422).send(refusal);
+    }
+
+    // Gas availability checks
+    if (request.direction === 'EVM_TO_BCH') {
+      try {
+        const bchInv = await inventoryReader.getBchInventory();
+        const minBchSats = config.bchCarrySats + config.bchMaxFeeSats;
+        if (bchInv.sats < minBchSats) {
+          const refusal = {
+            reason: 'INSUFFICIENT_LIQUIDITY' as const,
+            maxAmount: '0',
+            asset: request.bchToken,
+            message: `Solver BCH fee balance (${bchInv.sats} sats) is below required ${minBchSats} sats (carry: ${config.bchCarrySats}, fee: ${config.bchMaxFeeSats})`,
+          };
+          QuoteRefusalSchema.parse(refusal);
+          return reply.status(422).send(refusal);
+        }
+      } catch {
+        // Handled during currentInventory read or upstream
+      }
+    } else if (request.direction === 'BCH_TO_EVM') {
+      try {
+        const evmInv = await inventoryReader.getEvmInventory(
+          evmChainName,
+          requestedToken,
+        );
+        if (evmInv.nativeWei <= 0n) {
+          const refusal = {
+            reason: 'INSUFFICIENT_LIQUIDITY' as const,
+            maxAmount: '0',
+            asset: evmAsset?.symbol ?? 'USDC',
+            message: `Solver native gas balance on ${chainFact.name} is ${evmInv.nativeWei} wei; requires native gas for counter-lock`,
+          };
+          QuoteRefusalSchema.parse(refusal);
+          return reply.status(422).send(refusal);
+        }
+      } catch {
+        // Handled
+      }
     }
 
     const openExposure = db.getOpenExposureUsdMicros();

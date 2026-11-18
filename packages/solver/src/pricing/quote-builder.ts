@@ -136,11 +136,13 @@ export class QuoteBuilder {
 
     const minSwap = params.minSwapUsdMicros ?? MIN_SWAP_USD_MICROS;
     if (minSwap > 0n && amountInMicros < minSwap) {
+      const amtFormatted = (Number(amountInMicros) / 1e6).toFixed(2);
+      const minFormatted = (Number(minSwap) / 1e6).toFixed(2);
       return {
         ok: false,
         reason: 'ROUTE_DISABLED',
         asset: params.payAsset,
-        message: `Amount is below minimum swap of $${formatUsdMicrosToDecimal(minSwap)}`,
+        message: `Amount $${amtFormatted} is below minimum swap of $${minFormatted}`,
       };
     }
 
@@ -163,7 +165,7 @@ export class QuoteBuilder {
         reason: 'OVER_MAX_SWAP',
         maxAmount: maxFormatted,
         asset: params.payAsset,
-        message: `Amount exceeds maximum swap of $${maxFormatted}`,
+        message: `Amount $${(Number(amountInMicros) / 1e6).toFixed(2)} exceeds maximum swap of $${maxFormatted}`,
       };
     }
 
@@ -377,7 +379,7 @@ export class QuoteBuilder {
         asset: params.receiveAsset,
         message: isLiquidity
           ? `Only ${reserveResult.maxAmount} ${params.receiveAsset} available`
-          : 'Reservation limit exceeded for address/IP',
+          : reserveResult.reason,
       };
     }
 

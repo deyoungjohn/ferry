@@ -144,6 +144,8 @@ Where the values come from:
 - **`OPERATOR_TOKEN`:** generate it and keep a copy; the operator routes and the
   emergency stop need it.
 - **`MAX_SWAP_USD_MICROS=1000000`** is the $1 cap for the first swaps.
+- **`RESERVATION_CAP_PER_ADDRESS_USD_MICROS`** (optional): active reservation cap per user address in USD micros (default: min(2 × `MAX_SWAP_USD_MICROS`, `MAX_EXPOSURE_USD_MICROS`)).
+- **`RESERVATION_CAP_PER_IP_USD_MICROS`** (optional): active reservation cap per IP in USD micros (default: min(2 × `MAX_SWAP_USD_MICROS`, `MAX_EXPOSURE_USD_MICROS`)).
 
 `HOST=127.0.0.1` keeps the solver off the public network, and `TRUSTED_PROXY=true`
 is right because Caddy is the only caller. Do not set `ALLOW_DEV_KEYS` or
