@@ -31,6 +31,10 @@ import type {
 } from '../lib/send/ports';
 import { createSendLinkLive } from '../lib/send/create-send-link';
 import { resumeSendLinkLock } from '../lib/send/resume-send-link';
+import {
+  ExportNotebookModal,
+  ImportNotebookModal,
+} from '../components/ui/notebook-dialog';
 
 export interface SendLinksPageProps {
   readonly isLive?: boolean | undefined;
@@ -61,6 +65,8 @@ export function SendLinksPage({
   const [copied, setCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resumingId, setResumingId] = useState<string | null>(null);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   const wallets = useContext(WalletContext);
   const solverContext = useContext(SolverContext);
@@ -233,12 +239,28 @@ export function SendLinksPage({
             automatic refund window.
           </p>
         </div>
-        <Link
-          to="/"
-          className="inline-flex h-8 items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 text-xs font-semibold text-text hover:border-lime/40 transition-colors self-start sm:self-auto"
-        >
-          ← Back to Swap
-        </Link>
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <button
+            type="button"
+            onClick={() => setExportModalOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 text-xs font-semibold text-text hover:border-lime/40 transition-colors cursor-pointer"
+          >
+            Export notebook
+          </button>
+          <button
+            type="button"
+            onClick={() => setImportModalOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 text-xs font-semibold text-text hover:border-lime/40 transition-colors cursor-pointer"
+          >
+            Import notebook
+          </button>
+          <Link
+            to="/"
+            className="inline-flex h-8 items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 text-xs font-semibold text-text hover:border-lime/40 transition-colors"
+          >
+            ← Back to Swap
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -473,6 +495,29 @@ export function SendLinksPage({
                     {activeCreated.recipientEvmAddress}
                   </span>
                 </div>
+
+                {/* Reminder to export encrypted notebook */}
+                <div
+                  data-testid="created-export-reminder"
+                  className="rounded-well border border-lime/30 bg-lime/5 p-3 text-[11px] leading-relaxed text-text-muted flex items-start justify-between gap-3"
+                >
+                  <div>
+                    <span className="font-semibold text-text block mb-0.5">
+                      Save to encrypted notebook
+                    </span>
+                    <span>
+                      Export your notebook to keep and restore this link and its
+                      claim secret on any device.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setExportModalOpen(true)}
+                    className="shrink-0 rounded-pill border border-lime/40 bg-surface-2 px-2.5 py-1 text-[11px] font-semibold text-lime hover:bg-lime/20 transition-colors cursor-pointer"
+                  >
+                    Export now
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
@@ -483,9 +528,27 @@ export function SendLinksPage({
 
           {/* List */}
           <div className="rounded-card border border-hairline bg-surface-1 p-4 shadow-elev-card">
-            <h3 className="text-xs font-semibold text-text mb-3">
-              Recent Send Links
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-text">
+                Recent Send Links
+              </h3>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setExportModalOpen(true)}
+                  className="rounded-pill border border-hairline bg-surface-2 px-2.5 py-1 text-[11px] font-semibold text-text hover:border-lime/40 transition-colors cursor-pointer"
+                >
+                  Export notebook
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportModalOpen(true)}
+                  className="rounded-pill border border-hairline bg-surface-2 px-2.5 py-1 text-[11px] font-semibold text-text hover:border-lime/40 transition-colors cursor-pointer"
+                >
+                  Import notebook
+                </button>
+              </div>
+            </div>
             <div className="space-y-2">
               {createdLinks.map((link) => (
                 <div
@@ -530,6 +593,27 @@ export function SendLinksPage({
           </div>
         </div>
       </div>
+
+      <ExportNotebookModal
+        open={exportModalOpen}
+        onOpenChange={setExportModalOpen}
+        links={createdLinks}
+        onExportSuccess={(filename) => {
+          showToast(`Exported encrypted notebook (${filename})`, 'success');
+        }}
+      />
+
+      <ImportNotebookModal
+        open={importModalOpen}
+        onOpenChange={setImportModalOpen}
+        onImportSuccess={(result) => {
+          setCreatedLinks(listSendLinks());
+          showToast(
+            `Imported ${result.importedCount} send link${result.importedCount === 1 ? '' : 's'} successfully`,
+            'success',
+          );
+        }}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { SEND_LINK_NOTE_MAX_LENGTH } from '@ferry/core/api';
 import type { SendLinkData } from './link';
 
 const KEY = 'ferry.send-links.v1';
+const VIEW_KEY_STORAGE = 'ferry.send-links.view-key.v1';
 
 function readAll(): SendLinkData[] {
   try {
@@ -34,10 +35,37 @@ export function saveSendLink(link: SendLinkData): void {
     const rest = readAll().filter((item) => item.id !== link.id);
     window.localStorage.setItem(
       KEY,
-      JSON.stringify([link, ...rest].slice(0, 50)),
+      JSON.stringify([link, ...rest].slice(0, 100)),
     );
   } catch {
     // Storage can be blocked; the link still works for this session.
+  }
+}
+
+/** Overwrites the stored send links with a merged or updated list. */
+export function replaceSendLinks(links: SendLinkData[]): void {
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(links.slice(0, 100)));
+  } catch {
+    // Storage can be blocked
+  }
+}
+
+/** Gets the stored 32-byte viewKey for this browser. */
+export function getViewKey(): string | null {
+  try {
+    return window.localStorage.getItem(VIEW_KEY_STORAGE);
+  } catch {
+    return null;
+  }
+}
+
+/** Saves the 32-byte viewKey for this browser. */
+export function saveViewKey(viewKey: string): void {
+  try {
+    window.localStorage.setItem(VIEW_KEY_STORAGE, viewKey);
+  } catch {
+    // Storage can be blocked
   }
 }
 
