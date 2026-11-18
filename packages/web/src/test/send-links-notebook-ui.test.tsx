@@ -6,6 +6,9 @@ import { saveSendLink, listSendLinks } from '../lib/paylink/send-store';
 import { exportNotebook, MIN_PBKDF2_ITERATIONS } from '../lib/notebook/crypto';
 import type { SendLinkData } from '../lib/paylink/link';
 
+/** The key derivation (600,000 rounds) is slow when the whole suite runs at once. */
+const SLOW = { timeout: 30_000 };
+
 describe('Send Links Encrypted Notebook UI (B3-15)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -97,8 +100,8 @@ describe('Send Links Encrypted Notebook UI (B3-15)', () => {
       expect(
         screen.queryByText(/Export Encrypted Notebook/i),
       ).not.toBeInTheDocument();
-    });
-  });
+    }, SLOW);
+  }, 60_000);
 
   it('Import notebook modal: handles wrong passphrase or damaged file in plain words and merges on success', async () => {
     const passphrase = 'notebook-secret-passphrase';
@@ -143,7 +146,11 @@ describe('Send Links Encrypted Notebook UI (B3-15)', () => {
     fireEvent.click(submitBtn);
 
     expect(
-      await screen.findByText(/Incorrect passphrase or damaged notebook file/i),
+      await screen.findByText(
+        /Incorrect passphrase or damaged notebook file/i,
+        {},
+        SLOW,
+      ),
     ).toBeInTheDocument();
     expect(listSendLinks()).toHaveLength(0); // storage unchanged!
 
@@ -155,13 +162,13 @@ describe('Send Links Encrypted Notebook UI (B3-15)', () => {
       expect(
         screen.queryByText(/Import Encrypted Notebook/i),
       ).not.toBeInTheDocument();
-    });
+    }, SLOW);
 
     const stored = listSendLinks();
     expect(stored).toHaveLength(1);
     expect(stored[0]?.id).toBe(testLink.id);
     expect(stored[0]?.secret).toBe(testLink.secret);
-  });
+  }, 60_000);
 
   it('displays export reminder notice under created send link', () => {
     render(
