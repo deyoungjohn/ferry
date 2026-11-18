@@ -682,6 +682,8 @@ export const SendLinkDetailsResponseSchema = z.strictObject({
   bchRefundHeight: positiveUint,
   /** The sender's message, when there is one. */
   note: sendLinkNoteSchema.optional(),
+  /** The EVM lock the receiver claims: what the receiver's own wallet needs to send the claim. */
+  lockId: hex32Schema.optional(),
   createdAt: unixTimestampSeconds,
   updatedAt: unixTimestampSeconds,
 });

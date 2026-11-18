@@ -2888,6 +2888,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         evmDeadline: terms.evmDeadline,
         bchRefundHeight: terms.bchRefundHeight,
         ...(note !== null ? { note } : {}),
+        ...(/^0x[0-9a-fA-F]{64}$/.test(order.lockId)
+          ? { lockId: order.lockId.toLowerCase() as Hex32 }
+          : {}),
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
       };

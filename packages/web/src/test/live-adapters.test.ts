@@ -241,3 +241,13 @@ describe('security policy', () => {
     }
   });
 });
+
+describe('the EVM chain for the live flow', () => {
+  it('is created from the bundled facts, with no file access', async () => {
+    const { createBrowserEvmChain } = await import('../lib/live/evm-chain');
+    // Fails with "The URL must be of scheme file" if the facts are read from disk.
+    const chain = createBrowserEvmChain(8453);
+    expect(typeof chain.getLock).toBe('function');
+    expect(() => createBrowserEvmChain(999_999)).toThrow(/not configured/);
+  });
+});

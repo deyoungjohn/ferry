@@ -136,15 +136,21 @@ export function SendLinkPage({
           );
         }
 
-        const solverUrl =
-          (import.meta.env?.VITE_SOLVER_URLS as string | undefined)?.split(
-            ',',
-          )[0] ?? 'http://localhost:3000';
-
-        const liveSolver: SendLinkSolverPort =
+        // The library client talks to the solver's real relay endpoint. The page's general solver
+        // client has no relay method, so it is never used here.
+        const solverUrl = (
+          import.meta.env?.VITE_SOLVER_URLS as string | undefined
+        )
+          ?.split(',')[0]
+          ?.trim();
+        const liveSolver: SendLinkSolverPort | undefined =
           dependencies?.solver ??
-          (solver as unknown as SendLinkSolverPort) ??
-          new SolverClient({ baseUrl: solverUrl });
+          (solverUrl ? new SolverClient({ baseUrl: solverUrl }) : undefined);
+        if (!liveSolver) {
+          throw new Error(
+            'No solver is configured, so the claim cannot be sent through it.',
+          );
+        }
 
         const evmSigner =
           dependencies?.evmSigner ??
@@ -154,6 +160,8 @@ export function SendLinkPage({
           {
             id: id ?? '',
             secret: activeSecret,
+            // The link says which lock to claim; nothing else in the page knows it.
+            ...(rawLink?.lockId ? { lockId: rawLink.lockId as Hex32 } : {}),
           },
           {
             solver: liveSolver,

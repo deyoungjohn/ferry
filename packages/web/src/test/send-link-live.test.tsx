@@ -27,6 +27,9 @@ import { extractSecretFromHash, hashSecret } from '../lib/send/secret';
 import type { SendLinkDependencies } from '../lib/send/ports';
 import { listSendLinks, saveSendLink } from '../lib/paylink/send-store';
 import { SolverProvider } from '../lib/solver/SolverProvider';
+import { RealSolverClient } from '../lib/solver/real';
+import { WalletContext } from '../lib/wallet/context';
+import { decodeFunctionData, parseAbi } from 'viem';
 import type { SendLinkView, SolverClient } from '../lib/solver/types';
 
 describe('Send Links Live Execution and Receiver Claim (Task B3-14)', () => {
@@ -521,57 +524,151 @@ describe('Send Links Live Execution and Receiver Claim (Task B3-14)', () => {
       );
     });
 
-    it('executes live claim: tries solver relay first and falls back to receiver EVM wallet', async () => {
-      const mockSecret = ('0x' + '66'.repeat(32)) as Hex32;
-      const sendLinkView: SendLinkView = {
-        id: 'sl-claim-live',
-        status: 'locked',
-        amount: 40,
-        token: 'USDC',
-        chain: 'Base',
-        recipientEvmAddress: dummyRecipient,
-        expiresAt: Math.floor(Date.now() / 1000) + 7200,
-      };
+    // The page as production builds it: the link details come from the general solver client over
+    // HTTP, and the claim goes through the library client over HTTP. Only the network is faked.
+    const LOCK_ID = ('0x' + '9a'.repeat(32)) as Hex32;
+    const SECRET = ('0x' + '66'.repeat(32)) as Hex32;
+    const ORDER = ('0x' + 'ab'.repeat(32)) as Hex32;
 
-      let relayCalled = false;
-      const solver = makeMockSolver(sendLinkView, () => {
-        relayCalled = true;
-      });
+    function wireProductionPage(relayStatus: number) {
+      const requests: { url: string; method: string; body: unknown }[] = [];
+      const fakeFetch = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          const method = init?.method ?? 'GET';
+          const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+          requests.push({ url, method, body });
+          if (url.endsWith(`/v1/send-links/${ORDER}`)) {
+            return new Response(
+              JSON.stringify({
+                id: ORDER,
+                status: 'locked',
+                token: 'PUSD',
+                chainId: 8453,
+                evmToken: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+                amountOut: '40000000',
+                recipientEvmAddress: dummyRecipient.toLowerCase(),
+                hashLock: hashSecret(SECRET),
+                evmDeadline: Math.floor(Date.now() / 1000) + 7200,
+                bchRefundHeight: 900000,
+                lockId: LOCK_ID,
+                createdAt: 1,
+                updatedAt: 1,
+              }),
+            );
+          }
+          if (url.includes('/relay-claim')) {
+            return relayStatus === 200
+              ? new Response(
+                  JSON.stringify({
+                    ok: true,
+                    orderId: ORDER,
+                    txHash: '0x' + '77'.repeat(32),
+                  }),
+                )
+              : new Response(
+                  JSON.stringify({ code: 'INTERNAL_ERROR', message: 'down' }),
+                  {
+                    status: relayStatus,
+                  },
+                );
+          }
+          return new Response('{}', { status: 404 });
+        },
+      );
+      vi.stubGlobal('fetch', fakeFetch);
+      vi.stubEnv('VITE_SOLVER_URLS', 'https://solver.test');
+      return { requests };
+    }
 
+    it('claims through the solver relay with the secret from the link and the real client', async () => {
+      const { requests } = wireProductionPage(200);
       render(
-        <SolverProvider client={solver}>
-          <MemoryRouter
-            initialEntries={[`/s/sl-claim-live#${mockSecret.slice(2)}`]}
-          >
+        <SolverProvider
+          client={
+            new RealSolverClient({
+              baseUrl: 'https://solver.test',
+              fetch: fetch,
+            })
+          }
+        >
+          <MemoryRouter initialEntries={[`/s/${ORDER}#${SECRET.slice(2)}`]}>
             <Routes>
               <Route
                 path="/s/:id"
-                element={
-                  <SendLinkPage isLive={true} initialSecret={mockSecret} />
-                }
+                element={<SendLinkPage isLive={true} initialSecret={SECRET} />}
               />
             </Routes>
           </MemoryRouter>
         </SolverProvider>,
       );
-
-      const claimBtn = await screen.findByRole('button', {
-        name: /Send link ›/i,
-      });
-      expect(claimBtn).not.toBeDisabled();
-
-      fireEvent.click(claimBtn);
-
-      await waitFor(() => {
-        expect(relayCalled).toBe(true);
-      });
-
-      // Claimed status is now shown
-      await waitFor(() => {
+      fireEvent.click(
+        await screen.findByRole('button', { name: /Send link ›/i }),
+      );
+      await waitFor(() =>
         expect(screen.getByTestId('send-link-status')).toHaveTextContent(
           'claimed',
-        );
+        ),
+      );
+      const relay = requests.find((r) => r.url.includes('/relay-claim'));
+      expect(relay?.method).toBe('POST');
+      expect(relay?.url).toContain(`/v1/orders/${ORDER}/relay-claim`);
+      expect(relay?.body).toEqual({ secret: SECRET, lockId: LOCK_ID });
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    });
+
+    it('when the relay is down the receiver claims from their own wallet, on the lock the link names', async () => {
+      wireProductionPage(500);
+      const sent: { to: string; data: string }[] = [];
+      const wallets = {
+        evm: {
+          status: 'connected',
+          address: dummyRecipient,
+          chainId: 8453,
+          sendTransaction: async (tx: { to: string; data: string }) => {
+            sent.push(tx);
+            return ('0x' + '88'.repeat(32)) as Hex32;
+          },
+        },
+        bch: { status: 'disconnected', address: null },
+      };
+      render(
+        <WalletContext.Provider value={wallets as never}>
+          <SolverProvider
+            client={
+              new RealSolverClient({
+                baseUrl: 'https://solver.test',
+                fetch: fetch,
+              })
+            }
+          >
+            <MemoryRouter initialEntries={[`/s/${ORDER}#${SECRET.slice(2)}`]}>
+              <Routes>
+                <Route
+                  path="/s/:id"
+                  element={
+                    <SendLinkPage isLive={true} initialSecret={SECRET} />
+                  }
+                />
+              </Routes>
+            </MemoryRouter>
+          </SolverProvider>
+        </WalletContext.Provider>,
+      );
+      fireEvent.click(
+        await screen.findByRole('button', { name: /Send link ›/i }),
+      );
+      await waitFor(() => expect(sent).toHaveLength(1));
+      const decoded = decodeFunctionData({
+        abi: parseAbi([
+          'function claim(bytes32 lockId, bytes32 secret) external',
+        ]),
+        data: sent[0]!.data as `0x${string}`,
       });
+      expect(decoded.args).toEqual([LOCK_ID, SECRET]);
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
     });
   });
 });

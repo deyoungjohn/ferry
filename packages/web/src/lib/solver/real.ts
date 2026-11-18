@@ -357,6 +357,7 @@ export class RealSolverClient implements SolverClient {
         recipientEvmAddress: body.recipientEvmAddress,
         expiresAt: body.evmDeadline,
         note: body.note,
+        lockId: body.lockId,
       };
     } catch {
       return null;

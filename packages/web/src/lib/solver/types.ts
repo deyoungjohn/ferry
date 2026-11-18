@@ -161,6 +161,8 @@ export interface SendLinkView {
   readonly expiresAt: number | null;
   /** The sender's note, as plain text. */
   readonly note?: string | undefined;
+  /** The EVM lock the receiver claims; what a direct claim from the receiver's wallet needs. */
+  readonly lockId?: string | undefined;
 }
 
 export interface SolverClient {

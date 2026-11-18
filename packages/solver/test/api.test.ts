@@ -806,6 +806,8 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       );
       expect(body.amountOut).toBe('10000000');
       expect(body.status).toBe('pending_lock');
+      // The receiver's own wallet needs the lock it claims.
+      expect(body.lockId).toBe(id);
 
       // STRICT PRIVACY VERIFICATION:
       expect(body.secret).toBeUndefined();

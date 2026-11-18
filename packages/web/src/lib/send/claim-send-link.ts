@@ -1,4 +1,5 @@
-import { loadChainConfig } from '@ferry/chain-config/browser';
+import { listDeployedContracts } from '@ferry/chain-config/browser';
+import chainsData from '../../../../chain-config/src/data/chains.json';
 import { evmLockId, type Hex, type Hex32 } from '@ferry/core';
 import type { EvmSignerPort } from '@ferry/user-flow';
 import { encodeFunctionData, parseAbi } from 'viem';
@@ -68,11 +69,11 @@ export async function claimSendLinkLive(
   const chainId = deps.chainId ?? (await deps.evmSigner.getChainId());
   let htlcAddress = deps.htlcAddress;
   if (!htlcAddress) {
-    const config = loadChainConfig({
-      env: { FERRY_NETWORK: 'mainnet' },
-      network: 'mainnet',
-    }).coreChains.find((c) => c.chainId === chainId);
-    htlcAddress = config?.htlcAddress;
+    // The recorded deployments are bundled with the page; reading the chain config from disk
+    // does not work in a browser.
+    htlcAddress = listDeployedContracts(chainsData).find(
+      (item) => item.chainId === chainId,
+    )?.address;
   }
 
   if (!htlcAddress) {

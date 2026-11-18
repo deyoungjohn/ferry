@@ -1,4 +1,5 @@
 import { loadChainConfig } from '@ferry/chain-config/browser';
+import chainsData from '../../../../chain-config/src/data/chains.json';
 import type { Hex32 } from '@ferry/core';
 import { EvmChainAdapter } from '@ferry/chain-evm';
 import type { EvmChainPort } from '@ferry/user-flow';
@@ -8,6 +9,8 @@ export function createBrowserEvmChain(chainId: number): EvmChainPort {
   const config = loadChainConfig({
     env: { FERRY_NETWORK: 'mainnet' },
     network: 'mainnet',
+    // The facts are bundled with the page; a browser cannot read them from disk.
+    data: chainsData,
   }).coreChains.find((chain) => chain.chainId === chainId);
   if (!config) {
     throw new Error(`Chain ${chainId} is not configured in this build.`);
