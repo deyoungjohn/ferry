@@ -32,6 +32,7 @@
     "@ferry/htlc-bch": "workspace:*",
     "@ferry/htlc-evm": "workspace:*",
     "@ferry/solver-client": "workspace:*",
+    "@ferry/user-flow": "workspace:*",
     "viem": "2.57.10"
   },
   "devDependencies": {
