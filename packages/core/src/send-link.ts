@@ -1,4 +1,4 @@
-import { isAddress } from 'viem';
+import { bytesToHex, hexToBytes, isAddress } from 'viem';
 import { z } from 'zod';
 import { MAX_SEND_LINK_WINDOW_SECONDS } from './pricing.js';
 import { sendLinkNoteSchema } from './api/index.js';
@@ -208,4 +208,45 @@ export function planSendLinkWindow(params: {
     remainingBlocks,
     decision,
   };
+}
+
+/**
+ * Derive blinded tag n for a send link view key:
+ *   tag n = HMAC-SHA-256(viewKey, "ferry:send-links:v1:" + n)
+ *
+ * Uses universal Web Crypto (globalThis.crypto.subtle) so it runs identically in
+ * Node 19+, browser runtimes, and worker threads with zero external dependencies.
+ */
+export async function deriveSendLinkTag(
+  viewKey: string | Uint8Array,
+  counter: number,
+): Promise<Hex32> {
+  if (!Number.isInteger(counter) || counter < 0) {
+    throw new RangeError(
+      'Send link tag counter must be a non-negative integer',
+    );
+  }
+  const rawKey =
+    typeof viewKey === 'string'
+      ? hexToBytes((viewKey.startsWith('0x') ? viewKey : `0x${viewKey}`) as Hex)
+      : viewKey;
+  if (rawKey.length !== 32) {
+    throw new RangeError('Send link view key must be exactly 32 bytes');
+  }
+  const message = new TextEncoder().encode(`ferry:send-links:v1:${counter}`);
+  const cryptoKey = await globalThis.crypto.subtle.importKey(
+    'raw',
+    rawKey as unknown as Parameters<
+      typeof globalThis.crypto.subtle.importKey
+    >[1],
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await globalThis.crypto.subtle.sign(
+    'HMAC',
+    cryptoKey,
+    message as unknown as Parameters<typeof globalThis.crypto.subtle.sign>[2],
+  );
+  return bytesToHex(new Uint8Array(signature)) as Hex32;
 }

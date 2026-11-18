@@ -647,6 +647,18 @@ export const sendLinkNoteSchema = z
     message: 'A note is plain text: no line breaks or control characters',
   });
 
+/**
+ * Blinded 32-byte hex tag (64 hex characters with or without 0x prefix).
+ * Derived as HMAC-SHA-256(viewKey, "ferry:send-links:v1:" + n).
+ */
+export const viewTagSchema = z
+  .string()
+  .transform((v) =>
+    v.startsWith('0x') ? v.toLowerCase() : `0x${v.toLowerCase()}`,
+  )
+  .refine((v) => /^0x[0-9a-f]{64}$/.test(v), 'Expected 32-byte hex tag')
+  .transform((v) => v as Hex32);
+
 export const SendQuoteRequestSchema = z.strictObject({
   token: z.enum(['PUSD', 'MUSD']),
   chainId: positiveUint,
@@ -662,6 +674,8 @@ export const SendQuoteRequestSchema = z.strictObject({
     .max(MAX_SEND_LINK_WINDOW_SECONDS),
   /** Optional message for the receiver. */
   note: sendLinkNoteSchema.optional(),
+  /** Optional blinded tag (32 bytes hex) so the sender can list their send links across devices. */
+  viewTag: viewTagSchema.optional(),
   lane: z.enum(['fast', 'safe']),
 });
 
@@ -690,4 +704,34 @@ export const SendLinkDetailsResponseSchema = z.strictObject({
 
 export type SendLinkDetailsResponse = z.infer<
   typeof SendLinkDetailsResponseSchema
+>;
+
+/** Maximum number of blinded view tags a client can query in one request. */
+export const MAX_SEND_LINK_QUERY_TAGS = 50;
+
+export const SendLinksQueryRequestSchema = z.strictObject({
+  tags: z
+    .array(viewTagSchema)
+    .min(1, 'At least one tag is required')
+    .max(
+      MAX_SEND_LINK_QUERY_TAGS,
+      `At most ${MAX_SEND_LINK_QUERY_TAGS} tags can be queried at once`,
+    ),
+});
+
+export type SendLinksQueryRequest = z.infer<typeof SendLinksQueryRequestSchema>;
+
+export const SendLinkQueryMatchSchema = SendLinkDetailsResponseSchema.extend({
+  tag: hex32Schema,
+});
+
+export type SendLinkQueryMatch = z.infer<typeof SendLinkQueryMatchSchema>;
+
+export const SendLinksQueryResponseSchema = z.strictObject({
+  links: z.array(SendLinkQueryMatchSchema),
+  matches: z.array(SendLinkQueryMatchSchema).optional(),
+});
+
+export type SendLinksQueryResponse = z.infer<
+  typeof SendLinksQueryResponseSchema
 >;
