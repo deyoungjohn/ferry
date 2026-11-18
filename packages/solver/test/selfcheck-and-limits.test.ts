@@ -631,3 +631,40 @@ describe('quote lifetime', () => {
     ).toBe(120);
   });
 });
+
+describe('an engine whose on-chain actions are not real yet', () => {
+  it('quotes nothing and moves no order', async () => {
+    const { SolverEngine } = await import('../src/engine/runner.js');
+    const { SolverDatabase } = await import('../src/db/database.js');
+    const db = new SolverDatabase(':memory:');
+    const bch = {
+      getTip: async () => ({ height: 1, hash: '' }),
+      isQuorumHealthy: () => true,
+      isQuotingEnabled: () => true,
+      broadcast: async () => {
+        throw new Error('must not broadcast');
+      },
+      isOnChain: async () => true,
+      getScriptHashHistory: async () => [],
+    };
+    const evm = {
+      getTip: async () => ({ height: 1, finalized: true }),
+      getLock: async () => {
+        throw new Error('must not read');
+      },
+      isFinal: async () => true,
+      broadcast: async () => '',
+      isOnChain: async () => true,
+    };
+    const ready = new SolverEngine(db, bch as never, evm as never, {});
+    expect(ready.isQuotingEnabled()).toBe(true);
+    const notReady = new SolverEngine(db, bch as never, evm as never, {
+      executionReady: false,
+    });
+    expect(notReady.isQuotingEnabled()).toBe(false);
+    // Stepping an order does nothing (no chain call, no state change).
+    await expect(
+      notReady.stepOrder({ id: '0xabc' } as never),
+    ).resolves.toBeUndefined();
+  });
+});
