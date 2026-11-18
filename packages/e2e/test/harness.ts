@@ -258,6 +258,8 @@ export async function startInProcessSolver(params: {
   solverKey?: Hex;
   nowSeconds?: number;
   rateLimitMax?: number;
+  /** Extra solver environment values, for tests that need non-default limits. */
+  solverEnv?: Readonly<Record<string, string>>;
 }): Promise<InProcessSolverHarness> {
   const solverAccount = privateKeyToAccount(params.solverKey ?? SOLVER_KEY);
   const publicClient = createPublicClient({
@@ -355,6 +357,7 @@ export async function startInProcessSolver(params: {
     BASE_USDC_ADDRESS: params.tokenAddress,
     RATE_LIMIT_MAX_PER_ADDRESS: String(params.rateLimitMax ?? 100),
     RATE_LIMIT_MAX_PER_IP: String(params.rateLimitMax ?? 100),
+    ...params.solverEnv,
   });
 
   const db = new SolverDatabase(':memory:');

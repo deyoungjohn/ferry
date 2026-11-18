@@ -116,6 +116,13 @@ describe.skipIf(!RUN_LOAD)('Ferry EVM 200-Swap Concurrent Load Test', () => {
       tokenAddress,
       nowSeconds: Math.floor(Date.now() / 1000),
       rateLimitMax: 10_000,
+      // Active reservations per address and per IP are capped at the smaller of twice
+      // the swap maximum and the exposure maximum (about 100 USD by default). A
+      // burst of 200 one-dollar swaps from one address needs both raised.
+      solverEnv: {
+        MAX_SWAP_USD_MICROS: '500000000',
+        MAX_EXPOSURE_USD_MICROS: '1000000000000',
+      },
     });
 
     const ts = Math.floor(Date.now() / 1000);
@@ -241,12 +248,7 @@ describe.skipIf(!RUN_LOAD)('Ferry EVM 200-Swap Concurrent Load Test', () => {
 
       expect(nonceErrors).toBe(0);
       expect(dbLockErrors).toBe(0);
-      // The solver caps what one IP may hold in active reservations (a fixed policy
-      // constant), and every swap here comes from one address, so about half of a
-      // 200-swap burst is refused cleanly. Every swap must either finish or be refused
-      // for that reason; nothing may fail any other way.
-      expect(okCount + reservationErrors).toBe(totalSwaps);
-      expect(okCount).toBeGreaterThanOrEqual(100);
+      expect(okCount).toBe(totalSwaps);
     },
     LOAD_TIMEOUT_MS,
   );
