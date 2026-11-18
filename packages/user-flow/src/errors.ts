@@ -9,6 +9,9 @@ export type UserFlowErrorCode =
   | 'SIGNED_TRANSACTION_REJECTED'
   | 'COUNTER_LOCK_TIMEOUT'
   | 'NOTHING_TO_SPEND'
+  | 'INSUFFICIENT_FUNDS'
+  | 'QUOTE_BELOW_MINIMUM'
+  | 'TOKEN_CATEGORY_ORDER'
   | 'NOT_READY';
 
 /** A failure the page can show in plain words; `refundAvailable` says whether the user's own refund path is still open. */

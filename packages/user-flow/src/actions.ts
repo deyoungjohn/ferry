@@ -149,8 +149,46 @@ function toLockUtxo(utxo: BchUtxo): LockUtxo {
     txid: utxo.txid,
     vout: utxo.vout,
     satoshis: utxo.satoshis,
-    ...(utxo.token ? { token: { ...utxo.token } } : {}),
+    ...(utxo.token
+      ? {
+          token: {
+            category: utxo.token.category.toLowerCase(),
+            amount: utxo.token.amount,
+            ...(utxo.nft ? { nft: { ...utxo.nft } } : {}),
+          },
+        }
+      : {}),
+    ...(utxo.derivationPath
+      ? { derivationPath: [utxo.derivationPath[0], utxo.derivationPath[1]] }
+      : {}),
   };
+}
+
+function reverseHex(hex: string): string {
+  return (hex.match(/../g) ?? []).reverse().join('');
+}
+
+/** Stop early, in plain words, when the funding outputs cannot pay for this lock. */
+function assertFundingMakesSense(
+  utxos: readonly BchUtxo[],
+  terms: OrderTerms,
+): void {
+  const wanted = terms.bchTokenCategory.replace(/^0x/i, '').toLowerCase();
+  const categories = utxos.flatMap((u) =>
+    u.token ? [u.token.category.toLowerCase()] : [],
+  );
+  if (utxos.length === 0) {
+    throw new UserFlowError(
+      'INSUFFICIENT_FUNDS',
+      'No funds were found at your Bitcoin Cash address, so nothing was locked.',
+    );
+  }
+  if (!categories.includes(wanted) && categories.includes(reverseHex(wanted))) {
+    throw new UserFlowError(
+      'TOKEN_CATEGORY_ORDER',
+      'The server reported the stablecoin category in the opposite byte order from the quote, so its outputs cannot be matched. Nothing was locked.',
+    );
+  }
 }
 
 /**
@@ -163,14 +201,27 @@ export async function lockUserOnBch(
   terms: OrderTerms,
 ): Promise<string> {
   const utxos = await context.bchChain.getUtxos(context.userLockingBytecodeHex);
-  const built = buildLockTransaction({
-    params: terms,
-    utxos: utxos.map(toLockUtxo),
-    changeAddress: context.bchCashAddress,
-    network: context.bchNetwork,
-    feeRateSatPerByte:
-      context.feeRateSatPerByte ?? DEFAULT_FEE_RATE_SAT_PER_BYTE,
-  });
+  assertFundingMakesSense(utxos, terms);
+  let built: ReturnType<typeof buildLockTransaction>;
+  try {
+    built = buildLockTransaction({
+      params: terms,
+      utxos: utxos.map(toLockUtxo),
+      changeAddress: context.bchCashAddress,
+      network: context.bchNetwork,
+      feeRateSatPerByte:
+        context.feeRateSatPerByte ?? DEFAULT_FEE_RATE_SAT_PER_BYTE,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Insufficient')) {
+      throw new UserFlowError(
+        'INSUFFICIENT_FUNDS',
+        `Your Bitcoin Cash address does not hold enough to lock this swap, so nothing was locked. ${error.message}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
   const request = buildWizardConnectSignRequest({ lockTx: built });
   const signedHex = await guardWallet(() =>
     context.bchSigner.signTransaction(request),

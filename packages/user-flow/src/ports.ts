@@ -48,7 +48,12 @@ export interface BchUtxo {
   readonly txid: string;
   readonly vout: number;
   readonly satoshis: bigint;
+  /** The token category is in explorer byte order, as in `OrderTerms.bchTokenCategory`. */
   readonly token?: { readonly category: string; readonly amount: bigint };
+  /** Set when the output also holds an NFT: such an output is never spent by a lock. */
+  readonly nft?: { readonly capability?: string; readonly commitment?: string };
+  /** Where the user's wallet keeps the key for this output, so it can sign it. */
+  readonly derivationPath?: readonly ['receive' | 'change', number];
 }
 
 /** Bitcoin Cash chain reads and broadcast (in a browser: public Fulcrum over `wss`). */

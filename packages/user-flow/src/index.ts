@@ -3,3 +3,4 @@ export * from './ports.js';
 export * from './session.js';
 export * from './actions.js';
 export * from './key-signer.js';
+export * from './resume-all.js';

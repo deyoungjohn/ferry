@@ -103,6 +103,7 @@ export function createWorld(options: WorldOptions = {}) {
     evmStatus: new Map<Hex32, Status>(),
     bchUtxos: new Map<string, BchUtxo[]>(),
     broadcasts: [] as string[],
+    covenantSpent: null as 'claim' | 'refund' | null,
     evmTransactions: [] as { to: Hex; data: Hex }[],
     terms: null as OrderTerms | null,
     store: createMemoryStore(),
@@ -161,6 +162,12 @@ export function createWorld(options: WorldOptions = {}) {
         const key = covenantLockingHex(terms);
         if (terms.direction === 'EVM_TO_BCH' && world.bchUtxos.has(key)) {
           txids['bchLock'] = `0x${'cc'.repeat(32)}` as Hex32;
+        }
+        if (world.covenantSpent === 'claim') {
+          txids['bchClaim'] = `0x${'c1'.repeat(32)}` as Hex32;
+        }
+        if (world.covenantSpent === 'refund') {
+          txids['bchRefund'] = `0x${'c2'.repeat(32)}` as Hex32;
         }
         if (
           terms.direction === 'BCH_TO_EVM' &&
@@ -389,6 +396,12 @@ export function createWorld(options: WorldOptions = {}) {
       if (spendsCovenant) {
         world.bchUtxos.delete(covenantKey);
         world.events.push('bch covenant spend');
+        world.covenantSpent =
+          terms.direction === 'EVM_TO_BCH' ? 'claim' : 'refund';
+        // The solver reads the revealed secret and takes the user's EVM lock.
+        if (terms.direction === 'EVM_TO_BCH') {
+          setEvm(terms.userEvmAddress, terms.hashLock, 'claimed');
+        }
       } else if (
         tx.outputs.some((o) => binToHex(o.lockingBytecode) === covenantKey)
       ) {

@@ -102,6 +102,11 @@ export interface QuoteInput {
   readonly fastOptIn?: boolean;
   /** A price only: nothing is reserved and the session cannot go on to lock. */
   readonly dryRun?: boolean;
+  /**
+   * The least the user accepts to receive, in the receive token's base units
+   * (the price the page showed, less its tolerance). A worse quote stops here.
+   */
+  readonly minReceive?: bigint;
 }
 
 export interface WaitOptions {
@@ -258,6 +263,16 @@ export class UserSwapSession {
         bchTokenDecimals: input.bchTokenDecimals,
         nowSeconds: Math.floor(this.nowMs() / 1000),
       });
+
+      if (
+        input.minReceive !== undefined &&
+        verified.receiveAmount < input.minReceive
+      ) {
+        throw new UserFlowError(
+          'QUOTE_BELOW_MINIMUM',
+          `The solver now offers ${verified.receiveAmount.toString()}, less than the ${input.minReceive.toString()} you were shown. Nothing was locked; ask for a new price.`,
+        );
+      }
 
       this.verified = verified;
       this.secret = secret;
@@ -465,26 +480,17 @@ export class UserSwapSession {
     const { file, terms } = this.requireSavedOrder();
     const forward = terms.direction === 'EVM_TO_BCH';
     const evmOwner = forward ? terms.userEvmAddress : terms.solverEvmAddress;
-    const [evm, bch, tip, nowSeconds, order] = await Promise.all([
+    const [evm, bch, tip, nowSeconds] = await Promise.all([
       this.evmLockStatus(evmLockId(evmOwner, terms.hashLock)),
-      this.bchLockStatus(file),
+      this.bchLockState(file),
       this.tipHeight(),
       this.chainSeconds(),
-      this.orderTxids(file.orderId),
     ]);
-    const bchState: LockChainStatus =
-      bch === 'locked'
-        ? 'locked'
-        : order?.bchClaim !== undefined
-          ? 'claimed'
-          : order?.bchRefund !== undefined
-            ? 'refunded'
-            : 'none';
     return recoveryActions(file, {
       nowSeconds,
       bchTipHeight: tip,
       evmLock: { state: evm },
-      bchLock: { state: bchState },
+      bchLock: { state: bch },
     });
   }
 
@@ -494,7 +500,7 @@ export class UserSwapSession {
     const forward = terms.direction === 'EVM_TO_BCH';
     const ownOwner = forward ? terms.userEvmAddress : terms.solverEvmAddress;
     const evm = await this.evmLockStatus(evmLockId(ownOwner, terms.hashLock));
-    const bch = await this.bchLockStatus(file);
+    const bch = await this.bchLockState(file);
     const userLock = forward ? evm : bch;
     const counterLock = forward ? bch : evm;
     const plan = await this.plan();
@@ -502,11 +508,18 @@ export class UserSwapSession {
 
     if (userLock === 'refunded')
       return this.set({ step: 'refunded', status: 'ready', waiting: null });
+    // Forward: the user's Bitcoin Cash claim spent the solver's lock, or the
+    // solver has already taken the user's EVM lock with the revealed secret.
+    // Reverse: the user's EVM claim is done.
+    if (
+      counterLock === 'claimed' ||
+      (forward && userLock === 'claimed') ||
+      plan.summary.startsWith('Swap already')
+    ) {
+      return this.set({ step: 'done', status: 'ready', waiting: null });
+    }
     if (userLock === 'none' && counterLock === 'none') {
       return this.set({ step: 'lock', status: 'ready', waiting: null });
-    }
-    if (counterLock === 'claimed' || plan.summary.startsWith('Swap already')) {
-      return this.set({ step: 'done', status: 'ready', waiting: null });
     }
     if (counterLock === 'locked') {
       return this.set({
@@ -590,6 +603,18 @@ export class UserSwapSession {
       vout: u.vout,
       satoshis: u.satoshis,
     }));
+  }
+
+  /**
+   * The covenant output on Bitcoin Cash. A spent output cannot say whether it
+   * was claimed or refunded, so the solver's order record is asked as well.
+   */
+  private async bchLockState(file: RecoveryFile): Promise<LockChainStatus> {
+    if ((await this.bchLockStatus(file)) === 'locked') return 'locked';
+    const txids = await this.orderTxids(file.orderId);
+    if (txids?.bchClaim !== undefined) return 'claimed';
+    if (txids?.bchRefund !== undefined) return 'refunded';
+    return 'none';
   }
 
   private async bchLockStatus(file: RecoveryFile): Promise<LockChainStatus> {
