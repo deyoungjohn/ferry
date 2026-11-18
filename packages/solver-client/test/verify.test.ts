@@ -179,6 +179,41 @@ describe('verifyQuote', () => {
       verifyQuote(daysOld, request, baseContext),
     ).rejects.toMatchObject({ field: 'pricing.refs' });
 
+    // A secondary reference (Paryon) hours old is informational: it never blocks a quote, while
+    // the price the quote is computed from still must be fresh.
+    const withOldSecondary = await makeSignedQuote({
+      overrideTerms: {
+        pricing: {
+          refs: [
+            {
+              asset: 'USDC',
+              usdPrice: '1.00',
+              source: 'pyth',
+              asOf: NOW_SECONDS,
+            },
+            {
+              asset: 'PUSD',
+              usdPrice: '1.00',
+              source: 'cauldron',
+              asOf: NOW_SECONDS,
+            },
+            {
+              asset: 'PUSD',
+              usdPrice: '0.998',
+              source: 'paryon (disagreement: 0.27% / 2653 micros)',
+              asOf: NOW_SECONDS - 3600,
+            },
+          ],
+          spreadBps: 50,
+          fixedFeeBase: 0n,
+          rounding: 'floor' as const,
+        },
+      },
+    });
+    await expect(
+      verifyQuote(withOldSecondary, request, baseContext),
+    ).resolves.toBeDefined();
+
     const futureRef = await makeSignedQuote({ refAsOf: NOW_SECONDS + 60 });
     await expect(
       verifyQuote(futureRef, request, baseContext),

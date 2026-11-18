@@ -189,6 +189,7 @@ function useRealBchWallet(
 ): { wallet: BchWallet; dialog: ReactNode } {
   const wizard = useWizardConnect({ dappName: 'Ferry' });
   const connectRef = useRef(wizard.connect);
+  const connectStartedAt = useRef(0);
   const startedFresh = useRef(false);
 
   useEffect(() => {
@@ -286,6 +287,7 @@ function useRealBchWallet(
     connect: () => {
       setPrefixError(null);
       setUserStarted(true);
+      connectStartedAt.current = Date.now();
       // Normal case: open the QR dialog directly. A stale restored
       // attempt needs the clear-and-remount path to offer fresh QR.
       if (wizard.state === 'connecting' || wizard.state === 'reconnecting') {
@@ -420,6 +422,9 @@ function useRealBchWallet(
       <WizardConnectQRDialog
         show={wizard.state === 'connecting'}
         onClose={() => {
+          // A close in the first second is never the person (it is a focus or click that landed
+          // as the window opened); ignoring it keeps the code on screen.
+          if (Date.now() - connectStartedAt.current < 1200) return;
           void wizard.disconnect();
         }}
         uri={wizard.uri}

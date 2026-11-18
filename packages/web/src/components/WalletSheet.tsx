@@ -190,16 +190,25 @@ export function WalletPanel({
                 bch.connect();
                 onClose();
               }}
-              disabled={bch.status === 'connecting'}
               className="flex w-full items-center justify-center gap-2 rounded-pill bg-surface-3 border border-hairline px-4 py-2.5 text-xs font-semibold text-text hover:bg-surface-4 transition-colors cursor-pointer"
             >
               <WalletIcon className="size-4 text-lime" />
               <span>
+                {/* Never a dead button: while waiting, pressing it shows a fresh QR code. */}
                 {bch.status === 'connecting'
-                  ? 'Waiting for wallet scan...'
+                  ? 'Waiting for the scan. Show the QR code again'
                   : 'Connect BCH Wallet'}
               </span>
             </button>
+            {bch.status === 'connecting' && (
+              <button
+                type="button"
+                onClick={() => void bch.disconnect()}
+                className="w-full text-center text-[11px] text-text-muted hover:text-warn cursor-pointer"
+              >
+                Cancel
+              </button>
+            )}
             <p className="text-center text-[11px] text-text-dim">
               Compatible with Paytaca, Selene, and WizardConnect wallets.
             </p>

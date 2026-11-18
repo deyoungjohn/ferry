@@ -57,6 +57,8 @@ export function WalletMenu({ open, onOpenChange }: WalletMenuProps) {
           align="end"
           sideOffset={10}
           collisionPadding={12}
+          // Closing must not move focus back to the pill: the wallet's own window may be opening.
+          onCloseAutoFocus={(event) => event.preventDefault()}
           data-testid="wallet-menu"
           className="glass glass-pop glass-pop--dark z-[60] max-h-[calc(100svh-96px)] w-[min(92vw,400px)] overflow-y-auto p-4 outline-none"
         >

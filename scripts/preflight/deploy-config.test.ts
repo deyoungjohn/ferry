@@ -28,6 +28,16 @@ describe('Caddy configuration', () => {
     );
   });
 
+  it('lets the page reach the WizardConnect relays the library connects to (else the QR closes at once)', () => {
+    const csp = caddy.match(/Content-Security-Policy "([^"]+)"/)?.[1] ?? '';
+    for (const host of [
+      'wss://relay.riften.net',
+      'wss://relay.cauldron.quest',
+    ]) {
+      expect(csp).toContain(host);
+    }
+  });
+
   it('has the security headers and no CDN trust', () => {
     expect(caddy).toContain('Strict-Transport-Security');
     expect(caddy).toContain('X-Frame-Options "DENY"');

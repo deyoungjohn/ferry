@@ -367,6 +367,16 @@ async function runSmokeSuite() {
         .locator('text=Connect a BCH wallet')
         .first()
         .waitFor({ state: 'visible', timeout: 15000 });
+      // The code must stay: it once flashed and vanished (a blocked relay, a stray close).
+      await page.waitForTimeout(2000);
+      if (
+        (await page
+          .locator('text=Connect a BCH wallet')
+          .first()
+          .isVisible()) !== true
+      ) {
+        throw new Error('The Bitcoin Cash QR code did not stay on screen');
+      }
 
       if (screenshotPath) {
         await page.screenshot({ path: screenshotPath });

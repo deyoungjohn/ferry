@@ -208,8 +208,12 @@ export async function verifyQuote(
       'pricing.refs',
       `reference price from ${ref.source} is too far in the future`,
     );
+    // A second opinion on the price (the solver marks it "paryon (disagreement ...)", "(warn ...)"
+    // or "(unavailable)") is shown to the person but does not set the price, and the solver never
+    // refuses on its age; only the prices the quote is computed from must be fresh.
+    const informational = /^paryon\b/i.test(ref.source);
     assertField(
-      nowSeconds - ref.asOf <= maxAge,
+      informational || nowSeconds - ref.asOf <= maxAge,
       'pricing.refs',
       `reference price from ${ref.source} is stale`,
     );
