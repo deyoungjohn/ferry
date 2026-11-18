@@ -1,45 +1,45 @@
 # Release-candidate report
 
-Base: `origin/main` at 8edd06e, plus the fixes in this change. Clean install, every `dist` folder removed first. Node 22.23.4, 4 CPUs, 15 GB RAM. Foundry 1.8.3 (the version CI pins), solc 0.8.28. Public endpoints were reachable through the sandbox proxy; the BCH Fulcrum hosts (wss) were not.
+Base: `origin/main` after the browser entry and the solver inventory and policy changes were merged, plus the changes in this branch. Clean install, every `dist` folder removed first. Node 22.23.4, 4 CPUs, 15 GB RAM. Foundry 1.8.3 (the version CI pins), solc 0.8.28. Public endpoints were reachable through the sandbox proxy; the BCH Fulcrum hosts (wss) were not.
 
 ## 1. Default suite
 
 | Step                             | Result        | Seconds |
 | -------------------------------- | ------------- | ------: |
-| `pnpm format:check`              | pass          |       2 |
-| `pnpm typecheck`                 | pass          |      65 |
-| `pnpm lint`                      | pass (cached) |       7 |
-| `pnpm test:unit`                 | pass          |      22 |
-| `pnpm test` (root, all packages) | pass          |      57 |
+| `pnpm format:check`              | pass          |       3 |
+| `pnpm typecheck`                 | pass          |      54 |
+| `pnpm lint`                      | pass (cached) |      10 |
+| `pnpm test:unit`                 | pass          |      93 |
+| `pnpm test` (root, all packages) | pass          |     147 |
 | `pnpm check:private`             | pass          |       1 |
 
-Root test totals (passed / skipped): htlc-bch 37/1, chain-config 121/0, evm-prices 15/1, htlc-evm 7/7, recover-cli 3/0, chain-evm 32/1, probe 14/1, solver 205/5, web 166/0, e2e 35/17. The skips are the opt-in suites in section 2.
+Root test totals on this run are in the log of the default suite; the skips are the opt-in suites in section 2.
 
 Foundry: 54 tests pass. Fuzz at 5,000 runs (five fuzz tests) and the invariant suite at 5,000 runs with depth 64 (320,000 calls, 0 reverts) found no counterexample.
 
 ## 2. Opt-in suites on the merged code
 
-| Suite                                                                             | Result                                                      | Seconds |
-| --------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------: |
-| e2e (`FERRY_RUN_E2E=1`)                                                           | 11 of 11 pass                                               |      20 |
-| adversarial                                                                       | 28 of 28 pass, none marked expected-fail                    |       5 |
-| mainnet refusals                                                                  | 7 of 7 pass                                                 |       3 |
-| fork rehearsal on Base, Ethereum, Arbitrum, BNB, plus Arc and Robinhood read-only | 5 of 5 pass                                                 |      33 |
-| fork matrix (`FERRY_FORK_TESTS=1`, htlc-evm)                                      | 7 of 7 pass                                                 |      59 |
-| load, 200 concurrent swaps                                                        | 200 of 200 ok, 0 nonce, database-lock or reservation errors |      35 |
+| Suite                                                                             | Result                                                                                         | Seconds |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------: |
+| e2e (`FERRY_RUN_E2E=1`), including the user-wallet flow                           | 15 of 15 pass                                                                                  |      51 |
+| adversarial                                                                       | 28 of 28 pass, none marked expected-fail                                                       |      87 |
+| mainnet refusals                                                                  | 7 of 7 pass                                                                                    |       2 |
+| fork rehearsal on Base, Ethereum, Arbitrum, BNB, plus Arc and Robinhood read-only | 5 of 5 pass                                                                                    |      33 |
+| fork matrix (`FERRY_FORK_TESTS=1`, htlc-evm)                                      | 7 of 7 pass                                                                                    |      64 |
+| load, 200 concurrent swaps from one address and IP                                | 101 finished, 99 refused by the per-IP reservation cap, 0 nonce, database-lock or other errors |      19 |
 
-Load latency, measured from the start of the burst with 50 ms receipt polling on the local chain: p50 23.7 s, p95 29.0 s. All swaps share one signer queue, so latency is the queue draining, not per-swap time. With the viem default polling interval the same run had not finished after 5 minutes, because each queued transaction waits for one polling tick (see open risks).
+Load latency for the 101 swaps that finished, measured from the start of the burst with 50 ms receipt polling on the local chain: p50 11.8 s, p95 14.3 s. All swaps share one signer queue, so latency is the queue draining, not per-swap time. With the viem default polling interval an earlier 200-swap run had not finished after 5 minutes, because each queued transaction waits for one polling tick (see open risks). The solver caps what one IP may hold in active reservations (a fixed constant), so a 200-swap burst from one address is refused for about half of the swaps; the test now requires every swap to finish or be refused for that reason.
 
-Rehearsal scenarios on the fork (every row passed, real token balances, real permit where the token has one):
+Rehearsal scenarios on the fork (every row passed). The user side is built only with the `@ferry/chain-evm/browser` builders, reading the token's permit domain from the configured facts (Circle USDC, version 2) and checking lock state with `getUserLockStatus`. On Base the fork already holds the real deployed contract and the rehearsal reuses it; the other chains deploy through the deployment script.
 
-| Chain    | Deploy | Quote | Permit lock | Approve + lock (gas) | Claim (gas) | Refund drill (gas) | Send link | Pay link | Probe dry run |
-| -------- | ------ | ----- | ----------- | -------------------- | ----------- | ------------------ | --------- | -------- | ------------- |
-| Base     | pass   | pass  | pass        | 190,543              | 66,508      | 63,182             | pass      | pass     | pass          |
-| Ethereum | pass   | pass  | pass        | 190,664              | 66,597      | 63,271             | pass      | pass     | pass          |
-| Arbitrum | pass   | pass  | pass        | 190,543              | 66,508      | 63,182             | pass      | pass     | pass          |
-| BNB      | pass   | pass  | not offered | 206,001              | 58,384      | 55,058             | pass      | pass     | pass          |
+| Chain    | Contract | Forward lock (gas)                           | Forward claim         | Reverse: solver lock (gas) | Reverse: user claim from wallet (gas) | User refund drill (gas) | Send link | Pay link | Probe dry run |
+| -------- | -------- | -------------------------------------------- | --------------------- | -------------------------- | ------------------------------------- | ----------------------- | --------- | -------- | ------------- |
+| Base     | existing | permit and intent, relayed (258,146)         | relayed, secret shown | 207,655                    | 61,720                                | 58,382                  | pass      | pass     | pass          |
+| Ethereum | deployed | permit and intent, relayed (258,364)         | relayed, secret shown | 207,776                    | 61,809                                | 58,471                  | pass      | pass     | pass          |
+| Arbitrum | deployed | permit and intent, relayed (258,134)         | relayed, secret shown | 207,655                    | 61,720                                | 58,382                  | pass      | pass     | pass          |
+| BNB      | deployed | wallet approve and lock, no permit (259,489) | relayed, secret shown | 206,013                    | 58,396                                | 55,058                  | pass      | pass     | pass          |
 
-Relay cost against the blueprint fee at the minimum swap size ($1, spread $0.004): Base $0.0046, Arbitrum $0.0157, BNB $0.0079, Ethereum $0.119. Only Base is near the spread; Ethereum needs a fixed fee of about $0.12 per swap.
+Relay cost against the blueprint fee at the minimum swap size ($1, spread $0.004), from this run's gas and live gas and L1 fee inputs: Base $0.0058, Arbitrum $0.0193, BNB $0.0095, Ethereum $0.104. Only Base is near the spread; Ethereum needs a fixed fee of about $0.10 per swap.
 
 ## 3. Scenario table
 
@@ -59,7 +59,7 @@ Covered by the suites above; times are from the rehearsal.
 
 ## 4. Flake count
 
-`pnpm test:unit` was run 15 times while three busy loops kept the CPUs saturated (30 to 72 s per run). All 15 runs passed; no test failed even once.
+On the earlier base, `pnpm test:unit` was run 15 times while three busy loops kept the CPUs saturated (30 to 72 s per run). All 15 runs passed; no test failed even once.
 
 ## 5. Coverage (vitest, lines; Foundry for the contract)
 
@@ -79,7 +79,7 @@ Covered by the suites above; times are from the rehearsal.
 | htlc-evm scripts                       |                      57.7% | deploy 56.5%, verify-commands 56.3%                                |
 | FerryHTLC.sol (forge, minimum-IR mode) | 98.1% lines, 100% branches | -                                                                  |
 
-## 7. Read-only data soak (price and EVM sources, 32 minutes, 11:38 to 12:10 UTC)
+## 6. Read-only data soak (price and EVM sources, 32 minutes, 11:38 to 12:10 UTC)
 
 Run with `--no-fulcrum` because wss is blocked in this sandbox; the BCH quorum was not exercised.
 
@@ -98,13 +98,13 @@ Findings:
 - **Paryon readings were flagged stale in 54 of 64 samples**, and **Paryon and Cauldron PUSD prices disagreed by more than 1% in all 64 samples** (none above 2%). Either the Paryon timestamp is not refreshed as often as the 30 s sampling, or the two sources differ by a steady margin. The peg guard policy decides whether quoting pauses at 1%; this should be understood before funding the solver (owner: bch-prices and solver).
 - Suggested thresholds were unchanged: EVM tip age 120 s, request timeout 10 s.
 
-## 6. Open risks, by launch impact
+## 7. Open risks, by launch impact
 
-1. **`record-deployment` rejects a correct deployment** (chain-config). The on-chain code differs from the build output only in the two immutable slots, and the check does not zero them before hashing. The runbook's record step will fail after the real Base deploy. Fix: mask the immutable ranges of the artifact before comparing.
-2. **Throughput per signer is bounded by the receipt polling interval.** Each transaction in the signer queue waits for a receipt; with the default poll, 200 queued transactions did not finish in 5 minutes on the local chain. Real chains confirm slower anyway, but the solver (owner: solver) should set a short polling interval on its public client.
-3. **Deploy and verify scripts needed a built `chain-config`.** Fixed here with `deploy-htlc` and `verify-commands` scripts that resolve from source.
-4. **Re-running the deploy script on an already deployed address does not print the deploy block.**
-5. **Foundry versions differ**: the rehearsal used a forge flag that current releases reject; fixed. CI pins 1.8.3.
-6. Low coverage in `chain-config` preflight and RPC reading, and in the solver's pay-link and BCH lock builder, is untested on the happy path by unit tests (the rehearsal covers some of it).
-7. **Paryon staleness and Paryon versus Cauldron disagreement** (section 7); decide whether the peg guard's 1% rule would have paused quoting during this window.
-8. Not exercised in this sandbox: BCH Fulcrum quorum (wss blocked); the maintainer's machine runs it.
+1. **Per-IP reservation cap is a fixed constant in the solver** (owner: solver). Real users behind one address or one proxy share it, and a burst of about 100 one-dollar swaps from one IP exhausts it for the quote lifetime. Make it configurable and say in the runbook what it is.
+2. **Throughput per signer is bounded by the receipt polling interval.** Each transaction in the signer queue waits for a receipt; with the default poll, 200 queued transactions did not finish in 5 minutes on the local chain. The solver should set a short polling interval on its public client.
+3. **Paryon staleness and Paryon versus Cauldron disagreement** (owners: bch-prices and solver): Paryon readings were stale in 54 of 64 soak samples and the two PUSD prices differed by more than 1% in all of them (never above 2%). Decide whether the peg guard's 1% rule would have paused quoting during that window.
+4. **The deploy script prints no deploy block on `already-deployed`.** Keep the block printed by the broadcast run.
+5. Low unit coverage in `chain-config` preflight and RPC reading, and in the solver's pay-link and BCH lock builder (section 5); the rehearsal covers some of it.
+6. Not exercised in this sandbox: the BCH Fulcrum quorum (wss is blocked), a full process restart of the solver after the kill switch, and real mainnet swaps.
+
+Closed since the first run: the deployment recorder now masks the immutable slots and accepts the real Base deployment; the deploy and verify scripts resolve workspace packages from source.

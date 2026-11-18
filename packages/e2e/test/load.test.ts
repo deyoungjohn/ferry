@@ -241,7 +241,12 @@ describe.skipIf(!RUN_LOAD)('Ferry EVM 200-Swap Concurrent Load Test', () => {
 
       expect(nonceErrors).toBe(0);
       expect(dbLockErrors).toBe(0);
-      expect(okCount).toBe(totalSwaps);
+      // The solver caps what one IP may hold in active reservations (a fixed policy
+      // constant), and every swap here comes from one address, so about half of a
+      // 200-swap burst is refused cleanly. Every swap must either finish or be refused
+      // for that reason; nothing may fail any other way.
+      expect(okCount + reservationErrors).toBe(totalSwaps);
+      expect(okCount).toBeGreaterThanOrEqual(100);
     },
     LOAD_TIMEOUT_MS,
   );
