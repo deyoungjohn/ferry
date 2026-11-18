@@ -37,6 +37,7 @@ import {
 } from '@ferry/chain-evm';
 import {
   evmLockId,
+  parseOrderTerms,
   parseSendLink,
   type Hex32,
   type OrderTerms,
@@ -728,6 +729,18 @@ describe.skipIf(!RUN_REHEARSE)('Full-System Mainnet Fork Rehearsal', () => {
         let lockWithIntentGas = 0n;
         if (quoteOrderId && quoteTerms) {
           const tForward = performance.now();
+          if (facts.permit) {
+            // The adapter builds the same permit domain the facts record, checked
+            // against the real token's own domain separator.
+            const viaAdapter = await evmAdapter.buildUserLock(quoteTerms);
+            const permitData = (
+              viaAdapter.payload as {
+                permitTypedData: { domain: { name: string; version: string } };
+              }
+            ).permitTypedData;
+            expect(permitData.domain.name).toBe(facts.name);
+            expect(permitData.domain.version).toBe(facts.version);
+          }
           const forward = await userForwardLock({
             publicClient,
             userWallet,
@@ -1011,6 +1024,105 @@ describe.skipIf(!RUN_REHEARSE)('Full-System Mainnet Fork Rehearsal', () => {
           gasUsed: '-',
           timeMs: Math.round(performance.now() - tPay),
         });
+
+        // 10b. Real USDT with an existing allowance: a direct exact approve must
+        // revert, and the planned reset, approve and lock must succeed.
+        if (cfg.id === 'ethereum') {
+          const tUsdt = performance.now();
+          const usdt = (loadChainData() as ChainsFile).chains[
+            'ethereum'
+          ]!.mainnet.tokens.find((t) => t.symbol === 'USDT')!;
+          const usdtAddress = usdt.address as Address;
+          await fundTokenViaAnvil(
+            fork.rpc,
+            publicClient,
+            usdtAddress,
+            userAccount.address,
+            100n * 10n ** 6n,
+          );
+          const secret5 = `0x${'55'.repeat(32)}` as Hex32;
+          const nowSeconds = Number(
+            (await publicClient.getBlock({ blockTag: 'latest' })).timestamp,
+          );
+          const usdtTerms = parseOrderTerms({
+            ...(quoteTerms as OrderTerms),
+            evmToken: usdtAddress,
+            evmAmount: 5n * 10n ** 6n,
+            hashLock: sha256(secret5),
+            evmDeadline: nowSeconds + 3600,
+            quoteExpiry: nowSeconds + 600,
+            quoteId: 'q-usdt-quirk',
+            userEvmAddress: userAccount.address,
+          });
+          const approveData = (amount: bigint) =>
+            encodeFunctionData({
+              abi: ERC20_ABI,
+              functionName: 'approve',
+              args: [htlcAddress, amount],
+            });
+          // A leftover non-zero allowance, as after an interrupted earlier attempt.
+          const leftover = await userWallet.sendTransaction({
+            to: usdtAddress,
+            data: approveData(1n),
+            account: userAccount,
+            chain: viemChain,
+          });
+          await publicClient.waitForTransactionReceipt({ hash: leftover });
+          await expect(
+            publicClient.call({
+              account: userAccount.address,
+              to: usdtAddress,
+              data: approveData(usdtTerms.evmAmount),
+            }),
+          ).rejects.toThrow();
+          const plan = await prepareApproveAndLock({
+            client: publicClient,
+            terms: usdtTerms,
+          });
+          expect(plan.map((t) => t.kind)).toEqual([
+            'reset-approval',
+            'approve',
+            'lock',
+          ]);
+          let usdtGas = 0n;
+          for (const tx of plan) {
+            const hash = await userWallet.sendTransaction({
+              to: tx.to,
+              data: tx.data,
+              account: userAccount,
+              chain: viemChain,
+            });
+            const receipt = await publicClient.waitForTransactionReceipt({
+              hash,
+            });
+            expect(receipt.status).toBe('success');
+            usdtGas += receipt.gasUsed;
+            scenarioRows.push({
+              chain: cfg.id,
+              route: 'USDT/PUSD',
+              scenario: `  USDT ${tx.kind}`,
+              result: 'PASS',
+              gasUsed: receipt.gasUsed.toString(),
+              timeMs: 0,
+            });
+          }
+          const usdtStatus = await getUserLockStatus({
+            client: publicClient,
+            htlc: htlcAddress,
+            lockId: evmLockId(userAccount.address, usdtTerms.hashLock),
+            explorerUrl: cfg.explorerUrl,
+            fromBlock: deployBlock,
+          });
+          expect(usdtStatus.state).toBe('open');
+          scenarioRows.push({
+            chain: cfg.id,
+            route: 'USDT/PUSD',
+            scenario: 'USDT lock with a leftover allowance (reset first)',
+            result: 'PASS',
+            gasUsed: usdtGas.toString(),
+            timeMs: Math.round(performance.now() - tUsdt),
+          });
+        }
 
         // 11. Cost reality check (using live mainnet eth_gasPrice + L1 fee)
         const liveClient = createPublicClient({

@@ -69,6 +69,8 @@ describe('deterministic deployment script & verification helper', () => {
     });
     expect(secondRun.status).toBe('already-deployed');
     expect(secondRun.address).toBe(predicted);
+    // The block the contract first appeared in is found again, not lost.
+    expect(secondRun.deployBlock).toBe(deployed.deployBlock);
   });
 
   it('refuses deployment if the predicted address already has different bytecode', async () => {
