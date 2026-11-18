@@ -160,7 +160,14 @@ describe('the server operations script', () => {
   });
 
   it('offers update, health, caddy, logs and rollback', () => {
-    for (const word of ['health)', 'update)', 'caddy)', 'logs)', 'rollback)']) {
+    for (const word of [
+      'health)',
+      'update)',
+      'caddy)',
+      'env)',
+      'logs)',
+      'rollback)',
+    ]) {
       expect(ops).toContain(word);
     }
   });
@@ -200,6 +207,30 @@ describe('the server operations script', () => {
       expect(out).toBe(
         '0xabc123|two words & more|x=y#z|wss://a.example:50004,wss://b.example:50004|',
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores carriage returns and stray spaces, as systemd does (a file saved on Windows)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ferry-env-'));
+    try {
+      const file = join(dir, 'solver.env');
+      writeFileSync(
+        file,
+        'NETWORK=mainnet\r\n  KEY = 0xabc  \r\nexport OTHER="a b"\r\nLAST=end',
+      );
+      const out = execFileSync(
+        'bash',
+        [
+          `${root}/deploy/with-solver-env.sh`,
+          'bash',
+          '-c',
+          'printf "[%s][%s][%s][%s]" "$NETWORK" "$KEY" "$OTHER" "$LAST"',
+        ],
+        { env: { ENV_FILE: file, PATH: process.env.PATH ?? '' } },
+      ).toString();
+      expect(out).toBe('[mainnet][0xabc][a b][end]');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

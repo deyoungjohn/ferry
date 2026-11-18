@@ -4,6 +4,7 @@
 #   /opt/ferry/deploy/ferry-ops.sh health      check that everything works (changes nothing)
 #   /opt/ferry/deploy/ferry-ops.sh update      pull, build, publish the site, restart, then check
 #   /opt/ferry/deploy/ferry-ops.sh caddy       show and apply a changed Caddyfile
+#   /opt/ferry/deploy/ferry-ops.sh env         what is wrong with the settings file (shows no secret)
 #   /opt/ferry/deploy/ferry-ops.sh logs        follow the solver's log
 #   /opt/ferry/deploy/ferry-ops.sh rollback <commit>   put the code back and restart
 #
@@ -183,6 +184,29 @@ cmd_caddy() {
   esac
 }
 
+# Shows what is wrong with the env file without printing any secret: stray characters, and for
+# each setting its name and length (only the public ones, network and contract addresses, are shown).
+cmd_env() {
+  if ! sudo test -r "$ENV_FILE"; then say "Cannot read $ENV_FILE" >&2; return 1; fi
+  section "Shape of $ENV_FILE"
+  local cr spaced
+  cr="$(sudo grep -c $'\r' "$ENV_FILE" || true)"
+  spaced="$(sudo grep -cE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]+=|=[[:space:]]+[^[:space:]]' "$ENV_FILE" || true)"
+  say "  lines with a carriage return (saved on Windows): $cr"
+  say "  lines with spaces around the = sign: $spaced"
+  section "Settings (secrets show only their length)"
+  sudo grep -E '^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=' "$ENV_FILE" | tr -d '\r' | while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line#export }"
+    key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
+    value="${line#*=}"; value="${value#"${value%%[![:space:]]*}"}"; value="${value%"${value##*[![:space:]]}"}"
+    case "$key" in
+      NETWORK|BASE_FERRY_HTLC_ADDRESS|BASE_USDC_ADDRESS|BASE_CHAIN_ID|MAX_SWAP_USD_MICROS|ENABLED_ROUTES) say "  $key = $value" ;;
+      *) say "  $key (${#value} characters)" ;;
+    esac
+  done
+}
+
 cmd_logs() { sudo journalctl -u "$SERVICE" -f -n 50 --no-pager; }
 
 cmd_rollback() {
@@ -202,10 +226,11 @@ case "${1:-}" in
   health) cmd_health ;;
   update) shift; cmd_update "$@" ;;
   caddy) cmd_caddy ;;
+  env) cmd_env ;;
   logs) cmd_logs ;;
   rollback) shift; cmd_rollback "$@" ;;
   *)
-    sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

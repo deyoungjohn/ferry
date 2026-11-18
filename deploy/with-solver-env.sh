@@ -13,12 +13,26 @@ if [ ! -r "$env_file" ]; then
   exit 1
 fi
 
+# systemd ignores spaces and carriage returns (a file saved on Windows has them) around a line and
+# around the value; so does this.
+trim() {
+  local text="$1"
+  text="${text%$'\r'}"
+  text="${text#"${text%%[![:space:]]*}"}"
+  text="${text%"${text##*[![:space:]]}"}"
+  printf '%s' "$text"
+}
+
 while IFS= read -r line || [ -n "$line" ]; do
+  line="$(trim "$line")"
+  case "$line" in
+    'export '*) line="$(trim "${line#export }")" ;;
+  esac
   case "$line" in
     '' | '#'*) continue ;;
   esac
-  key="${line%%=*}"
-  value="${line#*=}"
+  key="$(trim "${line%%=*}")"
+  value="$(trim "${line#*=}")"
   case "$key" in
     '' | *[!A-Za-z0-9_]*) continue ;;
   esac
