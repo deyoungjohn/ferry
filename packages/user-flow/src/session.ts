@@ -306,7 +306,7 @@ export class UserSwapSession {
             lockingBytecode: `0x${binToHex(derived.lockingBytecode)}` as Hex,
           },
         },
-        secret: this.secret ?? defaultSecretGenerator(),
+        secret: this.requireSecret(),
         createdAt: Math.floor(this.nowMs() / 1000),
       });
       await this.deps.store.save(quote.orderId, payload.json);
