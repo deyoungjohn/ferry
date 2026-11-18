@@ -385,7 +385,7 @@ describe('the simulated chain refuses what a real node would refuse', () => {
     const bad = tamper(lock.signed!.txHex, (tx) => {
       tx.inputs[0]!.outpointIndex = 9;
     });
-    expect(() => chain.broadcast(bad)).toThrow(/missing-inputs/);
+    expect(() => chain.broadcast(bad)).toThrow(/missingorspent/);
   });
 
   it('reorgs: a disconnected block returns its transactions to the mempool, and an evicted lock is gone', () => {

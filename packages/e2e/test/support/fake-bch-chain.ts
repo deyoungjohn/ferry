@@ -19,7 +19,14 @@ import {
   type Transaction,
 } from '@bitauth/libauth';
 import { BchQuorumClient } from '@ferry/solver';
-import type { BchChainPort } from '@ferry/solver';
+import type { BchChainPort, ChainPort } from '@ferry/solver';
+
+/** The engine's port plus what an executor asks after a broadcast reply is lost. */
+export type SimulatedBchPort = BchChainPort &
+  Pick<
+    ChainPort,
+    'isInputSpent' | 'findAlternativeSpend' | 'checkTxAcrossQuorum'
+  >;
 
 export const CHIPNET_GENESIS_HASH =
   '000000001dd410c49a788668ce26751718cc797474d3152a5fc073dd44fd9f7b';
@@ -423,8 +430,13 @@ export class FakeBchChain {
     }
     const tx = decoded;
     const txid = txidOfHex(hex);
-    if (this.txs.has(txid)) {
-      throw new BroadcastRejectedError('txn-already-in-mempool');
+    const known = this.txs.get(txid);
+    if (known) {
+      throw new BroadcastRejectedError(
+        known.height > 0
+          ? 'Transaction already in block chain'
+          : 'txn-already-in-mempool',
+      );
     }
     if (tx.inputs.length === 0 || tx.outputs.length === 0) {
       throw new BroadcastRejectedError(
@@ -447,7 +459,7 @@ export class FakeBchChain {
       const parentOutput = parent?.tx.outputs[input.outpointIndex];
       if (!parent || !parentOutput) {
         throw new BroadcastRejectedError(
-          `missing-inputs: input ${index} spends ${key}, which does not exist`,
+          `bad-txns-inputs-missingorspent: missing inputs (input ${index} spends ${key}, which does not exist)`,
         );
       }
       if (this.spentBy.has(key)) {
@@ -771,7 +783,7 @@ export class FakeBchChain {
    * one the solver builds, except that `isOnChain` asks the chain rather than
    * answering yes.
    */
-  createPort(client: BchQuorumClient): BchChainPort {
+  createPort(client: BchQuorumClient): SimulatedBchPort {
     return {
       getTip: async () => {
         const status = client.getQuorumStatus();
@@ -798,6 +810,15 @@ export class FakeBchChain {
         })),
       waitForDoubleSpendProof: (txid: string, windowMs?: number) =>
         client.waitForDoubleSpendProof(txid, windowMs),
+      // What an adopting executor asks about its inputs after a lost reply.
+      isInputSpent: async (input: { txid: string; vout: number }) =>
+        this.isSpent(input.txid, input.vout),
+      findAlternativeSpend: async (input: { txid: string; vout: number }) =>
+        this.spenderOf(input.txid, input.vout),
+      checkTxAcrossQuorum: async (txid: string) => {
+        const found = await client.checkTxAcrossQuorum(txid);
+        return { found: found.found, totalConnected: found.totalConnected };
+      },
     };
   }
 }
