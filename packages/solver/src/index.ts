@@ -12,6 +12,7 @@ export * from './state-machine/transitions.js';
 export * from './engine/types.js';
 export * from './engine/limits.js';
 export * from './engine/runner.js';
+export * from './ports.js';
 export * from './pricing/price-source.js';
 export * from './pricing/liquidity.js';
 export * from './pricing/quote-builder.js';

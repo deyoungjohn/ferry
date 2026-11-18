@@ -149,6 +149,9 @@ export interface BuildServerOptions {
 }
 
 export const createSolverServer = buildServer;
+/** Blocks of slack added to a send link's Bitcoin Cash refund height (about an hour). */
+const SEND_LINK_EXTRA_BCH_BLOCKS = 6;
+
 export function buildServer(options: BuildServerOptions): FastifyInstance {
   const { config, db, evmAdapter, bchClient, engine, priceSource } = options;
 
@@ -2788,7 +2791,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       solverBchLockingBytecode: solverBchLockingBytecode as `0x${string}`,
       hashLock: request.hashLock as `0x${string}`,
       evmDeadline: windowPlan.evmDeadlineSeconds,
-      bchRefundHeight: windowPlan.bchRefundHeight,
+      // The plan has no slack of its own, and the engine checks the timing rule again when it
+      // locks, after the sender's lock has confirmed: without these blocks every send link is
+      // rejected at that second check. Six blocks is about an hour added to the sender's own refund.
+      bchRefundHeight: windowPlan.bchRefundHeight + SEND_LINK_EXTRA_BCH_BLOCKS,
       bchCarrySats: config.bchCarrySats,
       bchMaxFee: config.bchMaxFeeSats,
       bchTokenAmount: inAmount,
@@ -2856,7 +2862,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
 
     let status: 'pending_lock' | 'locked' | 'claimed' | 'refunded' | 'expired';
+    // The names below are the engine's own order states (DONE, SECRET_KNOWN, SOLVER_REFUNDED, ...);
+    // an earlier version mapped names the engine never uses, so a finished link read as pending.
     if (
+      order.status === 'DONE' ||
+      order.status === 'SECRET_KNOWN' ||
       order.status === 'SWAP_COMPLETE' ||
       order.status === 'CLAIMED' ||
       order.status === 'SOLVER_CLAIM_FINAL' ||
@@ -2865,9 +2875,16 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       order.status === 'USER_CLAIM_FINAL'
     ) {
       status = 'claimed';
-    } else if (order.status === 'REFUNDED') {
+    } else if (
+      order.status === 'REFUNDED' ||
+      order.status === 'SOLVER_REFUNDED'
+    ) {
       status = 'refunded';
-    } else if (order.status === 'EXPIRED' || now > terms.evmDeadline) {
+    } else if (
+      order.status === 'EXPIRED' ||
+      order.status === 'REJECTED' ||
+      now > terms.evmDeadline
+    ) {
       status = 'expired';
     } else if (
       order.status === 'USER_LOCK_SEEN' ||

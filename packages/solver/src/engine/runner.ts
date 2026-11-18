@@ -4,7 +4,6 @@ import {
   parseOrderTerms,
   type OrderTerms,
 } from '@ferry/core';
-import { encodeFunctionData, keccak256, parseAbi } from 'viem';
 import type { CashAddressNetwork } from '@ferry/htlc-bch';
 import {
   buildSolverBchClaim as buildSolverBchClaimHelper,
@@ -130,37 +129,29 @@ export class SolverEngine {
     if (this.bchPort.buildLock) {
       return this.bchPort.buildLock(order);
     }
-    const wif =
-      this.solverBchWif ??
-      'cNh6oe4ZXGTaBYT4my2vopWyUfdXoWspgUeQMqVktLwPZ8XQew37';
+    const wif = this.solverBchWif;
+    if (!wif) {
+      throw new Error(
+        'Cannot build the solver Bitcoin Cash lock: no solver key is configured',
+      );
+    }
     const solverKeys = await deriveBchKeyDetails(
       wif,
       this.bchNetwork === 'mainnet' ? 'bitcoincash' : 'bchtest',
     );
-    let utxos: unknown[] = [];
-    if (this.bchPort.listUnspent) {
-      utxos = await this.bchPort.listUnspent(
-        solverKeys.scriptHash,
-        'include_tokens',
+    if (!this.bchPort.listUnspent) {
+      throw new Error(
+        'Cannot build the solver Bitcoin Cash lock: the chain port cannot list outputs',
       );
     }
+    const utxos = await this.bchPort.listUnspent(
+      solverKeys.scriptHash,
+      'include_tokens',
+    );
     if (utxos.length === 0) {
-      const isToken = order.terms.bchTokenAmount > 0n;
-      utxos = [
-        {
-          tx_hash: '33'.repeat(32),
-          tx_pos: 0,
-          value: 100_000,
-          ...(isToken
-            ? {
-                token_data: {
-                  category: order.terms.bchTokenCategory.replace(/^0x/i, ''),
-                  amount: (order.terms.bchTokenAmount * 10n).toString(),
-                },
-              }
-            : {}),
-        },
-      ];
+      throw new Error(
+        'Cannot build the solver Bitcoin Cash lock: the solver address holds no outputs',
+      );
     }
     return buildSolverBchLockHelper({
       order,
@@ -183,43 +174,23 @@ export class SolverEngine {
       ? order.terms.userEvmAddress
       : order.terms.solverEvmAddress;
     const lockId = evmLockId(locker, order.terms.hashLock);
-    if (this.evmPort.claim) {
-      return this.evmPort.claim(lockId, order.secret);
+    if (!this.evmPort.claim) {
+      throw new Error(
+        'Cannot build the solver EVM claim: the chain port cannot claim',
+      );
     }
-    const claimCalldata = encodeFunctionData({
-      abi: parseAbi(['function claim(bytes32 id, bytes32 secret) external']),
-      functionName: 'claim',
-      args: [lockId as `0x${string}`, order.secret as `0x${string}`],
-    });
-    const txid = keccak256(claimCalldata);
-    return { txid, txHex: claimCalldata };
+    return this.evmPort.claim(lockId, order.secret);
   }
 
   async buildSolverEvmLock(
     order: SolverOrderRecord,
   ): Promise<{ txid: string; txHex: string }> {
-    if (this.evmPort.lock) {
-      return this.evmPort.lock(order.terms);
+    if (!this.evmPort.lock) {
+      throw new Error(
+        'Cannot build the solver EVM lock: the chain port cannot lock',
+      );
     }
-    const lockCalldata = encodeFunctionData({
-      abi: parseAbi([
-        'function lock(bytes32 id, address token, uint256 amount, bytes32 hashLock, uint256 deadline, address recipient) external',
-      ]),
-      functionName: 'lock',
-      args: [
-        evmLockId(
-          order.terms.solverEvmAddress,
-          order.terms.hashLock,
-        ) as `0x${string}`,
-        order.terms.evmToken,
-        order.terms.evmAmount,
-        order.terms.hashLock,
-        BigInt(order.terms.evmDeadline),
-        order.terms.userEvmAddress,
-      ],
-    });
-    const txid = keccak256(lockCalldata);
-    return { txid, txHex: lockCalldata };
+    return this.evmPort.lock(order.terms);
   }
 
   async buildSolverBchClaim(
@@ -241,15 +212,15 @@ export class SolverEngine {
       userUtxo =
         utxos.find((u) => u.tx_hash === order.userLockTxId) ?? utxos[0];
     }
-    const rawTxId = (order.userLockTxId ?? userUtxo?.tx_hash ?? '').replace(
-      /^0x/i,
-      '',
-    );
-    const txid = /^[0-9a-fA-F]{64}$/.test(rawTxId) ? rawTxId : '44'.repeat(32);
+    if (!userUtxo) {
+      throw new Error(
+        'Cannot build the solver Bitcoin Cash claim: the user lock output was not found on chain',
+      );
+    }
     const utxo = {
-      txid,
-      vout: userUtxo?.tx_pos ?? 0,
-      satoshis: userUtxo?.value ?? order.terms.bchCarrySats,
+      txid: userUtxo.tx_hash,
+      vout: userUtxo.tx_pos,
+      satoshis: userUtxo.value,
     };
     return buildSolverBchClaimHelper({
       order,
