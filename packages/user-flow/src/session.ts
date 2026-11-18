@@ -16,12 +16,8 @@ import {
 import type { QuoteRequest } from '@ferry/core/api';
 import {
   buildBchRecoveryTransaction,
-  buildLockTransaction,
-  buildWizardConnectSignRequest,
   deriveHtlcAddresses,
   encodeHtlcParameters,
-  inspectSignedTransaction,
-  type LockUtxo,
 } from '@ferry/htlc-bch';
 import {
   prepareRecoveryDownload,
@@ -31,11 +27,10 @@ import {
 import { binToHex } from '@bitauth/libauth';
 import { sha256 } from 'viem';
 import { UserFlowError } from './errors.js';
-import { guardWallet, lockUserOnEvm } from './actions.js';
+import { lockUserOnBch, lockUserOnEvm } from './actions.js';
 import type {
   BchChainPort,
   BchSignerPort,
-  BchUtxo,
   EvmChainPort,
   EvmSignerPort,
   RecoveryStorePort,
@@ -115,7 +110,6 @@ export interface WaitOptions {
 }
 
 const ZERO_ADDRESS = `0x${'00'.repeat(20)}`;
-const DEFAULT_FEE_RATE_SAT_PER_BYTE = 1;
 
 const WAITING = {
   counterLockEvm: "Waiting for the solver's lock on the EVM chain to confirm",
@@ -547,34 +541,20 @@ export class UserSwapSession {
     return lockUserOnEvm(this.deps, terms);
   }
 
-  private async lockOnBch(terms: OrderTerms): Promise<string> {
-    const utxos = await this.deps.bchChain.getUtxos(
-      binToHex(this.userLockingBytecodeBytes()),
+  private lockOnBch(terms: OrderTerms): Promise<string> {
+    return lockUserOnBch(
+      {
+        bchSigner: this.deps.bchSigner,
+        bchChain: this.deps.bchChain,
+        bchNetwork: this.deps.bchNetwork,
+        bchCashAddress: this.deps.bchCashAddress,
+        userLockingBytecodeHex: binToHex(this.userLockingBytecodeBytes()),
+        ...(this.deps.feeRateSatPerByte !== undefined
+          ? { feeRateSatPerByte: this.deps.feeRateSatPerByte }
+          : {}),
+      },
+      terms,
     );
-    const built = buildLockTransaction({
-      params: terms,
-      utxos: utxos.map(toLockUtxo),
-      changeAddress: this.deps.bchCashAddress,
-      network: this.deps.bchNetwork,
-      feeRateSatPerByte:
-        this.deps.feeRateSatPerByte ?? DEFAULT_FEE_RATE_SAT_PER_BYTE,
-    });
-    const request = buildWizardConnectSignRequest({ lockTx: built });
-    const signedHex = await guardWallet(() =>
-      this.deps.bchSigner.signTransaction(request),
-    );
-    const report = inspectSignedTransaction(
-      built.unsigned.txHex,
-      signedHex,
-      built.unsigned.sourceOutputs,
-    );
-    if (!report.ok) {
-      throw new UserFlowError(
-        'SIGNED_TRANSACTION_REJECTED',
-        `The wallet's transaction did not pass the local check, so it was not sent. ${report.problems.join(' ')}`,
-      );
-    }
-    return this.deps.bchChain.broadcast(signedHex);
   }
 
   // ---- reads -----------------------------------------------------------
@@ -715,8 +695,8 @@ export class UserSwapSession {
   private requireSecret(): Hex32 {
     if (this.secret === null) {
       throw new UserFlowError(
-        'NOT_READY',
-        'The swap secret is not available in this recovery file.',
+        'SECRET_MISSING',
+        'This session has no swap secret, so the recovery file was not saved and nothing was locked.',
       );
     }
     return this.secret;
@@ -739,15 +719,6 @@ export class UserSwapSession {
       error: messageOf(error),
     });
   }
-}
-
-function toLockUtxo(utxo: BchUtxo): LockUtxo {
-  return {
-    txid: utxo.txid,
-    vout: utxo.vout,
-    satoshis: utxo.satoshis,
-    ...(utxo.token ? { token: { ...utxo.token } } : {}),
-  };
 }
 
 function defaultSleep(ms: number): Promise<void> {

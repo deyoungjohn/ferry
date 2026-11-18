@@ -22,7 +22,12 @@ import {
   type LockUtxo,
 } from '@ferry/htlc-bch';
 import { ferryHtlcAbi } from '@ferry/htlc-evm/abi';
-import { lockUserOnEvm } from '@ferry/user-flow';
+import {
+  createKeyBackedBchSigner,
+  lockUserOnBch,
+  lockUserOnEvm,
+  type BchUtxo,
+} from '@ferry/user-flow';
 import {
   SolverClient,
   prepareRecoveryDownload,
@@ -231,6 +236,38 @@ export function createDefaultEvmPort(
   };
 }
 
+/**
+ * A funding output as a server reports it: either the probe's own shape or the
+ * Electrum shape (`tx_hash`, `tx_pos`, `value`, `token_data`). Token data is
+ * kept: the lock needs the stablecoin outputs, not only the satoshis.
+ */
+function toBchUtxo(raw: unknown): BchUtxo {
+  const u = raw as {
+    txid?: string;
+    tx_hash?: string;
+    vout?: number;
+    tx_pos?: number;
+    satoshis?: bigint | number;
+    value?: bigint | number;
+    token?: { category: string; amount: bigint | number | string };
+    token_data?: { category: string; amount: bigint | number | string };
+  };
+  const token = u.token ?? u.token_data;
+  return {
+    txid: (u.txid ?? u.tx_hash ?? '').replace(/^0x/i, ''),
+    vout: u.vout ?? u.tx_pos ?? 0,
+    satoshis: BigInt(u.satoshis ?? u.value ?? 0),
+    ...(token
+      ? {
+          token: {
+            category: token.category.replace(/^0x/i, ''),
+            amount: BigInt(token.amount),
+          },
+        }
+      : {}),
+  };
+}
+
 export interface BchRpcTransport {
   getTipHeight(): Promise<number>;
   getUtxos(addressOrLockingBytecode: string): Promise<readonly HtlcUtxo[]>;
@@ -267,20 +304,24 @@ export function createDefaultBchPort(
       }
     },
     async lock(terms, keys, feeRateSatPerByte) {
-      const params = encodeHtlcParameters(terms);
-      const utxos = await port.getFundingUtxos(keys.bchLockingBytecode);
-      const built = buildLockTransaction({
-        params,
-        utxos: [...utxos],
-        changeAddress: keys.bchCashAddress,
-        network,
-        feeRateSatPerByte,
-        privateKey: keys.bchPrivateKey,
-      });
-      if (!built.signed) {
-        throw new Error('Failed to sign BCH lock transaction');
-      }
-      const txid = await transport.broadcast(built.signed.txHex);
+      const txid = await lockUserOnBch(
+        {
+          bchSigner: createKeyBackedBchSigner(keys.bchPrivateKey),
+          bchChain: {
+            getTipHeight: () => transport.getTipHeight(),
+            getUtxos: async (lockingBytecodeHex) =>
+              (await transport.getUtxos(`0x${lockingBytecodeHex}`)).map(
+                toBchUtxo,
+              ),
+            broadcast: (txHex) => transport.broadcast(txHex),
+          },
+          bchNetwork: network,
+          bchCashAddress: keys.bchCashAddress,
+          userLockingBytecodeHex: keys.bchLockingBytecode.replace(/^0x/i, ''),
+          feeRateSatPerByte,
+        },
+        terms,
+      );
       return (txid.startsWith('0x') ? txid : `0x${txid}`) as Hex32;
     },
     async waitForHtlcUtxo(terms, pollOpts) {

@@ -1,6 +1,7 @@
 import {
   binToHex,
   decodeTransaction,
+  encodeTransaction,
   hexToBin,
   lockingBytecodeToCashAddress,
   ripemd160,
@@ -8,12 +9,6 @@ import {
   sha256 as libauthSha256,
   type Transaction,
 } from '@bitauth/libauth';
-import {
-  MockNetworkProvider,
-  SignatureTemplate,
-  TransactionBuilder,
-  type Unlocker,
-} from 'cashscript';
 import {
   evmLockId,
   orderId as computeOrderId,
@@ -27,6 +22,7 @@ import type { QuoteRequest, QuoteResponse } from '@ferry/core/api';
 import { deriveHtlcAddresses, encodeHtlcParameters } from '@ferry/htlc-bch';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
+  createKeyBackedBchSigner,
   createMemoryStore,
   type BchChainPort,
   type BchSignerPort,
@@ -52,7 +48,7 @@ const SOLVER_BCH_LOCKING =
 const START_SECONDS = 1_794_764_200;
 const START_TIP = 500_000;
 
-const USER_KEY = new Uint8Array(32).fill(0x21);
+export const USER_KEY = new Uint8Array(32).fill(0x21);
 const USER_PUBKEY = secp256k1.derivePublicKeyCompressed(USER_KEY) as Uint8Array;
 const USER_PKH = ripemd160.hash(libauthSha256.hash(USER_PUBKEY));
 export const USER_LOCKING = new Uint8Array([
@@ -353,58 +349,22 @@ export function createWorld(options: WorldOptions = {}) {
     getBlockTimestamp: () => Promise.resolve(world.now),
   };
 
+  const keySigner = createKeyBackedBchSigner(USER_KEY);
   const bchSigner: BchSignerPort = {
-    signTransaction: (request) => {
+    signTransaction: async (request) => {
       if (world.rejectSignatures) {
-        return Promise.reject(new Error('Wallet request rejected'));
+        throw new Error('Wallet request rejected');
       }
       world.events.push('bch signature');
-      const tx = request.transaction.transaction as Transaction;
-      const sources = request.transaction.sourceOutputs;
-      const builder = new TransactionBuilder({
-        provider: new MockNetworkProvider(),
-      });
-      const template = new SignatureTemplate(USER_KEY);
-      tx.inputs.forEach((input, index) => {
-        const src = sources[index]!;
-        builder.addInput(
-          {
-            txid: binToHex(input.outpointTransactionHash),
-            vout: input.outpointIndex,
-            satoshis: src.valueSatoshis,
-            lockingBytecode: binToHex(src.lockingBytecode),
-            ...(src.token
-              ? {
-                  token: {
-                    category: binToHex(src.token.category),
-                    amount: src.token.amount,
-                  },
-                }
-              : {}),
-          },
-          world.tamperSignedTransaction
-            ? ({
-                generateLockingBytecode: () => USER_LOCKING,
-                generateUnlockingBytecode: () => new Uint8Array(),
-              } as unknown as Unlocker)
-            : template.unlockP2PKH(),
-        );
-      });
-      tx.outputs.forEach((output) => {
-        builder.addOutput({
-          to: output.lockingBytecode,
-          amount: output.valueSatoshis,
-          ...(output.token
-            ? {
-                token: {
-                  category: binToHex(output.token.category),
-                  amount: output.token.amount,
-                },
-              }
-            : {}),
-        });
-      });
-      return Promise.resolve(builder.build());
+      const signedHex = await keySigner.signTransaction(request);
+      if (!world.tamperSignedTransaction) return signedHex;
+      // A misbehaving wallet: hand back the transaction without its signatures.
+      const tx = decodeTransaction(hexToBin(signedHex)) as Transaction;
+      tx.inputs = tx.inputs.map((input) => ({
+        ...input,
+        unlockingBytecode: new Uint8Array(),
+      }));
+      return binToHex(encodeTransaction(tx));
     },
   };
 
