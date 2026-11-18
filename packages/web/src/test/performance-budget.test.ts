@@ -50,6 +50,9 @@ describe('Performance Budget Test (Task B3-09)', () => {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           total += calculateTotalDirSize(full);
+        } else if (entry.name === 'recover.html') {
+          // A separate single-file tool that no app page loads; it is not part of the app's weight.
+          continue;
         } else {
           total += fs.statSync(full).size;
         }
