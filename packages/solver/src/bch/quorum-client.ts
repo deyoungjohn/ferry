@@ -376,6 +376,52 @@ export class BchQuorumClient implements DSProofWatcher {
     );
   }
 
+  async getRelayFee(): Promise<number> {
+    try {
+      const bchPerKb = await this.executeWithFailover((transport) =>
+        transport.request<number>('blockchain.relayfee', []),
+      );
+      const satsPerByte = Math.max(1, Math.round(Number(bchPerKb) * 100_000));
+      return satsPerByte;
+    } catch {
+      return 1;
+    }
+  }
+
+  async estimateFee(blocks = 2): Promise<number> {
+    try {
+      const bchPerKb = await this.executeWithFailover((transport) =>
+        transport.request<number>('blockchain.estimatefee', [blocks]),
+      );
+      if (typeof bchPerKb !== 'number' || bchPerKb <= 0) {
+        return await this.getRelayFee();
+      }
+      const satsPerByte = Math.max(1, Math.round(Number(bchPerKb) * 100_000));
+      return satsPerByte;
+    } catch {
+      return await this.getRelayFee();
+    }
+  }
+
+  async getFeeRate(): Promise<{
+    relayFeeSatsPerByte: number;
+    estimateFeeSatsPerByte: number;
+    effectiveSatsPerByte: number;
+    asOf: number;
+    source: string;
+  }> {
+    const relay = await this.getRelayFee();
+    const estimate = await this.estimateFee();
+    const effective = Math.max(relay, estimate, 1);
+    return {
+      relayFeeSatsPerByte: relay,
+      estimateFeeSatsPerByte: estimate,
+      effectiveSatsPerByte: effective,
+      asOf: Math.floor(Date.now() / 1000),
+      source: 'electrum-quorum-fee',
+    };
+  }
+
   async getTransaction(txid: string, verbose = true): Promise<unknown> {
     return this.executeWithFailover((transport) =>
       transport.request('blockchain.transaction.get', [txid, verbose]),

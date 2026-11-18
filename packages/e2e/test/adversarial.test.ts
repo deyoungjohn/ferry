@@ -113,6 +113,7 @@ describe('Adversarial Security Suite (Blueprint §9)', () => {
     stop: () => Promise<void>;
   }> {
     const cfg = loadConfigFromEnv({
+      COST_MODEL_ENABLED: '0',
       ALLOW_DEV_KEYS: '1',
       OPERATOR_TOKEN: operatorToken,
       SOLVER_EVM_PRIVATE_KEY: SOLVER_KEY,

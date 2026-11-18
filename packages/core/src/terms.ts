@@ -61,6 +61,14 @@ const decimalString = z
   .regex(/^\d+(?:\.\d+)?$/, 'Expected non-negative decimal string')
   .refine((value) => Number(value) > 0, 'Expected positive decimal price');
 
+const nonNegativeDecimalString = z
+  .string()
+  .regex(/^\d+(?:\.\d+)?$/, 'Expected non-negative decimal string')
+  .refine(
+    (value) => Number(value) >= 0,
+    'Expected non-negative decimal string',
+  );
+
 export const PricingRefSchema = z.strictObject({
   asset: text,
   usdPrice: decimalString,
@@ -70,6 +78,37 @@ export const PricingRefSchema = z.strictObject({
 
 export type PricingRef = z.infer<typeof PricingRefSchema>;
 
+export const CostSourceSchema = z.strictObject({
+  name: text,
+  role: text,
+  source: text,
+  asOf: unixTimestampSeconds,
+  value: text.optional(),
+});
+
+export type CostSource = z.infer<typeof CostSourceSchema>;
+
+export const CostBreakdownSchema = z.strictObject({
+  pricingChoice: z.enum(['cost_model', 'spread', 'static_fee']).optional(),
+  gasUnits: nonNegativeDecimalString.optional(),
+  bchTxBytes: z.number().int().nonnegative().optional(),
+  gasCostUsd: nonNegativeDecimalString,
+  bchFeeCostUsd: nonNegativeDecimalString,
+  totalCostUsd: nonNegativeDecimalString,
+  safetyMarginPercent: z.number().nonnegative(),
+  costWithMarginUsd: nonNegativeDecimalString,
+  minMarginUsd: nonNegativeDecimalString.optional(),
+  fixedFeeUsd: nonNegativeDecimalString,
+  effectiveSpreadBps: z.number().int().min(0).max(9999),
+  ethPriceUsd: nonNegativeDecimalString.optional(),
+  bchPriceUsd: nonNegativeDecimalString.optional(),
+  gasPriceGwei: nonNegativeDecimalString.optional(),
+  bchFeeRateSatsPerByte: nonNegativeDecimalString.optional(),
+  sources: z.array(CostSourceSchema).min(1).max(16),
+});
+
+export type CostBreakdown = z.infer<typeof CostBreakdownSchema>;
+
 export const PricingEvidenceSchema = z.strictObject({
   refs: z.array(PricingRefSchema).min(1).max(16),
   spreadBps: z.number().int().min(0).max(9999),
@@ -78,6 +117,7 @@ export const PricingEvidenceSchema = z.strictObject({
     .nonnegative()
     .max((1n << 256n) - 1n),
   rounding: z.literal('floor'),
+  costs: CostBreakdownSchema.optional(),
 });
 
 export type PricingEvidence = z.infer<typeof PricingEvidenceSchema>;
@@ -199,6 +239,7 @@ export const PricingEvidenceJsonSchema = z.strictObject({
   spreadBps: z.number().int().min(0).max(9999),
   fixedFeeBase: nonNegUint256Json,
   rounding: z.literal('floor'),
+  costs: CostBreakdownSchema.optional(),
 });
 
 export const OrderTermsJsonSchema = z
@@ -240,6 +281,7 @@ export interface PricingEvidenceJson {
   readonly spreadBps: number;
   readonly fixedFeeBase: string;
   readonly rounding: 'floor';
+  readonly costs?: CostBreakdown | undefined;
 }
 
 export interface OrderTermsJson {

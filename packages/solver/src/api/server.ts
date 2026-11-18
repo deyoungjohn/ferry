@@ -87,6 +87,7 @@ import {
   QuoteBuilder,
   tokenAmountToUsdMicros,
 } from '../pricing/quote-builder.js';
+import { LiveCostModelReader } from '../pricing/cost-model.js';
 import {
   extractClientIp,
   QuoteRateLimiter,
@@ -134,6 +135,7 @@ export interface BuildServerOptions {
   rateLimiter?: QuoteRateLimiter | undefined;
   publicClient?: PublicClient | undefined;
   inventoryReader?: InventoryReader | undefined;
+  costModelReader?: LiveCostModelReader | undefined;
 }
 
 export function buildServer(options: BuildServerOptions): FastifyInstance {
@@ -274,6 +276,31 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       solverEvmAddress: solverAccount.address,
     });
 
+  const liveCostClient =
+    options.evmClients?.get('base') ??
+    (options.publicClient ||
+      (evmAdapter as unknown as { client?: PublicClient })?.client);
+
+  const costModelReader =
+    options.costModelReader ??
+    (liveCostClient
+      ? new LiveCostModelReader({
+          client: liveCostClient,
+          bchClient,
+          ethUsdFeedAddress: config.ethUsdFeedAddress as `0x${string}`,
+          limits: {
+            ethUsdMaxAgeSeconds: config.ethUsdMaxAgeSeconds,
+            bchUsdMaxAgeSeconds: config.bchUsdMaxAgeSeconds,
+            baseGasMaxAgeSeconds: config.baseGasMaxAgeSeconds,
+            bchFeeRateMaxAgeSeconds: config.bchFeeRateMaxAgeSeconds,
+            bchUsdDisagreementPercent: config.bchUsdDisagreementPercent,
+          },
+          costSafetyPercent: config.costSafetyPercent,
+          minMarginUsdMicros: config.minMarginUsdMicros,
+          cacheTtlSeconds: config.costCacheTtlSeconds,
+        })
+      : undefined);
+
   const quoteBuilder = new QuoteBuilder(
     priceSource,
     liquidityManager,
@@ -288,6 +315,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       paryonMaxAgeSeconds: config.paryonMaxAgeSeconds,
     },
     config.maxSwapUsdMicros,
+    costModelReader,
+    config.costModelEnabled,
   );
 
   if (options.logger) {
@@ -305,6 +334,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         fixedFeeUsd: (Number(config.fixedFeeUsdMicros) / 1e6).toFixed(2),
         quoteTtlSeconds: config.quoteTtlSeconds,
         skewMaxBps: config.skewMaxBps,
+        costModelEnabled: config.costModelEnabled,
+        costSafetyPercent: config.costSafetyPercent,
       },
       'Effective solver policy configured',
     );
@@ -1473,8 +1504,63 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       'base-usdc-to-bch-musd',
     );
 
+    const routesList = [pusdData, musdData];
+
+    const routesCtx = options.routesContext ?? buildActiveRoutes(config);
+    for (const chainFact of routesCtx.chainConfig.facts) {
+      const chainKey = chainFact.id.toLowerCase();
+      const isEnabled = routesCtx.enabledRoutes.some(
+        (r) => r.chain.toLowerCase() === chainKey,
+      );
+      if (!isEnabled) continue;
+
+      const usdcAsset = chainFact.assets.find(
+        (a) => a.verified && a.symbol.toUpperCase() === 'USDC',
+      );
+      if (!usdcAsset) continue;
+
+      try {
+        const usdcInventory = await inventoryReader.getAssetInventory({
+          asset: 'USDC',
+          chain: chainKey,
+          tokenAddress: usdcAsset.address ?? undefined,
+        });
+
+        routesList.push(
+          liquidityManager.getLiquidityData(
+            'USDC',
+            usdcInventory,
+            openExposure,
+            usdcAsset.decimals ?? 6,
+            now,
+            `bch-pusd-to-${chainKey}-usdc`,
+          ),
+        );
+
+        const hasMusd = routesCtx.enabledRoutes.some(
+          (r) =>
+            r.chain.toLowerCase() === chainKey &&
+            (r as { bchToken?: string }).bchToken === 'MUSD',
+        );
+        if (hasMusd) {
+          routesList.push(
+            liquidityManager.getLiquidityData(
+              'USDC',
+              usdcInventory,
+              openExposure,
+              usdcAsset.decimals ?? 6,
+              now,
+              `bch-musd-to-${chainKey}-usdc`,
+            ),
+          );
+        }
+      } catch {
+        // Failing reads report nothing for that entry rather than zero
+      }
+    }
+
     const response = {
-      routes: [pusdData, musdData],
+      routes: routesList,
       asOf: now,
     };
 

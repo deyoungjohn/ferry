@@ -68,6 +68,19 @@ export const SolverConfigSchema = z
     sourceDisagreementWarnUsdMicros: z.coerce.bigint().default(10000n),
     sourceDisagreementRefuseUsdMicros: z.coerce.bigint().default(20000n),
     paryonMaxAgeSeconds: z.coerce.number().default(7200),
+    costModelEnabled: z.coerce.boolean().default(true),
+    costSafetyPercent: z.coerce.number().default(25),
+    minMarginUsdMicros: z.coerce.bigint().default(0n),
+    costCacheTtlSeconds: z.coerce.number().default(45),
+    ethUsdFeedAddress: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{40}$/)
+      .default('0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70'),
+    ethUsdMaxAgeSeconds: z.coerce.number().default(1800),
+    bchUsdMaxAgeSeconds: z.coerce.number().default(300),
+    baseGasMaxAgeSeconds: z.coerce.number().default(60),
+    bchFeeRateMaxAgeSeconds: z.coerce.number().default(300),
+    bchUsdDisagreementPercent: z.coerce.number().default(5),
     tpusdCategory: z
       .string()
       .default(
@@ -161,6 +174,31 @@ export const SolverConfigSchema = z
         message:
           'RESERVATION_CAP_PER_IP_USD_MICROS must be positive. Refusing to start.',
         path: ['reservationCapPerIpUsdMicros'],
+      });
+    }
+
+    if (data.costSafetyPercent < 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'COST_SAFETY_PERCENT must be non-negative. Refusing to start.',
+        path: ['costSafetyPercent'],
+      });
+    }
+
+    if (data.minMarginUsdMicros < 0n) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'MIN_MARGIN_USD_MICROS must be non-negative. Refusing to start.',
+        path: ['minMarginUsdMicros'],
+      });
+    }
+
+    if (data.costCacheTtlSeconds <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'COST_CACHE_TTL_SECONDS must be positive. Refusing to start.',
+        path: ['costCacheTtlSeconds'],
       });
     }
   });
@@ -270,6 +308,19 @@ export function loadConfigFromEnv(
       env.SOURCE_DISAGREEMENT_REFUSE_USD_MICROS ||
       env.SOURCE_DISAGREEMENT_REFUSE,
     paryonMaxAgeSeconds: env.PARYON_MAX_AGE_SECONDS || env.PARYON_MAX_AGE,
+    costModelEnabled:
+      env.COST_MODEL_ENABLED !== undefined
+        ? env.COST_MODEL_ENABLED === '1' || env.COST_MODEL_ENABLED === 'true'
+        : undefined,
+    costSafetyPercent: env.COST_SAFETY_PERCENT,
+    minMarginUsdMicros: env.MIN_MARGIN_USD_MICROS,
+    costCacheTtlSeconds: env.COST_CACHE_TTL_SECONDS,
+    ethUsdFeedAddress: env.ETH_USD_FEED_ADDRESS,
+    ethUsdMaxAgeSeconds: env.ETH_USD_MAX_AGE_SECONDS,
+    bchUsdMaxAgeSeconds: env.BCH_USD_MAX_AGE_SECONDS,
+    baseGasMaxAgeSeconds: env.BASE_GAS_MAX_AGE_SECONDS,
+    bchFeeRateMaxAgeSeconds: env.BCH_FEE_RATE_MAX_AGE_SECONDS,
+    bchUsdDisagreementPercent: env.BCH_USD_DISAGREEMENT_PERCENT,
     tpusdCategory: env.TPUSD_CATEGORY,
     tmusdCategory: env.TMUSD_CATEGORY,
     allowMockPaylinkSignatures:
