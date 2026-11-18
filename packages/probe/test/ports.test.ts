@@ -9,7 +9,8 @@ import {
 } from '@bitauth/libauth';
 import { deriveHtlcAddresses, encodeHtlcParameters } from '@ferry/htlc-bch';
 import { createKeyBackedBchSigner } from '@ferry/user-flow';
-import type { PublicClient, WalletClient } from 'viem';
+import { hashDomain } from 'viem';
+import type { Address, PublicClient, WalletClient } from 'viem';
 import {
   createDefaultBchPort,
   createDefaultEvmPort,
@@ -137,8 +138,33 @@ describe('@ferry/probe default ports and formatters', () => {
     const signed: string[] = [];
     const relayed: unknown[] = [];
     const publicClient = {
-      readContract: async (args: { functionName: string }) =>
-        args.functionName === 'nonces' ? 0n : 'USD Coin',
+      // The permit domain is checked against the token's own separator, so the
+      // fake chain answers with the separator of a "USD Coin" version "1" domain.
+      readContract: async (args: {
+        functionName: string;
+        address: Address;
+      }) => {
+        if (args.functionName === 'nonces') return 0n;
+        if (args.functionName === 'DOMAIN_SEPARATOR') {
+          return hashDomain({
+            domain: {
+              name: 'USD Coin',
+              version: '1',
+              chainId: BigInt(CHAIN_CONFIG.chainId),
+              verifyingContract: args.address,
+            },
+            types: {
+              EIP712Domain: [
+                { name: 'name', type: 'string' },
+                { name: 'version', type: 'string' },
+                { name: 'chainId', type: 'uint256' },
+                { name: 'verifyingContract', type: 'address' },
+              ],
+            },
+          });
+        }
+        return 'USD Coin';
+      },
     } as unknown as PublicClient;
     const walletClient = {
       signTypedData: async (args: { primaryType: string }) => {
