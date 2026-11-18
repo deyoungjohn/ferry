@@ -55,7 +55,7 @@ export const SolverConfigSchema = z
     reservationCapPerAddressUsdMicros: z.coerce.bigint().optional(),
     reservationCapPerIpUsdMicros: z.coerce.bigint().optional(),
     zeroConfMaxUsdMicros: z.coerce.bigint().default(25000000n),
-    quoteTtlSeconds: z.coerce.number().default(60),
+    quoteTtlSeconds: z.coerce.number().int().min(30).max(900).default(300),
     evmConfs: z.coerce.number().default(1),
     fwdBchRefundBlocks: z.coerce.number().default(36),
     fwdEvmDeadlineSeconds: z.coerce.number().default(86400),

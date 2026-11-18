@@ -1,6 +1,7 @@
 import { availableLiquidity } from '@ferry/core';
 
-export const QUOTE_TTL_S = 60; // 60s quote validity
+/** Default quote validity: five minutes, long enough to read the terms, save the recovery file and sign. */
+export const QUOTE_TTL_S = 300;
 export const MIN_SWAP_USD_MICROS = 1_000_000n; // $1.00
 export const MAX_SWAP_USD_MICROS = 50_000_000n; // $50.00
 export const MAX_RESERVED_PER_ADDRESS_USD_MICROS = 100_000_000n; // 2x MAX_SWAP ($100)

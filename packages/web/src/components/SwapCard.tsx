@@ -26,6 +26,7 @@ import {
 import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
 import { useReducedMotion } from 'motion/react';
+import { useOptionalNavigate } from '../lib/useOptionalNavigate';
 import { ROUTES } from '../lib/routes';
 import { buildCoreQuoteRequest, farTokenFacts } from '../lib/solver/core-quote';
 import { LiveSwapPanel } from './LiveSwapPanel';
@@ -91,6 +92,7 @@ export function SwapCard({
   initialFailureState,
 }: SwapCardProps = {}) {
   const solver = useSolver();
+  const navigate = useOptionalNavigate();
   const walletContext = useContext(WalletContext);
   const evm = walletContext?.evm ?? { status: 'disconnected', address: null };
   const bchAddress = walletContext?.bch.address?.address ?? null;
@@ -1273,6 +1275,12 @@ export function SwapCard({
             describe={{
               pay: `${sendAmount} ${sendTokenSymbol}`,
               receive: `${displayedReceiveAmount} ${receiveTokenSymbol}`,
+            }}
+            onStart={(orderId) => {
+              setLivePanelOpen(false);
+              void navigate(ROUTES.swapOrder(orderId), {
+                state: { start: true },
+              });
             }}
           />
         )}

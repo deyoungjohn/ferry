@@ -7,6 +7,8 @@ import { getModeCopy, STATUS_PLAIN_WORDS, FAILURE_COPY } from '../lib/copy';
 import { AlertTriangleIcon, CheckIcon, CopyIcon } from '../components/icons';
 import { CopyDiagnosticsButton } from '../components/CopyDiagnosticsButton';
 import { useToast } from '../lib/toast/ToastContext';
+import { LiveOrderView } from '../components/LiveOrderView';
+import { LIVE_EXECUTION_ENABLED } from '../lib/config';
 
 function truncateHash(hash?: string, head = 10, tail = 8): string {
   if (!hash) return '';
@@ -16,6 +18,13 @@ function truncateHash(hash?: string, head = 10, tail = 8): string {
 
 export function SwapStatusPage() {
   const { orderId } = useParams<{ orderId: string }>();
+  if (LIVE_EXECUTION_ENABLED && orderId?.startsWith('0x')) {
+    return <LiveOrderView orderId={orderId} />;
+  }
+  return <MockSwapStatus orderId={orderId} />;
+}
+
+function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
   const solver = useSolver();
   const { showToast } = useToast();
   const [order, setOrder] = useState<SwapOrder | null>(null);

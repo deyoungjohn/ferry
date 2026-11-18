@@ -145,4 +145,38 @@ describe('live swap panel', () => {
     const done = await screen.findByTestId('live-done');
     expect(done).toHaveTextContent(/once the transaction confirms/);
   });
+
+  it('hands the swap to the order page when the page supplies onStart, instead of running it in the dialog', async () => {
+    const onStart = vi.fn();
+    const orderSession = {
+      ...session,
+      state: { ...session.state, orderId: `0x${'cd'.repeat(32)}` },
+    };
+    render(
+      <LiveSwapPanel
+        open
+        onClose={() => undefined}
+        input={input}
+        wallets={{} as never}
+        solverUrl="https://solver.test"
+        services={{
+          ...services,
+          prepare: vi.fn(async () => ({
+            session: orderSession as never,
+            recovery: { filename: 'recovery.json', json: '{"secret":"0x00"}' },
+          })),
+          execute: vi.fn(),
+        }}
+        describe={{ pay: '1.00 USDC', receive: '0.99 PUSD' }}
+        onStart={onStart}
+      />,
+    );
+    await screen.findByTestId('live-preview-note');
+    fireEvent.click(screen.getByTestId('live-continue'));
+    await screen.findByTestId('live-keep-file-note');
+    fireEvent.click(screen.getByTestId('live-download'));
+    expect(screen.getByTestId('live-lock')).toHaveTextContent('Start swap');
+    fireEvent.click(screen.getByTestId('live-lock'));
+    expect(onStart).toHaveBeenCalledWith(`0x${'cd'.repeat(32)}`);
+  });
 });

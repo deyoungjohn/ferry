@@ -351,6 +351,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     config.maxSwapUsdMicros,
     costModelReader,
     config.costModelEnabled,
+    config.quoteTtlSeconds,
   );
 
   if (options.logger) {

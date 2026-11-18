@@ -55,6 +55,11 @@ export interface LiveSwapPanelProps {
     readonly pay: string;
     readonly receive: string;
   };
+  /**
+   * When given, "Start swap" hands the swap to the order page (/app/swap/<order id>) instead of
+   * running it inside this dialog: the page shows the steps and survives a reload.
+   */
+  readonly onStart?: ((orderId: string) => void) | undefined;
 }
 
 function downloadJson(filename: string, json: string): boolean {
@@ -91,6 +96,7 @@ export function LiveSwapPanel({
   wallets,
   solverUrl,
   describe,
+  onStart,
   services = REAL_SERVICES,
 }: LiveSwapPanelProps) {
   const [phase, setPhase] = useState<Phase>('previewing');
@@ -161,6 +167,10 @@ export function LiveSwapPanel({
   async function handleLock() {
     const session = sessionRef.current;
     if (!session) return;
+    if (onStart && session.state.orderId) {
+      onStart(session.state.orderId);
+      return;
+    }
     setError(null);
     setPhase('running');
     try {
@@ -279,7 +289,7 @@ export function LiveSwapPanel({
               onClick={handleLock}
               data-testid="live-lock"
             >
-              Lock my funds
+              Start swap
             </button>
           </>
         )}

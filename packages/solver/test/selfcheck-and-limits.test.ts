@@ -618,3 +618,16 @@ describe('B4-10: Limits, Self-Check, and Refusal Reasons with Numbers', () => {
     });
   });
 });
+
+describe('quote lifetime', () => {
+  it('defaults to five minutes and follows QUOTE_TTL_SECONDS (it used to be fixed at 60 seconds)', () => {
+    const base = {
+      ALLOW_DEV_KEYS: '1',
+      OPERATOR_TOKEN: 'a'.repeat(32),
+    };
+    expect(loadConfigFromEnv(base).quoteTtlSeconds).toBe(300);
+    expect(
+      loadConfigFromEnv({ ...base, QUOTE_TTL_SECONDS: '120' }).quoteTtlSeconds,
+    ).toBe(120);
+  });
+});

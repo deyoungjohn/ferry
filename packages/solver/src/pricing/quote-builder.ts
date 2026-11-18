@@ -123,6 +123,8 @@ export class QuoteBuilder {
     private readonly maxSwapUsdMicros: bigint = MAX_SWAP_USD_MICROS,
     private readonly costModelReader?: LiveCostModelReader,
     private readonly costModelEnabled: boolean = true,
+    /** How long a quote stays valid (and holds liquidity), in seconds. */
+    private readonly quoteTtlSeconds: number = QUOTE_TTL_S,
   ) {}
 
   async buildQuote(params: BuildQuoteParams): Promise<QuoteResult> {
@@ -417,7 +419,7 @@ export class QuoteBuilder {
       currentInventory: params.currentInventory,
       openExposure: params.openExposure,
       nowSeconds: params.nowSeconds,
-      ttlSeconds: QUOTE_TTL_S,
+      ttlSeconds: this.quoteTtlSeconds,
       dryRun: params.dryRun,
     });
 
@@ -441,7 +443,7 @@ export class QuoteBuilder {
     }
 
     // 8. Assemble terms
-    const expiresAt = params.nowSeconds + QUOTE_TTL_S;
+    const expiresAt = params.nowSeconds + this.quoteTtlSeconds;
     const terms: OrderTerms = {
       ...params.termsTemplate,
       direction: params.direction,
