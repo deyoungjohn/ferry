@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process';
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -19,9 +21,12 @@ import {
   type Chain,
   type Hex,
   type PublicClient,
+  type WalletClient,
+  parseSignature,
 } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
-import { loadChainConfig } from '@ferry/chain-config';
+import { loadChainConfig, loadChainData } from '@ferry/chain-config';
+import type { TokenFacts } from '@ferry/chain-config';
 import {
   EvmChainAdapter,
   claimSendLink,
@@ -36,6 +41,15 @@ import {
   type Hex32,
   type OrderTerms,
 } from '@ferry/core';
+import {
+  buildClaimTransaction,
+  buildLockIntentTypedData,
+  buildOrderPermitTypedData,
+  buildRefundTransaction,
+  getUserLockStatus,
+  prepareApproveAndLock,
+  readPermitNonce,
+} from '@ferry/chain-evm/browser';
 import { ferryHtlcAbi } from '@ferry/htlc-evm/abi';
 import {
   MAINNET_CONFIRM_PHRASE,
@@ -58,8 +72,7 @@ import { SolverClient } from '@ferry/solver-client';
 import {
   USER_BCH_LOCKING_BYTECODE,
   USER_KEY,
-  signRelayLockPayload,
-  signRelayLockRequest,
+  makeFundedInventory,
 } from './harness.js';
 
 const RUN_REHEARSE = process.env.FERRY_RUN_REHEARSE === '1';
@@ -87,6 +100,83 @@ const NATIVE_USD_BY_CHAIN: Readonly<Record<string, number>> = {
   arc: 1,
   robinhood: 3000,
 };
+
+interface ChainsFile {
+  chains: Record<string, { mainnet: { tokens: TokenFacts[] } }>;
+}
+
+/** The configured facts for a token, the way the web will read them. */
+function tokenFactsFor(chain: string, address: string): TokenFacts {
+  const data = loadChainData() as ChainsFile;
+  const facts = data.chains[chain]?.mainnet.tokens.find(
+    (t) => t.address?.toLowerCase() === address.toLowerCase(),
+  );
+  if (!facts) throw new Error(`No token facts for ${chain} ${address}`);
+  return facts;
+}
+
+/**
+ * The user's side of a forward swap, built only from the browser entry: a token
+ * with permit signs a lock intent and a permit and the solver relays the lock; a
+ * token without permit sends approve and lock from the wallet. Returns the gas.
+ */
+async function userForwardLock(p: {
+  publicClient: PublicClient;
+  userWallet: WalletClient;
+  userAddress: Address;
+  solverClient: SolverClient;
+  orderId: Hex32;
+  terms: OrderTerms;
+  facts: TokenFacts;
+}): Promise<{ mode: 'permit-relay' | 'approve-lock'; gas: bigint }> {
+  const account = privateKeyToAccount(REHEARSE_USER_KEY);
+  if (p.facts.permit) {
+    const nonce = await readPermitNonce(
+      p.publicClient,
+      p.terms.evmToken,
+      p.userAddress,
+    );
+    const permit = buildOrderPermitTypedData(p.terms, p.facts, nonce);
+    if (permit === null) throw new Error('expected a permit token');
+    const intentSig = await account.signTypedData(
+      buildLockIntentTypedData(p.terms),
+    );
+    const { r, s, v, yParity } = parseSignature(
+      await account.signTypedData(permit),
+    );
+    const relay = await p.solverClient.relayLock(p.orderId, {
+      permit: {
+        value: p.terms.evmAmount,
+        deadline: Number(permit.message.deadline),
+        v: Number(v ?? (yParity === 0 ? 27n : 28n)),
+        r,
+        s,
+      },
+      intent: { orderId: p.orderId, deadline: Number(permit.message.deadline) },
+      signature: intentSig,
+    });
+    const receipt = await p.publicClient.getTransactionReceipt({
+      hash: relay.txHash as Hex32,
+    });
+    return { mode: 'permit-relay', gas: receipt.gasUsed };
+  }
+  let gas = 0n;
+  for (const tx of await prepareApproveAndLock({
+    client: p.publicClient,
+    terms: p.terms,
+  })) {
+    const hash = await p.userWallet.sendTransaction({
+      to: tx.to,
+      data: tx.data,
+      account,
+      chain: p.userWallet.chain,
+    });
+    const receipt = await p.publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error(`${tx.kind} reverted`);
+    gas += receipt.gasUsed;
+  }
+  return { mode: 'approve-lock', gas };
+}
 
 interface ScenarioRow {
   chain: string;
@@ -210,6 +300,12 @@ async function startForkAnvil(forkUrl: string, chainId: number) {
 }
 
 async function deployHtlcOnFork(rpcUrl: string): Promise<Address> {
+  // Each fork gets a fresh chain id and state, so a stale broadcast record from
+  // an earlier run must not be resumed.
+  await rm(join(HTLC_EVM_DIR, 'cache', 'broadcast'), {
+    recursive: true,
+    force: true,
+  });
   const { stdout } = await execFileAsync(
     'forge',
     [
@@ -218,7 +314,6 @@ async function deployHtlcOnFork(rpcUrl: string): Promise<Address> {
       '--rpc-url',
       rpcUrl,
       '--broadcast',
-      '--start-fresh',
     ],
     {
       cwd: HTLC_EVM_DIR,
@@ -354,13 +449,21 @@ describe.skipIf(!RUN_REHEARSE)('Full-System Mainnet Fork Rehearsal', () => {
 
         // 1. Deploy FerryHTLC via real script
         const tDeploy = performance.now();
-        const htlcAddress = await deployHtlcOnFork(fork.rpcUrl);
+        // A chain where the real contract is already deployed (Base) reuses it.
+        const existingCode = await publicClient.getCode({
+          address: PREDICTED_HTLC,
+        });
+        const alreadyDeployed =
+          existingCode !== undefined && existingCode !== '0x';
+        const htlcAddress = alreadyDeployed
+          ? PREDICTED_HTLC
+          : await deployHtlcOnFork(fork.rpcUrl);
         expect(htlcAddress.toLowerCase()).toBe(PREDICTED_HTLC.toLowerCase());
         const deployBlock = await publicClient.getBlockNumber();
         scenarioRows.push({
           chain: cfg.id,
           route: `${asset.symbol}/PUSD`,
-          scenario: `deploy (block ${deployBlock})`,
+          scenario: `${alreadyDeployed ? 'existing deployment, fork block' : 'deploy (block'} ${deployBlock}${alreadyDeployed ? '' : ')'}`,
           result: 'PASS',
           gasUsed: '-',
           timeMs: Math.round(performance.now() - tDeploy),
@@ -497,6 +600,7 @@ describe.skipIf(!RUN_REHEARSE)('Full-System Mainnet Fork Rehearsal', () => {
           bchClient,
           engine,
           priceSource,
+          inventoryReader: makeFundedInventory(),
         });
         await app.listen({ port: 0, host: '127.0.0.1' });
         const addrInfo = app.server.address();
@@ -618,47 +722,68 @@ describe.skipIf(!RUN_REHEARSE)('Full-System Mainnet Fork Rehearsal', () => {
           timeMs: Math.round(performance.now() - tQuote),
         });
 
-        // 6. Lock (permit-intent if supported) + Relay check
+        // 6. Forward swap: the user's lock, then reveal and the relayed claim
+        const facts = tokenFactsFor(cfg.id, asset.address);
         let lockGas = 0n;
         let lockWithIntentGas = 0n;
-        if (asset.permit && quoteOrderId && quoteTerms) {
-          const tPermit = performance.now();
-          const relayReq = await signRelayLockRequest({
-            evmAdapter,
+        if (quoteOrderId && quoteTerms) {
+          const tForward = performance.now();
+          const forward = await userForwardLock({
+            publicClient,
+            userWallet,
+            userAddress: userAccount.address,
+            solverClient,
             orderId: quoteOrderId,
             terms: quoteTerms,
-            userAccount,
+            facts,
           });
-          let relayResult = 'PASS';
-          try {
-            await solverClient.relayLock(quoteOrderId, relayReq);
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            relayResult = msg.includes('Malformed relay lock payload')
-              ? 'BLOCKED(solver-pr)'
-              : `FAIL(${msg.slice(0, 30)})`;
-            const p = await signRelayLockPayload({
-              evmAdapter,
-              terms: quoteTerms,
-              userAccount,
-            });
-            const relayTx = await evmAdapter.relayLock({
-              chain: cfg.id,
-              orderId: quoteOrderId,
-              payload: p,
-            });
-            const receipt = await publicClient.getTransactionReceipt({
-              hash: relayTx.txId as Hex32,
-            });
-            lockWithIntentGas = receipt.gasUsed;
-          }
+          lockWithIntentGas = forward.gas;
+          const fwdLockId = evmLockId(userAccount.address, hashLock1);
+          const opened = await getUserLockStatus({
+            client: publicClient,
+            htlc: htlcAddress,
+            lockId: fwdLockId,
+            explorerUrl: cfg.explorerUrl,
+            fromBlock: deployBlock,
+          });
+          expect(opened.state).toBe('open');
           scenarioRows.push({
             chain: cfg.id,
             route: `${asset.symbol}/PUSD`,
-            scenario: 'lock (permit-intent)',
-            result: relayResult,
-            gasUsed: lockWithIntentGas ? lockWithIntentGas.toString() : '-',
-            timeMs: Math.round(performance.now() - tPermit),
+            scenario:
+              forward.mode === 'permit-relay'
+                ? 'forward lock (permit + intent, relayed)'
+                : 'forward lock (wallet approve + lock)',
+            result: 'PASS',
+            gasUsed: forward.gas.toString(),
+            timeMs: Math.round(performance.now() - tForward),
+          });
+
+          const tFwdClaim = performance.now();
+          expect(
+            (await solverClient.revealSecret(quoteOrderId, secret1)).ok,
+          ).toBe(true);
+          const fwdClaim = await solverClient.relayClaim(quoteOrderId, {
+            secret: secret1,
+            lockId: fwdLockId,
+          });
+          expect(fwdClaim.ok).toBe(true);
+          const claimed = await getUserLockStatus({
+            client: publicClient,
+            htlc: htlcAddress,
+            lockId: fwdLockId,
+            explorerUrl: cfg.explorerUrl,
+            fromBlock: deployBlock,
+          });
+          expect(claimed.state).toBe('claimed');
+          expect(claimed.secret).toBe(secret1);
+          scenarioRows.push({
+            chain: cfg.id,
+            route: `${asset.symbol}/PUSD`,
+            scenario: 'forward reveal + relayed claim',
+            result: 'PASS',
+            gasUsed: '-',
+            timeMs: Math.round(performance.now() - tFwdClaim),
           });
         }
 
@@ -708,10 +833,21 @@ describe.skipIf(!RUN_REHEARSE)('Full-System Mainnet Fork Rehearsal', () => {
 
         const tClaim = performance.now();
         const revLockId = evmLockId(solverAccount.address, hashLock2);
-        const claimTx = await evmAdapter.claim(revLockId, secret2);
-        const claimReceipt = await publicClient.getTransactionReceipt({
-          hash: claimTx.txId as Hex32,
+        const claimTx = buildClaimTransaction({
+          htlc: htlcAddress,
+          lockId: revLockId,
+          secret: secret2,
         });
+        const claimHash = await userWallet.sendTransaction({
+          to: claimTx.to,
+          data: claimTx.data,
+          account: userAccount,
+          chain: viemChain,
+        });
+        const claimReceipt = await publicClient.waitForTransactionReceipt({
+          hash: claimHash,
+        });
+        expect(claimReceipt.status).toBe('success');
         scenarioRows.push({
           chain: cfg.id,
           route: `${asset.symbol}/PUSD`,
@@ -721,36 +857,86 @@ describe.skipIf(!RUN_REHEARSE)('Full-System Mainnet Fork Rehearsal', () => {
           timeMs: Math.round(performance.now() - tClaim),
         });
 
-        // 8. Refund drill (time travel past deadline)
+        // 8. Refund drill: the user's own lock expires and the user refunds it
         const tRefund = performance.now();
         const secret3 = `0x${'33'.repeat(32)}` as Hex32;
         const hashLock3 = sha256(secret3);
         const refQuote = await solverClient.quote({
-          direction: 'BCH_TO_EVM',
+          direction: 'EVM_TO_BCH',
           token: 'PUSD',
           chainId: cfg.chainId,
           evmToken: asset.address as Address,
-          amountIn: 200n,
+          amountIn: 2n * unit,
           userEvmAddress: userAccount.address,
           userBchLockingBytecode: USER_BCH_LOCKING_BYTECODE,
           hashLock: hashLock3,
           lane: 'safe',
         });
-        await evmAdapter.lock(refQuote.terms as OrderTerms);
+        const refTerms = refQuote.terms as OrderTerms;
+        await userForwardLock({
+          publicClient,
+          userWallet,
+          userAddress: userAccount.address,
+          solverClient,
+          orderId: refQuote.orderId,
+          terms: refTerms,
+          facts,
+        });
+        const refLockId = evmLockId(userAccount.address, hashLock3);
         const latestBlock = await publicClient.getBlock({ blockTag: 'latest' });
-        const jump =
-          refQuote.terms.evmDeadline - Number(latestBlock.timestamp) + 15;
+        const jump = refTerms.evmDeadline - Number(latestBlock.timestamp) + 15;
         await fork.rpc('evm_increaseTime', [Math.max(jump, 1)]);
         await fork.rpc('evm_mine', []);
-        const refLockId = evmLockId(solverAccount.address, hashLock3);
-        const refTx = await evmAdapter.refund(refLockId);
-        const refReceipt = await publicClient.getTransactionReceipt({
-          hash: refTx.txId as Hex32,
+        const expired = await getUserLockStatus({
+          client: publicClient,
+          htlc: htlcAddress,
+          lockId: refLockId,
+          explorerUrl: cfg.explorerUrl,
+          fromBlock: deployBlock,
         });
+        expect(expired.state).toBe('expired');
+        const userBalBefore = await publicClient.readContract({
+          address: asset.address as Address,
+          abi: ERC20_ABI,
+          functionName: 'balanceOf',
+          args: [userAccount.address],
+        });
+        const refundTx = buildRefundTransaction({
+          htlc: htlcAddress,
+          lockId: refLockId,
+        });
+        const refundHash = await userWallet.sendTransaction({
+          to: refundTx.to,
+          data: refundTx.data,
+          account: userAccount,
+          chain: viemChain,
+        });
+        const refReceipt = await publicClient.waitForTransactionReceipt({
+          hash: refundHash,
+        });
+        expect(refReceipt.status).toBe('success');
+        const userBalAfter = await publicClient.readContract({
+          address: asset.address as Address,
+          abi: ERC20_ABI,
+          functionName: 'balanceOf',
+          args: [userAccount.address],
+        });
+        expect(userBalAfter - userBalBefore).toBe(refTerms.evmAmount);
+        expect(
+          (
+            await getUserLockStatus({
+              client: publicClient,
+              htlc: htlcAddress,
+              lockId: refLockId,
+              explorerUrl: cfg.explorerUrl,
+              fromBlock: deployBlock,
+            })
+          ).state,
+        ).toBe('refunded');
         scenarioRows.push({
           chain: cfg.id,
           route: `${asset.symbol}/PUSD`,
-          scenario: 'refund drill',
+          scenario: 'refund drill (user wallet)',
           result: 'PASS',
           gasUsed: refReceipt.gasUsed.toString(),
           timeMs: Math.round(performance.now() - tRefund),

@@ -264,6 +264,9 @@ export async function startInProcessSolver(params: {
     chain: params.chain,
     transport: http(params.rpcUrl),
     cacheTime: 0,
+    // Receipt polling defaults to seconds; the per-signer send queue waits for one
+    // receipt per transaction, so a local chain needs fast polling to be measured fairly.
+    pollingInterval: 50,
   });
   const solverWalletClient = createWalletClient({
     account: solverAccount,
