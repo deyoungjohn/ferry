@@ -426,6 +426,17 @@ export async function runSelfCheck(
         `   - BCH Fee Rate:  ${liveInputs.bchFeeRate.effectiveSatsPerByte} sats/byte (${liveInputs.bchFeeRate.source}, age: ${feeAge}s)`,
       );
 
+      const feedStatuses = costModelReader.getFeedStatuses(now);
+      log('   - Feed Statuses:');
+      for (const [name, st] of Object.entries(feedStatuses)) {
+        const succStr = st.lastSuccessTime
+          ? `lastSuccess: ${st.lastSuccessTime} (${now - st.lastSuccessTime}s ago)`
+          : 'lastSuccess: never';
+        const errStr = st.lastError ? ` [lastError: "${st.lastError}"]` : '';
+        const cachedStr = st.cached ? ' [USING CACHED GRACE PERIOD]' : '';
+        log(`     * ${name}: ${succStr}${errStr}${cachedStr}`);
+      }
+
       for (const enabledRoute of routesContext.enabledRoutes) {
         for (const dir of ['EVM_TO_BCH', 'BCH_TO_EVM'] as const) {
           const routeCost = calculateRouteCost({
@@ -480,6 +491,19 @@ export async function runSelfCheck(
       log(
         `   [FAIL] Live cost inputs error: ${err instanceof Error ? err.message : String(err)}`,
       );
+      try {
+        const feedStatuses = costModelReader.getFeedStatuses();
+        log('   - Feed Statuses:');
+        for (const [name, st] of Object.entries(feedStatuses)) {
+          const succStr = st.lastSuccessTime
+            ? `lastSuccess: ${st.lastSuccessTime}`
+            : 'lastSuccess: never';
+          const errStr = st.lastError ? ` [lastError: "${st.lastError}"]` : '';
+          log(`     * ${name}: ${succStr}${errStr}`);
+        }
+      } catch {
+        // ignore secondary error
+      }
     }
   }
   log('');

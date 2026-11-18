@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { sha256 } from 'viem';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { sha256, type PublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
   type EvmAssetConfig,
@@ -10,7 +10,7 @@ import {
 } from '@ferry/core';
 import type { EvmChainAdapter } from '@ferry/chain-evm';
 import { verifyQuote } from '@ferry/solver-client';
-import { buildServer } from '../src/api/server.js';
+import { buildServer, createSolverServer } from '../src/api/server.js';
 import { SolverDatabase } from '../src/db/database.js';
 import { SolverConfigSchema } from '../src/config.js';
 import { SolverEngine } from '../src/engine/runner.js';
@@ -877,6 +877,639 @@ describe('Live Cost Model and Pricing Engine (B4-11)', () => {
       );
 
       db.close();
+    });
+  });
+
+  describe('6. Multi-RPC Base Fallback & BCH/USD 3-Source Quorum (B4-12)', () => {
+    it('falls back to second Base RPC client when first RPC client fails', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const failingClient = {
+        readContract: vi
+          .fn()
+          .mockRejectedValue(new Error('RPC 1 ECONNREFUSED')),
+        getGasPrice: vi.fn().mockRejectedValue(new Error('RPC 1 ECONNREFUSED')),
+      } as unknown as PublicClient;
+
+      const workingClient = {
+        readContract: vi.fn().mockImplementation(async ({ functionName }) => {
+          if (functionName === 'decimals') return 8;
+          if (functionName === 'latestRoundData') {
+            return [1n, 200_000_000_000n, 0n, BigInt(now - 10), 1n];
+          }
+          if (functionName === 'getL1Fee') return 1000n;
+          return 0n;
+        }),
+        getGasPrice: vi.fn().mockResolvedValue(5_000_000_000n),
+      } as unknown as PublicClient;
+
+      const reader = new LiveCostModelReader({
+        clients: [failingClient, workingClient],
+      });
+
+      const ethUsd = await reader.readEthUsd();
+      expect(ethUsd.usdPriceMicros).toBe(2000_000_000n);
+      expect(failingClient.readContract).toHaveBeenCalled();
+      expect(workingClient.readContract).toHaveBeenCalled();
+
+      const baseGas = await reader.readBaseGas();
+      expect(baseGas.gasPriceWei).toBe(5_000_000_000n);
+    });
+
+    it('refuses with PRICE_UNAVAILABLE when all configured Base RPC clients fail', async () => {
+      const client1 = {
+        readContract: vi
+          .fn()
+          .mockRejectedValue(new Error('RPC 1 502 Bad Gateway')),
+        getGasPrice: vi
+          .fn()
+          .mockRejectedValue(new Error('RPC 1 502 Bad Gateway')),
+      } as unknown as PublicClient;
+      const client2 = {
+        readContract: vi
+          .fn()
+          .mockRejectedValue(new Error('RPC 2 Connection Timeout')),
+        getGasPrice: vi
+          .fn()
+          .mockRejectedValue(new Error('RPC 2 Connection Timeout')),
+      } as unknown as PublicClient;
+
+      const reader = new LiveCostModelReader({
+        clients: [client1, client2],
+      });
+
+      await expect(reader.readEthUsd()).rejects.toThrow(
+        /All Base RPCs failed for ETH\/USD feed/,
+      );
+      await expect(reader.readBaseGas()).rejects.toThrow(
+        /All Base RPCs failed for Base gas/,
+      );
+    });
+
+    it('calculates median when all three BCH/USD sources answer', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const reader = new LiveCostModelReader({
+        fetchCoinbaseFn: async () => ({
+          source: 'coinbase-bch-usd',
+          usdPrice: 200_000_000n, // $200.00
+          asOf: now - 5,
+        }),
+        fetchKrakenFn: async () => ({
+          source: 'kraken-bch-usd',
+          usdPrice: 202_000_000n, // $202.00
+          asOf: now - 3,
+        }),
+        fetchBitstampFn: async () => ({
+          source: 'bitstamp-bch-usd',
+          usdPrice: 201_000_000n, // $201.00
+          usdPriceMicros: 201_000_000n,
+          asOf: now - 4,
+        }),
+      });
+
+      const reading = await reader.readBchUsd();
+      expect(reading.usdPriceMicros).toBe(201_000_000n); // median of 200, 201, 202 is 201
+      expect(reading.components).toHaveLength(3);
+    });
+
+    it('calculates median when 1 of 3 BCH/USD sources fails and 2 answer', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const reader = new LiveCostModelReader({
+        fetchCoinbaseFn: async () => ({
+          source: 'coinbase-bch-usd',
+          usdPrice: 200_000_000n,
+          asOf: now - 5,
+        }),
+        fetchKrakenFn: async () => {
+          throw new Error('Kraken Cloudflare 520');
+        },
+        fetchBitstampFn: async () => ({
+          source: 'bitstamp-bch-usd',
+          usdPrice: 202_000_000n,
+          usdPriceMicros: 202_000_000n,
+          asOf: now - 4,
+        }),
+      });
+
+      const reading = await reader.readBchUsd();
+      expect(reading.usdPriceMicros).toBe(201_000_000n); // (200 + 202)/2 = 201
+      expect(reading.components).toHaveLength(2);
+    });
+
+    it('refuses with PRICE_UNAVAILABLE when fewer than two BCH/USD sources answer', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const reader = new LiveCostModelReader({
+        fetchCoinbaseFn: async () => ({
+          source: 'coinbase-bch-usd',
+          usdPrice: 200_000_000n,
+          asOf: now - 5,
+        }),
+        fetchKrakenFn: async () => {
+          throw new Error('Kraken 502');
+        },
+        fetchBitstampFn: async () => {
+          throw new Error('Bitstamp 503');
+        },
+      });
+
+      await expect(reader.readBchUsd()).rejects.toThrow(
+        /Fewer than two public BCH\/USD sources available/,
+      );
+    });
+
+    it('refuses with PEG_GUARD when BCH/USD sources disagree beyond configured percent', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const reader = new LiveCostModelReader({
+        fetchCoinbaseFn: async () => ({
+          source: 'coinbase-bch-usd',
+          usdPrice: 200_000_000n, // $200
+          asOf: now - 5,
+        }),
+        fetchKrakenFn: async () => ({
+          source: 'kraken-bch-usd',
+          usdPrice: 220_000_000n, // $220 (10% higher > 5% limit)
+          asOf: now - 3,
+        }),
+        fetchBitstampFn: async () => ({
+          source: 'bitstamp-bch-usd',
+          usdPrice: 200_500_000n,
+          usdPriceMicros: 200_500_000n,
+          asOf: now - 4,
+        }),
+      });
+
+      await expect(reader.readBchUsd()).rejects.toThrow(
+        /BCH\/USD source disagreement.*exceeds 5% limit/,
+      );
+    });
+  });
+
+  describe('7. Cost Feed Grace Period & Last Known Good Fallback (B4-12)', () => {
+    it('uses last known good reading within grace period and marks source as cached with age', async () => {
+      const t0 = 1700000000;
+      let ethCallCount = 0;
+
+      const workingClient = {
+        readContract: vi.fn().mockImplementation(async ({ functionName }) => {
+          if (functionName === 'decimals') return 8;
+          if (functionName === 'latestRoundData') {
+            ethCallCount++;
+            if (ethCallCount > 1) {
+              throw new Error('Chainlink RPC Network Drop');
+            }
+            return [1n, 200_000_000_000n, 0n, BigInt(t0), 1n];
+          }
+          if (functionName === 'getL1Fee') return 1000n;
+          return 0n;
+        }),
+        getGasPrice: vi.fn().mockResolvedValue(5_000_000_000n),
+      } as unknown as PublicClient;
+
+      const reader = new LiveCostModelReader({
+        client: workingClient,
+        costFeedGraceSeconds: 900,
+        cacheTtlSeconds: 1, // short TTL so next read refreshes
+        fetchCoinbaseFn: async () => ({
+          source: 'coinbase-bch-usd',
+          usdPrice: 200_000_000n,
+          asOf: t0,
+        }),
+        fetchKrakenFn: async () => ({
+          source: 'kraken-bch-usd',
+          usdPrice: 200_000_000n,
+          asOf: t0,
+        }),
+        fetchBitstampFn: async () => ({
+          source: 'bitstamp-bch-usd',
+          usdPrice: 200_000_000n,
+          usdPriceMicros: 200_000_000n,
+          asOf: t0,
+        }),
+      });
+
+      // First read at t0 succeeds
+      const inputs1 = await reader.readLiveInputs(t0);
+      expect(inputs1.ethUsd.source).toBe('chainlink-base-eth-usd');
+
+      // Second read at t0 + 200s: fresh read fails, but within 900s grace period
+      const inputs2 = await reader.readLiveInputs(t0 + 200);
+      expect(inputs2.ethUsd.source).toBe(
+        'chainlink-base-eth-usd (cached, 200s old)',
+      );
+      expect(inputs2.ethUsd.usdPriceMicros).toBe(2000_000_000n);
+
+      // Status check reflects cached state
+      const statuses = reader.getFeedStatuses(t0 + 200);
+      expect(statuses.ethUsd?.cached).toBe(true);
+      expect(statuses.ethUsd?.lastError).toContain(
+        'Chainlink RPC Network Drop',
+      );
+      expect(statuses.ethUsd?.ageSeconds).toBe(200);
+    });
+
+    it('refuses with PRICE_UNAVAILABLE when last known good reading exceeds grace period', async () => {
+      const t0 = 1700000000;
+      let ethCallCount = 0;
+
+      const workingClient = {
+        readContract: vi.fn().mockImplementation(async ({ functionName }) => {
+          if (functionName === 'decimals') return 8;
+          if (functionName === 'latestRoundData') {
+            ethCallCount++;
+            if (ethCallCount > 1) {
+              throw new Error('Chainlink RPC Down');
+            }
+            return [1n, 200_000_000_000n, 0n, BigInt(t0), 1n];
+          }
+          if (functionName === 'getL1Fee') return 1000n;
+          return 0n;
+        }),
+        getGasPrice: vi.fn().mockResolvedValue(5_000_000_000n),
+      } as unknown as PublicClient;
+
+      const reader = new LiveCostModelReader({
+        client: workingClient,
+        costFeedGraceSeconds: 900,
+        cacheTtlSeconds: 1,
+        fetchCoinbaseFn: async () => ({
+          source: 'coinbase-bch-usd',
+          usdPrice: 200_000_000n,
+          asOf: t0,
+        }),
+        fetchKrakenFn: async () => ({
+          source: 'kraken-bch-usd',
+          usdPrice: 200_000_000n,
+          asOf: t0,
+        }),
+        fetchBitstampFn: async () => ({
+          source: 'bitstamp-bch-usd',
+          usdPrice: 200_000_000n,
+          usdPriceMicros: 200_000_000n,
+          asOf: t0,
+        }),
+      });
+
+      // Seed first read at t0
+      await reader.readLiveInputs(t0);
+
+      // At t0 + 1000s (> 900s grace period)
+      await expect(reader.readLiveInputs(t0 + 1000)).rejects.toThrow(
+        /ETH\/USD feed failed.*last known good reading is expired \(age: 1000s, grace: 900s\)/,
+      );
+    });
+  });
+
+  describe('8. GET /v1/health Visibility of Cost Feeds (B4-12)', () => {
+    it('reports costFeeds with lastSuccessTime, lastError, and cache status', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const fakeInputs = createValidFakeLiveInputs(now);
+      const costModelReader = new LiveCostModelReader({
+        fakeInputs,
+      });
+
+      const config = SolverConfigSchema.parse({
+        solverEvmPrivateKey: solverEvmKey,
+        operatorToken,
+        network: 'testnet',
+      });
+
+      const db = new SolverDatabase(':memory:');
+      const fakeBch = {
+        getQuorumStatus: () => ({
+          quorumTip: 330000,
+          tips: { 'wss://mock1': 330000 },
+          isQuorumHealthy: true,
+          isLivenessHealthy: true,
+          ageSeconds: 5,
+          lastConfirmedAt: now - 5,
+        }),
+        listUnspent: async () => [],
+        connect: async () => {},
+        subscribeScriptHash: async () => {},
+        unsubscribeScriptHash: async () => {},
+        close: () => {},
+      } as unknown as BchQuorumClient;
+
+      const fakeEvm = {
+        id: 'base',
+        address: solverAccount.address,
+        getTokenBalance: async () => 0n,
+        getNativeBalance: async () => 0n,
+        getTip: async () => ({ height: 100, ageSeconds: 1, stale: false }),
+        isFinal: async () => true,
+        assets: [],
+      } as unknown as EvmChainAdapter;
+
+      const app = createSolverServer({
+        config,
+        db,
+        bchClient: fakeBch,
+        evmAdapter: fakeEvm,
+        evmAdapters: new Map([['base', fakeEvm]]),
+        routesContext: buildActiveRoutes(config),
+        priceSource: new MockPriceSource(),
+        engine: { isQuotingEnabled: () => true } as unknown as SolverEngine,
+        costModelReader,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/health',
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.ok).toBe(true);
+      expect(body.costFeeds).toBeDefined();
+      expect(body.costFeeds.ethUsd).toBeDefined();
+      expect(body.costFeeds.bchUsd).toBeDefined();
+      expect(body.costFeeds.baseGas).toBeDefined();
+      expect(body.costFeeds.bchFeeRate).toBeDefined();
+
+      db.close();
+      await app.close();
+    });
+  });
+
+  describe('9. Send Link Lifecycle & Relay-Claim (B4-12)', () => {
+    it('reports pending_lock, locked, claimed, refunded, and expired accurately through lifecycle', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const config = SolverConfigSchema.parse({
+        solverEvmPrivateKey: solverEvmKey,
+        operatorToken,
+        network: 'testnet',
+      });
+      const db = new SolverDatabase(':memory:');
+
+      const terms = {
+        version: 1,
+        direction: 'BCH_TO_EVM',
+        bchToken: 'PUSD',
+        bchTokenCategory: '0x' + '11'.repeat(32),
+        evmToken: '0x' + '22'.repeat(20),
+        evmChainId: 8453,
+        evmHtlc: '0x' + '33'.repeat(20),
+        userEvmAddress: '0x' + '44'.repeat(20),
+        userBchLockingBytecode: '0x' + '55'.repeat(25),
+        solverEvmAddress: solverAccount.address,
+        solverBchLockingBytecode: '0x' + '77'.repeat(25),
+        hashLock: '0x' + '88'.repeat(32),
+        evmDeadline: now + 3600, // 1h in future
+        bchRefundHeight: 330100,
+        bchCarrySats: 3000n,
+        bchMaxFee: 10000n,
+        bchTokenAmount: 500000n,
+        evmAmount: 5000000n,
+        quoteId: 'test-quote',
+        quoteExpiry: now + 60,
+      };
+
+      const termsJson = JSON.stringify(terms, (_, v) =>
+        typeof v === 'bigint' ? v.toString() + 'n' : v,
+      );
+
+      const fakeBch = {
+        getQuorumStatus: () => ({
+          quorumTip: 330000,
+          tips: { 'wss://mock1': 330000 },
+          isQuorumHealthy: true,
+          isLivenessHealthy: true,
+          ageSeconds: 5,
+          lastConfirmedAt: now - 5,
+        }),
+        listUnspent: async () => [],
+        connect: async () => {},
+        subscribeScriptHash: async () => {},
+        unsubscribeScriptHash: async () => {},
+        close: () => {},
+      } as unknown as BchQuorumClient;
+
+      const fakeEvm = {
+        id: 'base',
+        address: solverAccount.address,
+        getTokenBalance: async () => 0n,
+        getNativeBalance: async () => 0n,
+        getTip: async () => ({ height: 100, ageSeconds: 1, stale: false }),
+        isFinal: async () => true,
+        assets: [],
+      } as unknown as EvmChainAdapter;
+
+      const app = createSolverServer({
+        config,
+        db,
+        bchClient: fakeBch,
+        evmAdapter: fakeEvm,
+        evmAdapters: new Map([['base', fakeEvm]]),
+        routesContext: buildActiveRoutes(config),
+        priceSource: new MockPriceSource(),
+        engine: { isQuotingEnabled: () => true } as unknown as SolverEngine,
+      });
+
+      const linkId1 = '0x' + 'aa'.repeat(32);
+      // 1. QUOTED -> pending_lock
+      db.saveOrder({
+        id: linkId1,
+        direction: 'BCH_TO_EVM',
+        status: 'QUOTED',
+        userCounterAddress: terms.userEvmAddress,
+        lockId: 'lock1',
+        termsJson,
+        hashLock: terms.hashLock,
+        lane: 'safe',
+        fastOptIn: false,
+        firstSeenAtMs: Date.now(),
+        needsAttention: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      let res = await app.inject({
+        method: 'GET',
+        url: `/v1/send-links/${linkId1}`,
+      });
+      expect(res.json().status).toBe('pending_lock');
+
+      // 2. USER_LOCK_SEEN -> locked
+      const order = db.getOrder(linkId1)!;
+      order.status = 'USER_LOCK_SEEN';
+      db.saveOrder(order);
+      res = await app.inject({
+        method: 'GET',
+        url: `/v1/send-links/${linkId1}`,
+      });
+      expect(res.json().status).toBe('locked');
+
+      // 3. USER_CLAIM_SEEN -> claimed
+      order.status = 'USER_CLAIM_SEEN';
+      db.saveOrder(order);
+      res = await app.inject({
+        method: 'GET',
+        url: `/v1/send-links/${linkId1}`,
+      });
+      expect(res.json().status).toBe('claimed');
+
+      // 4. REFUNDED -> refunded
+      order.status = 'REFUNDED';
+      db.saveOrder(order);
+      res = await app.inject({
+        method: 'GET',
+        url: `/v1/send-links/${linkId1}`,
+      });
+      expect(res.json().status).toBe('refunded');
+
+      // 5. Past evmDeadline -> expired
+      const expiredTerms = {
+        ...terms,
+        evmDeadline: now - 100, // 100s in past
+      };
+      const linkId2 = '0x' + 'dd'.repeat(32);
+      db.saveOrder({
+        id: linkId2,
+        direction: 'BCH_TO_EVM',
+        status: 'QUOTED',
+        userCounterAddress: terms.userEvmAddress,
+        lockId: 'lock2',
+        termsJson: JSON.stringify(expiredTerms, (_, v) =>
+          typeof v === 'bigint' ? v.toString() + 'n' : v,
+        ),
+        hashLock: terms.hashLock,
+        lane: 'safe',
+        fastOptIn: false,
+        firstSeenAtMs: Date.now(),
+        needsAttention: false,
+        createdAt: now - 200,
+        updatedAt: now - 200,
+      });
+      res = await app.inject({
+        method: 'GET',
+        url: `/v1/send-links/${linkId2}`,
+      });
+      expect(res.json().status).toBe('expired');
+
+      db.close();
+      await app.close();
+    });
+
+    it('sets secret, userClaimTxId, and USER_CLAIM_SEEN on BCH_TO_EVM relay-claim', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const config = SolverConfigSchema.parse({
+        solverEvmPrivateKey: solverEvmKey,
+        operatorToken,
+        network: 'testnet',
+        allowDevKeys: true,
+      });
+      const db = new SolverDatabase(':memory:');
+
+      const terms = {
+        version: 1,
+        direction: 'BCH_TO_EVM',
+        bchToken: 'PUSD',
+        bchTokenCategory: '0x' + '11'.repeat(32),
+        evmToken: '0x' + '22'.repeat(20),
+        evmChainId: 8453,
+        evmHtlc: '0x' + '33'.repeat(20),
+        userEvmAddress: '0x' + '44'.repeat(20),
+        userBchLockingBytecode: '0x' + '55'.repeat(25),
+        solverEvmAddress: solverAccount.address,
+        solverBchLockingBytecode: '0x' + '77'.repeat(25),
+        hashLock: '0x' + '88'.repeat(32),
+        evmDeadline: now + 3600,
+        bchRefundHeight: 330100,
+        bchCarrySats: 3000n,
+        bchMaxFee: 10000n,
+        bchTokenAmount: 500000n,
+        evmAmount: 5000000n,
+        quoteId: 'test-quote',
+        quoteExpiry: now + 60,
+      };
+
+      const orderId = '0x' + 'ab'.repeat(32);
+      db.saveOrder({
+        id: orderId,
+        direction: 'BCH_TO_EVM',
+        status: 'SOLVER_LOCK_SEEN',
+        userCounterAddress: terms.userEvmAddress,
+        lockId: 'lock-test',
+        termsJson: JSON.stringify(terms, (_, v) =>
+          typeof v === 'bigint' ? v.toString() + 'n' : v,
+        ),
+        hashLock: terms.hashLock,
+        lane: 'safe',
+        fastOptIn: false,
+        firstSeenAtMs: Date.now(),
+        needsAttention: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const fakeEvm = {
+        id: 'base',
+        address: solverAccount.address,
+        getTokenBalance: async () => 0n,
+        getNativeBalance: async () => 0n,
+        getTip: async () => ({ height: 100, ageSeconds: 1, stale: false }),
+        isFinal: async () => true,
+        assets: [],
+        getLock: async () => ({
+          status: 'locked',
+          sender: solverAccount.address,
+          recipient: terms.userEvmAddress,
+          amount: 5000000n,
+          hashLock: terms.hashLock,
+          expiration: now + 3600,
+          token: terms.evmToken,
+        }),
+        claim: async () => ({
+          chain: 'base',
+          txId: '0x' + 'cc'.repeat(32),
+        }),
+      } as unknown as EvmChainAdapter;
+
+      const fakeBch = {
+        getQuorumStatus: () => ({
+          quorumTip: 330000,
+          tips: { 'wss://mock1': 330000 },
+          isQuorumHealthy: true,
+          isLivenessHealthy: true,
+          ageSeconds: 5,
+          lastConfirmedAt: now - 5,
+        }),
+        listUnspent: async () => [],
+        connect: async () => {},
+        subscribeScriptHash: async () => {},
+        unsubscribeScriptHash: async () => {},
+        close: () => {},
+      } as unknown as BchQuorumClient;
+
+      const app = createSolverServer({
+        config,
+        db,
+        bchClient: fakeBch,
+        evmAdapter: fakeEvm,
+        evmAdapters: new Map([['base', fakeEvm]]),
+        routesContext: buildActiveRoutes(config),
+        priceSource: new MockPriceSource(),
+        engine: { isQuotingEnabled: () => true } as unknown as SolverEngine,
+      });
+
+      const mockSecret = '0x' + 'bb'.repeat(32);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/orders/${orderId}/relay-claim`,
+        payload: {
+          secret: mockSecret,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().ok).toBe(true);
+
+      const savedOrder = db.getOrder(orderId);
+      expect(savedOrder?.secret).toBe(mockSecret);
+      expect(savedOrder?.userClaimTxId).toBe('0x' + 'cc'.repeat(32));
+      expect(savedOrder?.status).toBe('USER_CLAIM_SEEN');
+
+      db.close();
+      await app.close();
     });
   });
 });

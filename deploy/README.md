@@ -211,6 +211,29 @@ cd /opt/ferry && pnpm --dir scripts/preflight preflight -- --url https://ferry.i
 `https://ferry.incepture.dev/status` in a browser and press **Test All Routes
 (Quote-Only)**; that checks every route without locking anything.
 
+### Cost feeds & external source operator checks
+
+> [!NOTE]
+> Lightsail firewall is inbound-only (allowing SSH 22, HTTP 80, and HTTPS 443). Outbound traffic from the instance to external HTTPS and WebSocket endpoints (Coinbase, Kraken, Bitstamp, Base RPCs, and BCH Electrum hosts) is unrestricted by AWS. If quoting pauses or prices report stale in `/v1/health`, operators can verify feed reachability with these one-liners:
+
+```bash
+# 1. Coinbase BCH/USD spot price
+curl -fsS "https://api.coinbase.com/v2/prices/BCH-USD/spot"
+
+# 2. Kraken BCH/USD ticker
+curl -fsS "https://api.kraken.com/0/public/Ticker?pair=BCHUSD"
+
+# 3. Bitstamp BCH/USD ticker
+curl -fsS "https://api.bitstamp.net/api/v2/ticker/bchusd/"
+
+# 4. Base RPC Chainlink ETH/USD & Gas (test each configured Base RPC)
+curl -fsS -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' https://base-rpc.publicnode.com
+curl -fsS -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_gasPrice","params":[],"id":1}' https://base-rpc.publicnode.com
+
+# 5. Inspect solver feed health & grace period status
+curl -fsS http://127.0.0.1:8787/v1/health | jq .costFeeds
+```
+
 ## 8. Update
 
 Take a Lightsail snapshot first. Then:

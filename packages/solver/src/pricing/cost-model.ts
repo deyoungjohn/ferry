@@ -2,9 +2,11 @@ import {
   type CostBreakdown,
   type CostSource,
   type Direction,
+  type CostFeedStatus,
 } from '@ferry/core';
 import type { PublicClient, Address, Hex } from 'viem';
 import { parseAbi } from 'viem';
+import { z } from 'zod';
 import { BASE_GAS_PRICE_ORACLE_ADDRESS } from '@ferry/chain-evm';
 import { fetchCoinbaseBchUsd, fetchKrakenBchUsd } from '@ferry/bch-prices';
 import type { BchQuorumClient } from '../bch/quorum-client.js';
@@ -12,6 +14,66 @@ import { formatUsdMicrosToDecimal } from './price-source.js';
 
 export const CHAINLINK_BASE_ETH_USD_ADDRESS: Address =
   '0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70';
+
+export const DEFAULT_BITSTAMP_BCH_USD_URL =
+  'https://www.bitstamp.net/api/v2/ticker/bchusd/';
+
+const BitstampTickerSchema = z.object({
+  last: z.string().regex(/^\d+(?:\.\d+)?$/),
+  timestamp: z.string().optional(),
+});
+
+export function cleanSource(source: string): string {
+  return source.replace(/\s*\(cached.*?\)/g, '').trim();
+}
+
+export function decimalStringToMicros(val: string): bigint {
+  const [intPart = '0', fracPart = ''] = val.split('.');
+  const paddedFrac = (fracPart + '000000').slice(0, 6);
+  return BigInt(intPart) * 1_000_000n + BigInt(paddedFrac);
+}
+
+export async function fetchBitstampBchUsd(
+  options: {
+    url?: string | undefined;
+    timeoutMs?: number | undefined;
+    fetchFn?: typeof fetch | undefined;
+    nowSeconds?: (() => number) | undefined;
+  } = {},
+): Promise<BchUsdComponent & { usdPrice: bigint }> {
+  const url = options.url ?? DEFAULT_BITSTAMP_BCH_USD_URL;
+  const timeoutMs = options.timeoutMs ?? 3000;
+  const fetchFn = options.fetchFn ?? fetch;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchFn(url, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      throw new Error(`Bitstamp HTTP ${res.status}`);
+    }
+    const json = (await res.json()) as unknown;
+    const parsed = BitstampTickerSchema.safeParse(json);
+    if (!parsed.success) {
+      throw new Error('Unexpected Bitstamp BCHUSD response');
+    }
+    const asOf = parsed.data.timestamp
+      ? parseInt(parsed.data.timestamp, 10)
+      : Math.floor((options.nowSeconds ?? (() => Date.now() / 1000))());
+    const usdPriceMicros = decimalStringToMicros(parsed.data.last);
+    return {
+      source: 'bitstamp-bch-usd',
+      usdPrice: usdPriceMicros,
+      usdPriceMicros,
+      asOf,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export const BASE_RELAY_LOCK_GAS = 258_429n;
 export const BASE_SOLVER_LOCK_GAS = 212_455n;
@@ -91,6 +153,7 @@ export interface LiveInputLimits {
   baseGasMaxAgeSeconds: number;
   bchFeeRateMaxAgeSeconds: number;
   bchUsdDisagreementPercent: number;
+  costFeedGraceSeconds?: number | undefined;
 }
 
 export const DEFAULT_LIVE_INPUT_LIMITS: LiveInputLimits = {
@@ -99,6 +162,7 @@ export const DEFAULT_LIVE_INPUT_LIMITS: LiveInputLimits = {
   baseGasMaxAgeSeconds: 60,
   bchFeeRateMaxAgeSeconds: 300,
   bchUsdDisagreementPercent: 5,
+  costFeedGraceSeconds: 900,
 };
 
 export function verifyLiveInputs(
@@ -106,7 +170,11 @@ export function verifyLiveInputs(
   limits: LiveInputLimits = DEFAULT_LIVE_INPUT_LIMITS,
   nowSeconds: number = Math.floor(Date.now() / 1000),
 ): void {
+  const graceSeconds = limits.costFeedGraceSeconds ?? 900;
+
   // 1. ETH/USD
+  const isEthCached = inputs.ethUsd.source.includes('(cached');
+  const maxEthAge = isEthCached ? graceSeconds : limits.ethUsdMaxAgeSeconds;
   const ethAge = nowSeconds - inputs.ethUsd.asOf;
   if (ethAge < -30) {
     throw new LiveCostError(
@@ -114,10 +182,10 @@ export function verifyLiveInputs(
       `ETH/USD timestamp from ${inputs.ethUsd.source} is in the future (asOf: ${inputs.ethUsd.asOf}, now: ${nowSeconds})`,
     );
   }
-  if (ethAge > limits.ethUsdMaxAgeSeconds) {
+  if (ethAge > maxEthAge) {
     throw new LiveCostError(
       'PRICE_UNAVAILABLE',
-      `ETH/USD price from ${inputs.ethUsd.source} is stale (asOf: ${inputs.ethUsd.asOf}, age: ${ethAge}s, max: ${limits.ethUsdMaxAgeSeconds}s)`,
+      `ETH/USD price from ${inputs.ethUsd.source} is stale (asOf: ${inputs.ethUsd.asOf}, age: ${ethAge}s, max: ${maxEthAge}s)`,
     );
   }
   if (inputs.ethUsd.usdPriceMicros <= 0n) {
@@ -128,6 +196,8 @@ export function verifyLiveInputs(
   }
 
   // 2. BCH/USD
+  const isBchCached = inputs.bchUsd.source.includes('(cached');
+  const maxBchAge = isBchCached ? graceSeconds : limits.bchUsdMaxAgeSeconds;
   const bchAge = nowSeconds - inputs.bchUsd.asOf;
   if (bchAge < -30) {
     throw new LiveCostError(
@@ -135,10 +205,10 @@ export function verifyLiveInputs(
       `BCH/USD timestamp from ${inputs.bchUsd.source} is in the future (asOf: ${inputs.bchUsd.asOf}, now: ${nowSeconds})`,
     );
   }
-  if (bchAge > limits.bchUsdMaxAgeSeconds) {
+  if (bchAge > maxBchAge) {
     throw new LiveCostError(
       'PRICE_UNAVAILABLE',
-      `BCH/USD price from ${inputs.bchUsd.source} is stale (asOf: ${inputs.bchUsd.asOf}, age: ${bchAge}s, max: ${limits.bchUsdMaxAgeSeconds}s)`,
+      `BCH/USD price from ${inputs.bchUsd.source} is stale (asOf: ${inputs.bchUsd.asOf}, age: ${bchAge}s, max: ${maxBchAge}s)`,
     );
   }
   if (inputs.bchUsd.usdPriceMicros <= 0n) {
@@ -150,32 +220,34 @@ export function verifyLiveInputs(
 
   // Check BCH/USD multi-source disagreement
   if (inputs.bchUsd.components.length >= 2) {
-    const c1 = inputs.bchUsd.components[0]!;
-    const c2 = inputs.bchUsd.components[1]!;
-    const diff =
-      c1.usdPriceMicros > c2.usdPriceMicros
-        ? c1.usdPriceMicros - c2.usdPriceMicros
-        : c2.usdPriceMicros - c1.usdPriceMicros;
+    const sorted = [...inputs.bchUsd.components].sort((a, b) =>
+      a.usdPriceMicros < b.usdPriceMicros ? -1 : 1,
+    );
+    const minC = sorted[0]!;
+    const maxC = sorted[sorted.length - 1]!;
+    const diff = maxC.usdPriceMicros - minC.usdPriceMicros;
     const median = inputs.bchUsd.usdPriceMicros;
     if (median > 0n) {
       const diffPercent = (Number(diff) * 100) / Number(median);
       if (diffPercent > limits.bchUsdDisagreementPercent) {
-        const p1Formatted = formatUsdMicrosToDecimal(c1.usdPriceMicros);
-        const p2Formatted = formatUsdMicrosToDecimal(c2.usdPriceMicros);
+        const p1Formatted = formatUsdMicrosToDecimal(minC.usdPriceMicros);
+        const p2Formatted = formatUsdMicrosToDecimal(maxC.usdPriceMicros);
         throw new LiveCostError(
           'PEG_GUARD',
-          `BCH/USD source disagreement of ${diff} micros (${diffPercent.toFixed(2)}%) between ${c1.source} ($${p1Formatted}) and ${c2.source} ($${p2Formatted}) exceeds ${limits.bchUsdDisagreementPercent}% limit`,
+          `BCH/USD source disagreement of ${diff} micros (${diffPercent.toFixed(2)}%) between ${minC.source} ($${p1Formatted}) and ${maxC.source} ($${p2Formatted}) exceeds ${limits.bchUsdDisagreementPercent}% limit`,
         );
       }
     }
   }
 
   // 3. Base Gas
+  const isGasCached = inputs.baseGas.source.includes('(cached');
+  const maxGasAge = isGasCached ? graceSeconds : limits.baseGasMaxAgeSeconds;
   const gasAge = nowSeconds - inputs.baseGas.asOf;
-  if (gasAge > limits.baseGasMaxAgeSeconds) {
+  if (gasAge > maxGasAge) {
     throw new LiveCostError(
       'PRICE_UNAVAILABLE',
-      `Base gas price from ${inputs.baseGas.source} is stale (asOf: ${inputs.baseGas.asOf}, age: ${gasAge}s, max: ${limits.baseGasMaxAgeSeconds}s)`,
+      `Base gas price from ${inputs.baseGas.source} is stale (asOf: ${inputs.baseGas.asOf}, age: ${gasAge}s, max: ${maxGasAge}s)`,
     );
   }
   if (inputs.baseGas.gasPriceWei < 0n) {
@@ -186,11 +258,13 @@ export function verifyLiveInputs(
   }
 
   // 4. BCH Fee Rate
+  const isFeeCached = inputs.bchFeeRate.source.includes('(cached');
+  const maxFeeAge = isFeeCached ? graceSeconds : limits.bchFeeRateMaxAgeSeconds;
   const feeAge = nowSeconds - inputs.bchFeeRate.asOf;
-  if (feeAge > limits.bchFeeRateMaxAgeSeconds) {
+  if (feeAge > maxFeeAge) {
     throw new LiveCostError(
       'PRICE_UNAVAILABLE',
-      `Bitcoin Cash fee rate from ${inputs.bchFeeRate.source} is stale (asOf: ${inputs.bchFeeRate.asOf}, age: ${feeAge}s, max: ${limits.bchFeeRateMaxAgeSeconds}s)`,
+      `Bitcoin Cash fee rate from ${inputs.bchFeeRate.source} is stale (asOf: ${inputs.bchFeeRate.asOf}, age: ${feeAge}s, max: ${maxFeeAge}s)`,
     );
   }
   if (inputs.bchFeeRate.effectiveSatsPerByte < 1) {
@@ -413,13 +487,18 @@ export function applyCostModelToQuote(
 
 export interface LiveCostReaderOptions {
   client?: PublicClient | undefined;
+  clients?: PublicClient[] | undefined;
   bchClient?: BchQuorumClient | undefined;
   ethUsdFeedAddress?: Address | undefined;
   limits?: Partial<LiveInputLimits> | undefined;
   costSafetyPercent?: number | undefined;
   minMarginUsdMicros?: bigint | undefined;
   cacheTtlSeconds?: number | undefined;
+  costFeedGraceSeconds?: number | undefined;
   fakeInputs?: LiveCostInputs | undefined;
+  fetchCoinbaseFn?: typeof fetchCoinbaseBchUsd | undefined;
+  fetchKrakenFn?: typeof fetchKrakenBchUsd | undefined;
+  fetchBitstampFn?: typeof fetchBitstampBchUsd | undefined;
 }
 
 export class LiveCostModelReader {
@@ -433,6 +512,39 @@ export class LiveCostModelReader {
   private readonly costSafetyPercent: number;
   private readonly minMarginUsdMicros: bigint;
   private readonly cacheTtlSeconds: number;
+  private readonly costFeedGraceSeconds: number;
+  private readonly clients: PublicClient[];
+  private readonly fetchCoinbase: typeof fetchCoinbaseBchUsd;
+  private readonly fetchKraken: typeof fetchKrakenBchUsd;
+  private readonly fetchBitstamp: typeof fetchBitstampBchUsd;
+
+  private ethUsdState: {
+    lastGood?: EthUsdReading | undefined;
+    lastSuccessTime?: number | undefined;
+    lastError?: string | undefined;
+    lastErrorTime?: number | undefined;
+  } = {};
+
+  private bchUsdState: {
+    lastGood?: BchUsdReading | undefined;
+    lastSuccessTime?: number | undefined;
+    lastError?: string | undefined;
+    lastErrorTime?: number | undefined;
+  } = {};
+
+  private baseGasState: {
+    lastGood?: BaseGasReading | undefined;
+    lastSuccessTime?: number | undefined;
+    lastError?: string | undefined;
+    lastErrorTime?: number | undefined;
+  } = {};
+
+  private bchFeeRateState: {
+    lastGood?: BchFeeRateReading | undefined;
+    lastSuccessTime?: number | undefined;
+    lastError?: string | undefined;
+    lastErrorTime?: number | undefined;
+  } = {};
 
   constructor(private readonly options: LiveCostReaderOptions = {}) {
     this.limits = {
@@ -444,6 +556,19 @@ export class LiveCostModelReader {
     this.costSafetyPercent = options.costSafetyPercent ?? 25;
     this.minMarginUsdMicros = options.minMarginUsdMicros ?? 0n;
     this.cacheTtlSeconds = options.cacheTtlSeconds ?? 45;
+    this.costFeedGraceSeconds =
+      options.costFeedGraceSeconds ??
+      options.limits?.costFeedGraceSeconds ??
+      900;
+    this.clients =
+      options.clients && options.clients.length > 0
+        ? options.clients
+        : options.client
+          ? [options.client]
+          : [];
+    this.fetchCoinbase = options.fetchCoinbaseFn ?? fetchCoinbaseBchUsd;
+    this.fetchKraken = options.fetchKrakenFn ?? fetchKrakenBchUsd;
+    this.fetchBitstamp = options.fetchBitstampFn ?? fetchBitstampBchUsd;
   }
 
   async readLiveInputs(nowSeconds?: number): Promise<LiveCostInputs> {
@@ -458,16 +583,133 @@ export class LiveCostModelReader {
       this.cache.inputs &&
       now - this.cache.timestamp < this.cacheTtlSeconds
     ) {
-      verifyLiveInputs(this.cache.inputs, this.limits, now);
-      return this.cache.inputs;
+      try {
+        verifyLiveInputs(this.cache.inputs, this.limits, now);
+        return this.cache.inputs;
+      } catch {
+        // Cache expired according to age limits, fall through to refresh
+      }
     }
 
-    const [ethUsd, bchUsd, baseGas, bchFeeRate] = await Promise.all([
-      this.readEthUsd(),
-      this.readBchUsd(),
-      this.readBaseGas(),
-      this.readBchFeeRate(),
-    ]);
+    // 1. ETH/USD
+    let ethUsd: EthUsdReading;
+    try {
+      ethUsd = await this.readEthUsd();
+      this.ethUsdState.lastGood = ethUsd;
+      this.ethUsdState.lastSuccessTime = now;
+      this.ethUsdState.lastError = undefined;
+      this.ethUsdState.lastErrorTime = undefined;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.ethUsdState.lastError = errMsg;
+      this.ethUsdState.lastErrorTime = now;
+      if (this.ethUsdState.lastGood) {
+        const age = now - this.ethUsdState.lastGood.asOf;
+        if (age <= this.costFeedGraceSeconds) {
+          ethUsd = {
+            ...this.ethUsdState.lastGood,
+            source: `${cleanSource(this.ethUsdState.lastGood.source)} (cached, ${age}s old)`,
+          };
+        } else {
+          throw new LiveCostError(
+            'PRICE_UNAVAILABLE',
+            `ETH/USD feed failed (${errMsg}) and last known good reading is expired (age: ${age}s, grace: ${this.costFeedGraceSeconds}s)`,
+          );
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    // 2. BCH/USD
+    let bchUsd: BchUsdReading;
+    try {
+      bchUsd = await this.readBchUsd();
+      this.bchUsdState.lastGood = bchUsd;
+      this.bchUsdState.lastSuccessTime = now;
+      this.bchUsdState.lastError = undefined;
+      this.bchUsdState.lastErrorTime = undefined;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.bchUsdState.lastError = errMsg;
+      this.bchUsdState.lastErrorTime = now;
+      if (this.bchUsdState.lastGood) {
+        const age = now - this.bchUsdState.lastGood.asOf;
+        if (age <= this.costFeedGraceSeconds) {
+          bchUsd = {
+            ...this.bchUsdState.lastGood,
+            source: `${cleanSource(this.bchUsdState.lastGood.source)} (cached, ${age}s old)`,
+          };
+        } else {
+          throw new LiveCostError(
+            'PRICE_UNAVAILABLE',
+            `BCH/USD feed failed (${errMsg}) and last known good reading is expired (age: ${age}s, grace: ${this.costFeedGraceSeconds}s)`,
+          );
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    // 3. Base Gas
+    let baseGas: BaseGasReading;
+    try {
+      baseGas = await this.readBaseGas();
+      this.baseGasState.lastGood = baseGas;
+      this.baseGasState.lastSuccessTime = now;
+      this.baseGasState.lastError = undefined;
+      this.baseGasState.lastErrorTime = undefined;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.baseGasState.lastError = errMsg;
+      this.baseGasState.lastErrorTime = now;
+      if (this.baseGasState.lastGood) {
+        const age = now - this.baseGasState.lastGood.asOf;
+        if (age <= this.costFeedGraceSeconds) {
+          baseGas = {
+            ...this.baseGasState.lastGood,
+            source: `${cleanSource(this.baseGasState.lastGood.source)} (cached, ${age}s old)`,
+          };
+        } else {
+          throw new LiveCostError(
+            'PRICE_UNAVAILABLE',
+            `Base gas feed failed (${errMsg}) and last known good reading is expired (age: ${age}s, grace: ${this.costFeedGraceSeconds}s)`,
+          );
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    // 4. BCH Fee Rate
+    let bchFeeRate: BchFeeRateReading;
+    try {
+      bchFeeRate = await this.readBchFeeRate();
+      this.bchFeeRateState.lastGood = bchFeeRate;
+      this.bchFeeRateState.lastSuccessTime = now;
+      this.bchFeeRateState.lastError = undefined;
+      this.bchFeeRateState.lastErrorTime = undefined;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.bchFeeRateState.lastError = errMsg;
+      this.bchFeeRateState.lastErrorTime = now;
+      if (this.bchFeeRateState.lastGood) {
+        const age = now - this.bchFeeRateState.lastGood.asOf;
+        if (age <= this.costFeedGraceSeconds) {
+          bchFeeRate = {
+            ...this.bchFeeRateState.lastGood,
+            source: `${cleanSource(this.bchFeeRateState.lastGood.source)} (cached, ${age}s old)`,
+          };
+        } else {
+          throw new LiveCostError(
+            'PRICE_UNAVAILABLE',
+            `BCH fee rate feed failed (${errMsg}) and last known good reading is expired (age: ${age}s, grace: ${this.costFeedGraceSeconds}s)`,
+          );
+        }
+      } else {
+        throw err;
+      }
+    }
 
     const inputs: LiveCostInputs = {
       ethUsd,
@@ -487,112 +729,149 @@ export class LiveCostModelReader {
   }
 
   async readEthUsd(): Promise<EthUsdReading> {
-    if (!this.options.client) {
+    if (this.clients.length === 0) {
       throw new LiveCostError(
         'PRICE_UNAVAILABLE',
         'No EVM client configured for ETH/USD feed',
       );
     }
-    const [decimals, round] = await Promise.all([
-      this.options.client.readContract({
-        address: this.feedAddress,
-        abi: chainlinkAggregatorAbi,
-        functionName: 'decimals',
-      }),
-      this.options.client.readContract({
-        address: this.feedAddress,
-        abi: chainlinkAggregatorAbi,
-        functionName: 'latestRoundData',
-      }),
-    ]);
+    const errors: string[] = [];
+    for (let i = 0; i < this.clients.length; i++) {
+      const client = this.clients[i]!;
+      try {
+        const [decimals, round] = await Promise.all([
+          client.readContract({
+            address: this.feedAddress,
+            abi: chainlinkAggregatorAbi,
+            functionName: 'decimals',
+          }),
+          client.readContract({
+            address: this.feedAddress,
+            abi: chainlinkAggregatorAbi,
+            functionName: 'latestRoundData',
+          }),
+        ]);
 
-    const [roundId, answer, , updatedAt] = round;
-    if (answer <= 0n) {
-      throw new LiveCostError(
-        'PRICE_UNAVAILABLE',
-        `Chainlink ETH/USD answer must be positive, got ${answer}`,
-      );
+        const [roundId, answer, , updatedAt] = round;
+        if (answer <= 0n) {
+          throw new Error(
+            `Chainlink ETH/USD answer must be positive, got ${answer}`,
+          );
+        }
+
+        const asOf = Number(updatedAt);
+        let usdPriceMicros: bigint;
+        if (decimals === 8) {
+          usdPriceMicros = answer / 100n;
+        } else if (decimals === 6) {
+          usdPriceMicros = answer;
+        } else if (decimals > 6) {
+          usdPriceMicros = answer / 10n ** BigInt(decimals - 6);
+        } else {
+          usdPriceMicros = answer * 10n ** BigInt(6 - decimals);
+        }
+
+        return {
+          usdPriceMicros,
+          source: 'chainlink-base-eth-usd',
+          asOf,
+          decimals: Number(decimals),
+          roundId: roundId.toString(),
+        };
+      } catch (err) {
+        errors.push(
+          `RPC[${i}]: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
 
-    const asOf = Number(updatedAt);
-    let usdPriceMicros: bigint;
-    if (decimals === 8) {
-      usdPriceMicros = answer / 100n;
-    } else if (decimals === 6) {
-      usdPriceMicros = answer;
-    } else if (decimals > 6) {
-      usdPriceMicros = answer / 10n ** BigInt(decimals - 6);
-    } else {
-      usdPriceMicros = answer * 10n ** BigInt(6 - decimals);
-    }
-
-    return {
-      usdPriceMicros,
-      source: 'chainlink-base-eth-usd',
-      asOf,
-      decimals: Number(decimals),
-      roundId: roundId.toString(),
-    };
+    throw new LiveCostError(
+      'PRICE_UNAVAILABLE',
+      `All Base RPCs failed for ETH/USD feed: ${errors.join('; ')}`,
+    );
   }
 
   async readBchUsd(): Promise<BchUsdReading> {
     const components: BchUsdComponent[] = [];
     const errors: string[] = [];
 
-    // Source 1: Coinbase
-    try {
-      const cb = await fetchCoinbaseBchUsd({ timeoutMs: 3000 });
+    const [cbRes, krRes, bsRes] = await Promise.allSettled([
+      this.fetchCoinbase({ timeoutMs: 3000 }),
+      this.fetchKraken({ timeoutMs: 3000 }),
+      this.fetchBitstamp({ timeoutMs: 3000 }),
+    ]);
+
+    if (cbRes.status === 'fulfilled' && cbRes.value.usdPrice > 0n) {
       components.push({
-        source: cb.source,
-        usdPriceMicros: cb.usdPrice,
-        asOf: cb.asOf,
+        source: cbRes.value.source,
+        usdPriceMicros: cbRes.value.usdPrice,
+        asOf: cbRes.value.asOf,
       });
-    } catch (err) {
+    } else if (cbRes.status === 'rejected') {
       errors.push(
-        `Coinbase: ${err instanceof Error ? err.message : String(err)}`,
+        `Coinbase: ${cbRes.reason instanceof Error ? cbRes.reason.message : String(cbRes.reason)}`,
       );
     }
 
-    // Source 2: Kraken
-    try {
-      const kr = await fetchKrakenBchUsd({ timeoutMs: 3000 });
+    if (krRes.status === 'fulfilled' && krRes.value.usdPrice > 0n) {
       components.push({
-        source: kr.source,
-        usdPriceMicros: kr.usdPrice,
-        asOf: kr.asOf,
+        source: krRes.value.source,
+        usdPriceMicros: krRes.value.usdPrice,
+        asOf: krRes.value.asOf,
       });
-    } catch (err) {
+    } else if (krRes.status === 'rejected') {
       errors.push(
-        `Kraken: ${err instanceof Error ? err.message : String(err)}`,
+        `Kraken: ${krRes.reason instanceof Error ? krRes.reason.message : String(krRes.reason)}`,
       );
     }
 
-    if (components.length === 0) {
+    if (bsRes.status === 'fulfilled' && bsRes.value.usdPriceMicros > 0n) {
+      components.push({
+        source: bsRes.value.source,
+        usdPriceMicros: bsRes.value.usdPriceMicros,
+        asOf: bsRes.value.asOf,
+      });
+    } else if (bsRes.status === 'rejected') {
+      errors.push(
+        `Bitstamp: ${bsRes.reason instanceof Error ? bsRes.reason.message : String(bsRes.reason)}`,
+      );
+    }
+
+    if (components.length < 2) {
       throw new LiveCostError(
         'PRICE_UNAVAILABLE',
-        `No public BCH/USD source available (${errors.join('; ')})`,
+        `Fewer than two public BCH/USD sources available (got ${components.length}, errors: ${errors.join('; ')})`,
       );
     }
 
-    if (components.length === 1) {
-      return {
-        usdPriceMicros: components[0]!.usdPriceMicros,
-        source: components[0]!.source,
-        asOf: components[0]!.asOf,
-        components,
-      };
-    }
-
-    // Median / average of components
+    // Sort components by price ascending
     const sorted = [...components].sort((a, b) =>
       a.usdPriceMicros < b.usdPriceMicros ? -1 : 1,
     );
+
+    const minC = sorted[0]!;
+    const maxC = sorted[sorted.length - 1]!;
+
     const medianMicros =
       sorted.length % 2 === 1
         ? sorted[Math.floor(sorted.length / 2)]!.usdPriceMicros
         : (sorted[sorted.length / 2 - 1]!.usdPriceMicros +
             sorted[sorted.length / 2]!.usdPriceMicros) /
           2n;
+
+    // Disagreement check between min and max
+    const diff = maxC.usdPriceMicros - minC.usdPriceMicros;
+    if (medianMicros > 0n) {
+      const diffPercent = (Number(diff) * 100) / Number(medianMicros);
+      if (diffPercent > this.limits.bchUsdDisagreementPercent) {
+        const minP = formatUsdMicrosToDecimal(minC.usdPriceMicros);
+        const maxP = formatUsdMicrosToDecimal(maxC.usdPriceMicros);
+        throw new LiveCostError(
+          'PEG_GUARD',
+          `BCH/USD source disagreement of ${diff} micros (${diffPercent.toFixed(2)}%) between ${minC.source} ($${minP}) and ${maxC.source} ($${maxP}) exceeds ${this.limits.bchUsdDisagreementPercent}% limit`,
+        );
+      }
+    }
 
     const minAsOf = Math.min(...components.map((c) => c.asOf));
 
@@ -605,53 +884,67 @@ export class LiveCostModelReader {
   }
 
   async readBaseGas(): Promise<BaseGasReading> {
-    if (!this.options.client) {
+    if (this.clients.length === 0) {
       throw new LiveCostError(
         'PRICE_UNAVAILABLE',
         'No EVM client configured for Base gas',
       );
     }
-    const client = this.options.client;
-    const gasPriceWei = await client.getGasPrice();
+    const errors: string[] = [];
+    for (let i = 0; i < this.clients.length; i++) {
+      const client = this.clients[i]!;
+      try {
+        const gasPriceWei = await client.getGasPrice();
 
-    // Standard sample calldata for relayLock and lock on FerryHTLC
-    const sampleRelayLockTx: Hex =
-      '0x02f870822105808405f5e1008502540be400825208945a0c062f4b7b8ff2263530e12bc15de9c836a6418080c0';
-    const sampleLockTx: Hex =
-      '0x02f86c822105808405f5e1008502540be400825208945a0c062f4b7b8ff2263530e12bc15de9c836a6418080';
+        // Standard sample calldata for relayLock and lock on FerryHTLC
+        const sampleRelayLockTx: Hex =
+          '0x02f870822105808405f5e1008502540be400825208945a0c062f4b7b8ff2263530e12bc15de9c836a6418080c0';
+        const sampleLockTx: Hex =
+          '0x02f86c822105808405f5e1008502540be400825208945a0c062f4b7b8ff2263530e12bc15de9c836a6418080';
 
-    let l1FeeWeiPerRelayLock: bigint;
-    let l1FeeWeiPerLock: bigint;
-    try {
-      const [feeRelay, feeLock] = await Promise.all([
-        client.readContract({
-          address: BASE_GAS_PRICE_ORACLE_ADDRESS,
-          abi: gasPriceOracleAbi,
-          functionName: 'getL1Fee',
-          args: [sampleRelayLockTx],
-        }),
-        client.readContract({
-          address: BASE_GAS_PRICE_ORACLE_ADDRESS,
-          abi: gasPriceOracleAbi,
-          functionName: 'getL1Fee',
-          args: [sampleLockTx],
-        }),
-      ]);
-      l1FeeWeiPerRelayLock = feeRelay;
-      l1FeeWeiPerLock = feeLock;
-    } catch {
-      // If L1 fee read fails (e.g. test anvil fork without predeploy), default to 0n
-      l1FeeWeiPerRelayLock = 0n;
-      l1FeeWeiPerLock = 0n;
+        let l1FeeWeiPerRelayLock: bigint;
+        let l1FeeWeiPerLock: bigint;
+        try {
+          const [feeRelay, feeLock] = await Promise.all([
+            client.readContract({
+              address: BASE_GAS_PRICE_ORACLE_ADDRESS,
+              abi: gasPriceOracleAbi,
+              functionName: 'getL1Fee',
+              args: [sampleRelayLockTx],
+            }),
+            client.readContract({
+              address: BASE_GAS_PRICE_ORACLE_ADDRESS,
+              abi: gasPriceOracleAbi,
+              functionName: 'getL1Fee',
+              args: [sampleLockTx],
+            }),
+          ]);
+          l1FeeWeiPerRelayLock = feeRelay;
+          l1FeeWeiPerLock = feeLock;
+        } catch {
+          // If L1 fee read fails (e.g. test anvil fork without predeploy), default to 0n
+          l1FeeWeiPerRelayLock = 0n;
+          l1FeeWeiPerLock = 0n;
+        }
+
+        return {
+          gasPriceWei,
+          l1FeeWeiPerRelayLock,
+          l1FeeWeiPerLock,
+          source: 'base-gas-price-oracle',
+          asOf: Math.floor(Date.now() / 1000),
+        };
+      } catch (err) {
+        errors.push(
+          `RPC[${i}]: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
 
-    return {
-      gasPriceWei,
-      l1FeeWeiPerRelayLock,
-      l1FeeWeiPerLock,
-      source: 'base-gas-price-oracle',
-      asOf: Math.floor(Date.now() / 1000),
-    };
+    throw new LiveCostError(
+      'PRICE_UNAVAILABLE',
+      `All Base RPCs failed for Base gas: ${errors.join('; ')}`,
+    );
   }
 
   async readBchFeeRate(): Promise<BchFeeRateReading> {
@@ -665,6 +958,37 @@ export class LiveCostModelReader {
       effectiveSatsPerByte: 1,
       source: 'electrum-relay-minimum',
       asOf: Math.floor(Date.now() / 1000),
+    };
+  }
+
+  getFeedStatuses(nowSeconds?: number): Record<string, CostFeedStatus> {
+    const now = nowSeconds ?? Math.floor(Date.now() / 1000);
+
+    const getStatus = <T extends { source: string; asOf: number }>(state: {
+      lastGood?: T | undefined;
+      lastSuccessTime?: number | undefined;
+      lastError?: string | undefined;
+      lastErrorTime?: number | undefined;
+    }): CostFeedStatus => {
+      const ageSeconds = state.lastGood
+        ? Math.max(0, now - state.lastGood.asOf)
+        : undefined;
+      const cached = state.lastError != null && state.lastGood != null;
+      return {
+        lastSuccessTime: state.lastSuccessTime ?? null,
+        lastError: state.lastError ?? null,
+        lastErrorTime: state.lastErrorTime ?? null,
+        source: state.lastGood ? cleanSource(state.lastGood.source) : undefined,
+        cached,
+        ageSeconds,
+      };
+    };
+
+    return {
+      ethUsd: getStatus(this.ethUsdState),
+      bchUsd: getStatus(this.bchUsdState),
+      baseGas: getStatus(this.baseGasState),
+      bchFeeRate: getStatus(this.bchFeeRateState),
     };
   }
 

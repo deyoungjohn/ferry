@@ -196,6 +196,17 @@ export function formatApiErrorMessage(
   return base;
 }
 
+export const CostFeedStatusSchema = z.strictObject({
+  lastSuccessTime: unixTimestampSeconds.nullable().optional(),
+  lastError: z.string().nullable().optional(),
+  lastErrorTime: unixTimestampSeconds.nullable().optional(),
+  source: z.string().optional(),
+  cached: z.boolean().optional(),
+  ageSeconds: nonNegInt.optional(),
+});
+
+export type CostFeedStatus = z.infer<typeof CostFeedStatusSchema>;
+
 export const HealthResponseSchema = z.strictObject({
   ok: z.boolean(),
   quotingEnabled: z.boolean(),
@@ -213,6 +224,7 @@ export const HealthResponseSchema = z.strictObject({
     })
     .optional(),
   inventory: z.record(z.string(), z.string()).optional(),
+  costFeeds: z.record(z.string(), CostFeedStatusSchema).optional(),
 });
 
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
