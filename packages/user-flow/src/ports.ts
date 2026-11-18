@@ -38,7 +38,10 @@ export interface EvmSignerPort {
 export interface EvmChainPort {
   buildUserLock(terms: OrderTerms): Promise<UnsignedLock>;
   getLock(lockId: Hex32): Promise<LockState>;
-  waitForReceipt(txHash: Hex32): Promise<void>;
+  /** Resolves when the transaction is mined. Return the status when it is known: `reverted` stops the flow. */
+  waitForReceipt(
+    txHash: Hex32,
+  ): Promise<void | { readonly status: 'success' | 'reverted' }>;
   /** Timestamp of the latest block, in seconds. */
   getBlockTimestamp(): Promise<number>;
 }

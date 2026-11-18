@@ -163,7 +163,12 @@ export function createDefaultEvmPort(
             buildUserLock: (lockTerms) => adapter.buildUserLock(lockTerms),
             getLock: (lockId) => adapter.getLock(lockId),
             waitForReceipt: async (hash) => {
-              await opts.publicClient.waitForTransactionReceipt({ hash });
+              const receipt = await opts.publicClient.waitForTransactionReceipt(
+                {
+                  hash,
+                },
+              );
+              return { status: receipt.status };
             },
             getBlockTimestamp: async () =>
               Number((await opts.publicClient.getBlock()).timestamp),

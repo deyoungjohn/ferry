@@ -68,6 +68,20 @@ function permitV(signature: {
   return signature.yParity === 1 ? 28 : 27;
 }
 
+/** Wait for a transaction to be mined and stop if it reverted: the next step must not be sent. */
+export async function awaitMined(
+  chain: EvmChainPort,
+  hash: Hex32,
+): Promise<void> {
+  const receipt = await chain.waitForReceipt(hash);
+  if (receipt && receipt.status === 'reverted') {
+    throw new UserFlowError(
+      'TX_REVERTED',
+      'A transaction was mined but failed, so the next step was not sent. Check your wallet; nothing further was done.',
+    );
+  }
+}
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -144,7 +158,7 @@ export async function lockUserOnEvm(
       chainId: terms.evmChainId,
     }),
   );
-  await evmChain.waitForReceipt(approveHash);
+  await awaitMined(evmChain, approveHash);
   const lockHash = await guardWallet(() =>
     evmSigner.sendTransaction({
       to: payload.lockCall.address,
@@ -156,7 +170,7 @@ export async function lockUserOnEvm(
       chainId: terms.evmChainId,
     }),
   );
-  await evmChain.waitForReceipt(lockHash);
+  await awaitMined(evmChain, lockHash);
   return lockHash;
 }
 
@@ -187,7 +201,7 @@ async function sendInOrder(
         ...(step.gas !== undefined ? { gas: step.gas } : {}),
       }),
     );
-    await context.evmChain.waitForReceipt(hash);
+    await awaitMined(context.evmChain, hash);
     lastHash = hash;
   }
   return lastHash as Hex32;

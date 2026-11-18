@@ -3,6 +3,7 @@ import { getAddress } from 'viem';
 import {
   parsePreflightAddresses,
   scripthashForCashAddress,
+  stablecoinFundingAddresses,
   sumBchUtxos,
 } from '../src/preflight.js';
 
@@ -111,5 +112,21 @@ describe('BCH balance summing', () => {
         MUSD,
       ),
     ).toEqual({ sats: 1000n, pusd: 0n, musd: 0n });
+  });
+});
+
+describe('stablecoin funding addresses', () => {
+  it('lists only the solver, not the deployer', () => {
+    const addresses = parsePreflightAddresses(`deployer=${EVM},solver=${EVM2}`);
+    expect(stablecoinFundingAddresses(addresses)).toEqual([getAddress(EVM2)]);
+  });
+
+  it('unlabelled: the first address is the deployer, the second the solver; a single one is both', () => {
+    expect(
+      stablecoinFundingAddresses(parsePreflightAddresses(`${EVM},${EVM2}`)),
+    ).toEqual([getAddress(EVM2)]);
+    expect(stablecoinFundingAddresses(parsePreflightAddresses(EVM))).toEqual([
+      getAddress(EVM),
+    ]);
   });
 });

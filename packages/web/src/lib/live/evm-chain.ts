@@ -17,7 +17,8 @@ export function createBrowserEvmChain(chainId: number): EvmChainPort {
     buildUserLock: (terms) => adapter.buildUserLock(terms),
     getLock: (lockId: Hex32) => adapter.getLock(lockId),
     waitForReceipt: async (hash) => {
-      await adapter.client.waitForTransactionReceipt({ hash });
+      const receipt = await adapter.client.waitForTransactionReceipt({ hash });
+      return { status: receipt.status };
     },
     getBlockTimestamp: async () =>
       Number((await adapter.client.getBlock()).timestamp),

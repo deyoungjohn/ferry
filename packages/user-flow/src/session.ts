@@ -27,7 +27,7 @@ import {
 import { binToHex } from '@bitauth/libauth';
 import { sha256 } from 'viem';
 import { UserFlowError } from './errors.js';
-import { lockUserOnBch, lockUserOnEvm } from './actions.js';
+import { awaitMined, lockUserOnBch, lockUserOnEvm } from './actions.js';
 import type {
   BchChainPort,
   BchSignerPort,
@@ -445,7 +445,7 @@ export class UserSwapSession {
           value: 0n,
           chainId: call.chainId,
         });
-        await this.deps.evmChain.waitForReceipt(hash);
+        await awaitMined(this.deps.evmChain, hash);
         txid = hash;
       } else {
         const utxos = await this.covenantUtxos(file);

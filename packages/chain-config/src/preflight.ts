@@ -699,6 +699,16 @@ function printBalances(
   }
 }
 
+/**
+ * The EVM addresses that must hold stablecoins: the solver's. The deployer needs only gas. When
+ * the list has one address, that address is both deployer and solver.
+ */
+export function stablecoinFundingAddresses(
+  addresses: PreflightAddresses,
+): string[] {
+  return addresses.solverEvm ? [addresses.solverEvm] : addresses.evm;
+}
+
 function printFunding(
   config: ChainConfig,
   evm: EvmBalanceResult,
@@ -715,7 +725,10 @@ function printFunding(
   }
   for (const address of addresses.evm) {
     const chainBalances = evm.byAddress.get(address) ?? [];
+    const needsStablecoins =
+      stablecoinFundingAddresses(addresses).includes(address);
     for (const route of enabled) {
+      if (!needsStablecoins) continue;
       const chain = config.facts.find((item) => item.id === route.chain);
       const token = chain?.assets.find((item) => item.symbol === route.asset);
       if (!chain || !token || token.decimals === null) continue;

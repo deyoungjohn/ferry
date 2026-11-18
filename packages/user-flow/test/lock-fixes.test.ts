@@ -21,7 +21,11 @@ function permitPayload() {
   };
 }
 
-function harness(payload: unknown, signature: string) {
+function harness(
+  payload: unknown,
+  signature: string,
+  receiptStatus: (n: number) => 'success' | 'reverted' | void = () => undefined,
+) {
   const relayed: { permit?: { v: number; r: string; s: string } }[] = [];
   const sent: { to: Hex; data: Hex; value?: bigint; gas?: bigint }[] = [];
   const events: string[] = [];
@@ -48,7 +52,8 @@ function harness(payload: unknown, signature: string) {
     getLock: () => Promise.reject(new Error('unused')),
     waitForReceipt: (hash) => {
       events.push(`receipt ${Number(BigInt(hash))}`);
-      return Promise.resolve();
+      const status = receiptStatus(Number(BigInt(hash)));
+      return Promise.resolve(status ? { status } : undefined);
     },
     getBlockTimestamp: () => Promise.resolve(0),
   };
@@ -196,5 +201,35 @@ describe('approve and lock with an ordered transaction list', () => {
       code: 'WALLET_REJECTED',
     });
     expect(sent.map((t) => t.data)).toEqual([RESET]);
+  });
+});
+
+describe('a mined transaction that reverted stops the list', () => {
+  it('does not send the next step after a reverted reset', async () => {
+    const { context, sent } = harness(
+      approvePayload([
+        wallet('reset-approval', RESET, TOKEN),
+        wallet('approve', APPROVE, TOKEN),
+        wallet('lock', LOCK, HTLC),
+      ]),
+      '0x',
+      (n) => (n === 1 ? 'reverted' : 'success'),
+    );
+    await expect(lockUserOnEvm(context, terms)).rejects.toMatchObject({
+      code: 'TX_REVERTED',
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('a port that returns nothing is still accepted', async () => {
+    const { context, sent } = harness(
+      approvePayload([
+        wallet('approve', APPROVE, TOKEN),
+        wallet('lock', LOCK, HTLC),
+      ]),
+      '0x',
+    );
+    await lockUserOnEvm(context, terms);
+    expect(sent).toHaveLength(2);
   });
 });
