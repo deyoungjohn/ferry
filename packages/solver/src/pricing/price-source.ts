@@ -55,9 +55,12 @@ export class PriceUnavailableError extends Error {
   }
 }
 
+/** How far ahead of this server's clock a price reading may be dated, in seconds. */
+export const FUTURE_SKEW_S = 60;
+
 /**
  * Validates price freshness against PRICE_MAX_AGE_S or feed heartbeat plus margin.
- * Stale or future-dated readings throw PriceUnavailableError.
+ * Stale readings, or ones dated more than FUTURE_SKEW_S ahead, throw PriceUnavailableError.
  */
 export function assertFreshPrice(
   reading: AssetPriceReading,
@@ -74,7 +77,9 @@ export function assertFreshPrice(
     ? reading.heartbeatSeconds + 300
     : defaultMaxAgeSeconds;
 
-  const age = nowSeconds - reading.asOf;
+  // Two clocks never agree exactly: a reading up to FUTURE_SKEW_S ahead counts as brand new.
+  const rawAge = nowSeconds - reading.asOf;
+  const age = rawAge < 0 && rawAge >= -FUTURE_SKEW_S ? 0 : rawAge;
   if (age < 0 || age > maxAllowedAge) {
     throw new PriceUnavailableError(
       `Price from ${reading.source} is stale (${age}s old, max allowed ${maxAllowedAge}s)`,

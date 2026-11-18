@@ -138,6 +138,7 @@ export function SwapCard({
   const [multiQuoteResult, setMultiQuoteResult] =
     useState<BestQuoteResult | null>(null);
   const [refusal, setRefusal] = useState<QuoteRefusal | null>(null);
+  const [failureDetail, setFailureDetail] = useState<string | null>(null);
   const [priceWarning, setPriceWarning] = useState<string | null>(null);
   const [liquidity, setLiquidity] = useState<LiquidityResponse | null>(null);
   const [recoveryDownloaded, setRecoveryDownloaded] = useState(false);
@@ -251,6 +252,7 @@ export function SwapCard({
               },
             });
             setRefusal(null);
+            setFailureDetail(null);
           }
           return;
         }
@@ -298,6 +300,7 @@ export function SwapCard({
             if (result.best) {
               setBestSolverQuote(result.best);
               setRefusal(null);
+              setFailureDetail(null);
 
               // Check pricing evidence against Cauldron reference price (FR-17)
               if (result.best.quote.terms.pricing) {
@@ -324,13 +327,11 @@ export function SwapCard({
               setBestSolverQuote(null);
               const firstFailure = result.failures[0];
               if (firstFailure?.kind === 'refusal' && firstFailure.refusal) {
+                setFailureDetail(null);
                 setRefusal(firstFailure.refusal);
               } else if (firstFailure) {
-                setRefusal({
-                  reason: 'QUOTING_PAUSED',
-                  asset: bchTokenSymbol,
-                  message: firstFailure.message,
-                });
+                setRefusal(null);
+                setFailureDetail(firstFailure.message);
               }
             }
           })
@@ -409,12 +410,12 @@ export function SwapCard({
 
   // Calculate route liquidity display
   const availableLiquidity = useMemo(() => {
-    if (!liquidity) return '5,000';
+    if (!liquidity) return null;
     const targetAsset = isReverse ? 'USDC' : selectedBchToken.replace(/^t/, '');
     const found = liquidity.routes.find(
       (r) => r.asset.toUpperCase() === targetAsset.toUpperCase(),
     );
-    if (!found) return '5,000';
+    if (!found) return null;
     const units = BigInt(found.available);
     const scaled = Number(units) / 10 ** found.decimals;
     return scaled.toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -684,15 +685,24 @@ export function SwapCard({
       <div className="card-ring relative overflow-hidden rounded-card border border-hairline bg-surface-1 p-3.5 sm:p-4">
         {/* Lane Toggle & Liquidity Maximum Display */}
         <div className="mb-2.5 flex items-center justify-between gap-2">
-          <div
-            data-testid="liquidity-available"
-            className="text-[11px] font-medium text-text-muted"
-          >
-            Available:{' '}
-            <span className="font-semibold text-text">
-              {availableLiquidity} {receiveTokenSymbol}
-            </span>
-          </div>
+          {availableLiquidity !== null ? (
+            <div
+              data-testid="liquidity-available"
+              className="text-[11px] font-medium text-text-muted"
+            >
+              Available:{' '}
+              <span className="font-semibold text-text">
+                {availableLiquidity} {receiveTokenSymbol}
+              </span>
+            </div>
+          ) : (
+            <div
+              data-testid="liquidity-available"
+              className="text-[11px] font-medium text-text-muted"
+            >
+              Available: unknown
+            </div>
+          )}
 
           <div
             role="radiogroup"
@@ -801,7 +811,13 @@ export function SwapCard({
               setRecipientAddress(e.target.value);
               setFailureState(null);
             }}
-            placeholder={isReverse ? '0x...' : 'bchtest:...'}
+            placeholder={
+              isReverse
+                ? '0x...'
+                : NETWORK_PROFILE.isMainnet
+                  ? 'bitcoincash:...'
+                  : 'bchtest:...'
+            }
             className="w-full bg-transparent font-mono text-xs text-text outline-none placeholder:text-text-dim/50"
           />
           {hasAddressError && (
@@ -813,7 +829,9 @@ export function SwapCard({
               <span>
                 {isReverse
                   ? `Invalid EVM address format for ${selectedChain.name}. Must start with 0x followed by 40 hex characters.`
-                  : 'Invalid Bitcoin Cash address format. Expected CashAddr with prefix (bchtest:...).'}
+                  : 'Invalid Bitcoin Cash address format. Expected CashAddr with prefix (' +
+                    (NETWORK_PROFILE.isMainnet ? 'bitcoincash' : 'bchtest') +
+                    ':...).'}
               </span>
             </p>
           )}
@@ -941,33 +959,37 @@ export function SwapCard({
         )}
 
         {/* All Solvers Refused Failure State */}
-        {((multiQuoteResult &&
-          multiQuoteResult.quotes.length === 0 &&
-          multiQuoteResult.failures.length > 0) ||
-          failureState === 'all_solvers_refused') && (
-          <div
-            data-testid="all-solvers-refusing-alert"
-            className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn"
-            role="alert"
-          >
-            <p className="font-semibold">
-              {FAILURE_COPY.allSolversRefused.title}
-            </p>
-            <p className="mt-0.5 text-[11px] text-text-muted">
-              {FAILURE_COPY.allSolversRefused.message}
-            </p>
-            <div className="mt-2 flex justify-end">
-              <CopyDiagnosticsButton
-                data={{
-                  route: `${sendTokenSymbol.toLowerCase()}-to-${receiveTokenSymbol.toLowerCase()}`,
-                  errorCode: 'ALL_SOLVERS_REFUSED',
-                  errorMessage: FAILURE_COPY.allSolversRefused.message,
-                  solverUrls,
-                }}
-              />
+        {!refusal &&
+          ((multiQuoteResult &&
+            multiQuoteResult.quotes.length === 0 &&
+            multiQuoteResult.failures.length > 0) ||
+            failureState === 'all_solvers_refused') && (
+            <div
+              data-testid="all-solvers-refusing-alert"
+              className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn"
+              role="alert"
+            >
+              <p className="font-semibold">
+                {failureDetail && solverUrls.length < 2
+                  ? 'Quote unavailable'
+                  : FAILURE_COPY.allSolversRefused.title}
+              </p>
+              <p className="mt-0.5 text-[11px] text-text-muted">
+                {failureDetail ?? FAILURE_COPY.allSolversRefused.message}
+              </p>
+              <div className="mt-2 flex justify-end">
+                <CopyDiagnosticsButton
+                  data={{
+                    route: `${sendTokenSymbol.toLowerCase()}-to-${receiveTokenSymbol.toLowerCase()}`,
+                    errorCode: 'ALL_SOLVERS_REFUSED',
+                    errorMessage:
+                      failureDetail ?? FAILURE_COPY.allSolversRefused.message,
+                    solverUrls,
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Solver Unreachable Failure State */}
         {failureState === 'solver_unreachable' && (

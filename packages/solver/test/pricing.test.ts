@@ -72,6 +72,20 @@ describe('Checkable quotes, price sources, and liquidity reservations (blueprint
       expect(() => assertFreshPrice(staleReading, now)).toThrow(/stale/);
     });
 
+    it('tolerates a reading a few seconds ahead of this clock, and refuses one far ahead', () => {
+      const now = 1700000050;
+      const ahead = (seconds: number) => ({
+        usdPrice: 998_000n,
+        source: 'cauldron',
+        asOf: now + seconds,
+      });
+      expect(() => assertFreshPrice(ahead(1), now)).not.toThrow();
+      expect(() => assertFreshPrice(ahead(60), now)).not.toThrow();
+      expect(() => assertFreshPrice(ahead(61), now)).toThrow(
+        PriceUnavailableError,
+      );
+    });
+
     it('throws PriceUnavailableError when price reading is missing', async () => {
       const mockSources = new MockPriceSource();
       await expect(mockSources.getPrice('PUSD')).rejects.toThrow(

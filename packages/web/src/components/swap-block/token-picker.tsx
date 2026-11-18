@@ -74,6 +74,10 @@ export function TokenPicker({
     });
   }, [q, chainFilter, tokens, chainById]);
 
+  // A short list opens as a popover at the top of the card, not as a tall sheet from the bottom.
+  const compact = tokens.length <= 6;
+  const hideChainRow = chains.length < 2;
+
   return (
     <AnimatePresence>
       {open ? (
@@ -92,20 +96,37 @@ export function TokenPicker({
 
           <motion.div
             key="sheet"
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: '100%' }}
+            initial={
+              reduce
+                ? { opacity: 0 }
+                : { opacity: 0, y: compact ? '-12%' : '100%' }
+            }
             animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-            exit={reduce ? { opacity: 0 } : { opacity: 0, y: '100%' }}
+            exit={
+              reduce
+                ? { opacity: 0 }
+                : { opacity: 0, y: compact ? '-12%' : '100%' }
+            }
             transition={reduce ? { duration: 0.18, ease: EASE } : SPRING_PANEL}
-            className="absolute inset-x-0 bottom-0 z-20 flex max-h-[92%] flex-col rounded-t-3xl border-t border-border bg-card shadow-2xl"
+            className={cn(
+              'absolute z-20 flex flex-col border border-border bg-card shadow-2xl',
+              compact
+                ? 'inset-x-2 top-2 max-h-[80%] rounded-2xl'
+                : 'inset-x-0 bottom-0 max-h-[92%] rounded-t-3xl border-x-0 border-b-0',
+            )}
             role="dialog"
             aria-modal="true"
             aria-label={t(
               side === 'from' ? 'selectFromToken' : 'selectToToken',
             )}
           >
-            <div className="flex justify-center pb-1 pt-2.5">
-              <span className="h-1 w-9 rounded-full bg-muted" />
-            </div>
+            {compact ? (
+              <div className="pt-2" />
+            ) : (
+              <div className="flex justify-center pb-1 pt-2.5">
+                <span className="h-1 w-9 rounded-full bg-muted" />
+              </div>
+            )}
 
             <div className="flex items-center gap-2 border-b border-border px-4 pb-3">
               <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -126,7 +147,12 @@ export function TokenPicker({
               </button>
             </div>
 
-            <div className="[scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex items-center gap-1.5 overflow-x-auto border-b border-border px-3 py-5">
+            <div
+              className={cn(
+                '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden items-center gap-1.5 overflow-x-auto border-b border-border px-3 py-5',
+                hideChainRow ? 'hidden' : 'flex',
+              )}
+            >
               <ChainChip
                 active={chainFilter === 'all'}
                 onClick={() => setChainFilter('all')}

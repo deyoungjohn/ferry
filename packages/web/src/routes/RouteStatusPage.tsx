@@ -264,10 +264,7 @@ export function RouteStatusPage() {
         r.asset.toUpperCase().replace(/^T/, '') === targetSymbol ||
         r.route.toUpperCase().includes(targetSymbol),
     );
-    if (!found) {
-      // Fallback for demo display when specific route token differs only by testnet prefix
-      return `5,000.00 ${route.toToken}`;
-    }
+    if (!found) return 'Unknown';
     const dec = found.decimals ?? (targetSymbol === 'USDC' ? 6 : 2);
     const num = Number(found.available) / Math.pow(10, dec);
     return `${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${route.toToken}`;
