@@ -236,6 +236,20 @@ curl -fsS http://127.0.0.1:8787/v1/health | jq .costFeeds
 
 ## 8. Update
 
+The everyday commands are one script, run as the normal login user:
+
+```bash
+/opt/ferry/deploy/ferry-ops.sh health     # check everything; changes nothing
+/opt/ferry/deploy/ferry-ops.sh update     # pull, build, publish, restart, then check
+/opt/ferry/deploy/ferry-ops.sh caddy      # show and apply a changed Caddyfile
+/opt/ferry/deploy/ferry-ops.sh logs       # follow the solver's log
+/opt/ferry/deploy/ferry-ops.sh rollback <commit>
+```
+
+`health` runs the solver self-check as the service user with `/etc/ferry/solver.env`
+loaded (running it by hand fails with "SOLVER_EVM_PRIVATE_KEY is not set" because only
+systemd reads that file). The steps the script runs are listed below.
+
 Take a Lightsail snapshot first. Then:
 
 ```bash

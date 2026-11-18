@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -141,5 +143,77 @@ describe('bootstrap and file safety', () => {
         }),
       ).not.toThrow();
     }
+  });
+});
+
+describe('the server operations script', () => {
+  const ops = read('deploy/ferry-ops.sh');
+
+  it('stops on errors, runs the self-check as the service user with its settings, and never prints them', () => {
+    expect(ops).toContain('set -euo pipefail');
+    expect(ops).toContain('sudo -u ferry');
+    expect(ops).toContain('with-solver-env.sh');
+    expect(ops).toContain('src/selfcheck.ts');
+    expect(ops).toContain('/etc/ferry/solver.env');
+    expect(ops).not.toMatch(/cat\s+"?\$ENV_FILE/);
+    expect(ops).not.toMatch(/echo[^\n]*\$ENV_FILE/);
+  });
+
+  it('offers update, health, caddy, logs and rollback', () => {
+    for (const word of ['health)', 'update)', 'caddy)', 'logs)', 'rollback)']) {
+      expect(ops).toContain(word);
+    }
+  });
+
+  it('is valid shell', () => {
+    execFileSync('bash', ['-n', `${root}/deploy/ferry-ops.sh`]);
+    execFileSync('bash', ['-n', `${root}/deploy/with-solver-env.sh`]);
+  });
+
+  it('loads KEY=value lines the way the service does: quotes, comments, URLs, blanks, bad names', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ferry-env-'));
+    try {
+      const file = join(dir, 'solver.env');
+      writeFileSync(
+        file,
+        [
+          '# a comment',
+          'SOLVER_EVM_PRIVATE_KEY=0xabc123',
+          'QUOTED="two words & more"',
+          "SINGLE='x=y#z'",
+          'URLS=wss://a.example:50004,wss://b.example:50004',
+          'EMPTY=',
+          'bad key=ignored',
+          '',
+        ].join('\n'),
+      );
+      const out = execFileSync(
+        'bash',
+        [
+          `${root}/deploy/with-solver-env.sh`,
+          'bash',
+          '-c',
+          'printf "%s|%s|%s|%s|%s" "$SOLVER_EVM_PRIVATE_KEY" "$QUOTED" "$SINGLE" "$URLS" "$EMPTY"',
+        ],
+        { env: { ENV_FILE: file, PATH: process.env.PATH ?? '' } },
+      ).toString();
+      expect(out).toBe(
+        '0xabc123|two words & more|x=y#z|wss://a.example:50004,wss://b.example:50004|',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses plainly when the env file is missing', () => {
+    expect(() =>
+      execFileSync('bash', [`${root}/deploy/with-solver-env.sh`, 'true'], {
+        env: {
+          ENV_FILE: '/nonexistent/solver.env',
+          PATH: process.env.PATH ?? '',
+        },
+        stdio: 'pipe',
+      }),
+    ).toThrow();
   });
 });
