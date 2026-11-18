@@ -12,9 +12,11 @@
     "soak:data": "node --conditions=ferry-source --import tsx ../../scripts/soak/run.ts"
   },
   "dependencies": {
+    "@bitauth/libauth": "3.0.0",
     "@ferry/chain-config": "workspace:*",
     "@ferry/chain-evm": "workspace:*",
     "@ferry/core": "workspace:*",
+    "@ferry/htlc-bch": "workspace:*",
     "@ferry/htlc-evm": "workspace:*",
     "@ferry/probe": "workspace:*",
     "@ferry/recover-cli": "workspace:*",
