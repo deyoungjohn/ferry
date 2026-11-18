@@ -29,7 +29,23 @@ const STEP_LABEL: Record<string, string> = {
   refunded: 'Refunded',
 };
 
+/** The work the panel drives. The defaults are the real ones; tests pass fakes. */
+export interface LiveSwapServices {
+  readonly createDependencies: typeof createLiveDependencies;
+  readonly preview: typeof previewSwap;
+  readonly prepare: typeof prepareSwap;
+  readonly execute: typeof executeSwap;
+}
+
+const REAL_SERVICES: LiveSwapServices = {
+  createDependencies: createLiveDependencies,
+  preview: previewSwap,
+  prepare: prepareSwap,
+  execute: executeSwap,
+};
+
 export interface LiveSwapPanelProps {
+  readonly services?: LiveSwapServices;
   readonly open: boolean;
   readonly onClose: () => void;
   readonly input: QuoteInput;
@@ -75,6 +91,7 @@ export function LiveSwapPanel({
   wallets,
   solverUrl,
   describe,
+  services = REAL_SERVICES,
 }: LiveSwapPanelProps) {
   const [phase, setPhase] = useState<Phase>('previewing');
   const [quote, setQuote] = useState<VerifiedQuote | null>(null);
@@ -88,15 +105,20 @@ export function LiveSwapPanel({
 
   const deps = useCallback(
     () =>
-      createLiveDependencies({ wallets, solverUrl, chainId: input.chainId }),
-    [wallets, solverUrl, input.chainId],
+      services.createDependencies({
+        wallets,
+        solverUrl,
+        chainId: input.chainId,
+      }),
+    [services, wallets, solverUrl, input.chainId],
   );
 
   useEffect(() => {
     if (!open || started.current) return;
     started.current = true;
     setPhase('previewing');
-    previewSwap(deps(), input)
+    services
+      .preview(deps(), input)
       .then((verified) => {
         setQuote(verified);
         setPhase('preview');
@@ -105,7 +127,7 @@ export function LiveSwapPanel({
         setError(messageOf(cause));
         setPhase('failed');
       });
-  }, [open, deps, input]);
+  }, [open, deps, input, services]);
 
   useEffect(() => {
     if (!open) started.current = false;
@@ -115,7 +137,7 @@ export function LiveSwapPanel({
     setError(null);
     setPhase('preparing');
     try {
-      const prepared = await prepareSwap(deps(), input);
+      const prepared = await services.prepare(deps(), input);
       sessionRef.current = prepared.session;
       recoveryRef.current = prepared.recovery;
       setFileSaved(false);
@@ -142,7 +164,7 @@ export function LiveSwapPanel({
     setError(null);
     setPhase('running');
     try {
-      const final = await executeSwap(session, setState);
+      const final = await services.execute(session, setState);
       setState(final);
       setPhase('done');
     } catch (cause) {

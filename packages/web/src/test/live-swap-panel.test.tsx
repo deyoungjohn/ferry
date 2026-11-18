@@ -14,26 +14,24 @@ const session = {
   refund: vi.fn(),
 };
 
-vi.mock('../lib/live/ports', () => ({
-  createLiveDependencies: () => ({}),
-}));
-vi.mock('../lib/live/run', () => ({
-  previewSwap: vi.fn(async () => {
+const services = {
+  createDependencies: () => ({}) as never,
+  preview: vi.fn(async () => {
     calls.push('preview');
-    return {};
+    return {} as never;
   }),
-  prepareSwap: vi.fn(async () => {
+  prepare: vi.fn(async () => {
     calls.push('prepare');
     return {
-      session,
+      session: session as never,
       recovery: { filename: 'recovery.json', json: '{"secret":"0x00"}' },
     };
   }),
-  executeSwap: vi.fn(async () => {
+  execute: vi.fn(async () => {
     calls.push('execute');
-    return { ...session.state, step: 'done', status: 'ready' };
+    return { ...session.state, step: 'done', status: 'ready' } as never;
   }),
-}));
+};
 
 import { LiveSwapPanel } from '../components/LiveSwapPanel';
 
@@ -55,6 +53,7 @@ function renderPanel() {
       input={input}
       wallets={{} as never}
       solverUrl="https://solver.test"
+      services={services}
       describe={{ pay: '1.00 PUSD', receive: '0.99 USDC' }}
     />,
   );
