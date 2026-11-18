@@ -52,6 +52,8 @@ export const SolverConfigSchema = z
     minSwapUsdMicros: z.coerce.bigint().default(1000000n),
     maxSwapUsdMicros: z.coerce.bigint().default(50000000n),
     maxExposureUsdMicros: z.coerce.bigint().default(250000000n),
+    reservationCapPerAddressUsdMicros: z.coerce.bigint().optional(),
+    reservationCapPerIpUsdMicros: z.coerce.bigint().optional(),
     zeroConfMaxUsdMicros: z.coerce.bigint().default(25000000n),
     quoteTtlSeconds: z.coerce.number().default(60),
     evmConfs: z.coerce.number().default(1),
@@ -137,6 +139,30 @@ export const SolverConfigSchema = z
         }
       }
     }
+
+    if (
+      data.reservationCapPerAddressUsdMicros !== undefined &&
+      data.reservationCapPerAddressUsdMicros <= 0n
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'RESERVATION_CAP_PER_ADDRESS_USD_MICROS must be positive. Refusing to start.',
+        path: ['reservationCapPerAddressUsdMicros'],
+      });
+    }
+
+    if (
+      data.reservationCapPerIpUsdMicros !== undefined &&
+      data.reservationCapPerIpUsdMicros <= 0n
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'RESERVATION_CAP_PER_IP_USD_MICROS must be positive. Refusing to start.',
+        path: ['reservationCapPerIpUsdMicros'],
+      });
+    }
   });
 
 export type SolverConfig = z.infer<typeof SolverConfigSchema>;
@@ -221,6 +247,12 @@ export function loadConfigFromEnv(
     minSwapUsdMicros: env.MIN_SWAP_USD_MICROS,
     maxSwapUsdMicros: env.MAX_SWAP_USD_MICROS,
     maxExposureUsdMicros: env.MAX_EXPOSURE_USD_MICROS,
+    reservationCapPerAddressUsdMicros:
+      env.RESERVATION_CAP_PER_ADDRESS_USD_MICROS ||
+      env.MAX_RESERVATION_PER_ADDRESS_USD_MICROS,
+    reservationCapPerIpUsdMicros:
+      env.RESERVATION_CAP_PER_IP_USD_MICROS ||
+      env.MAX_RESERVATION_PER_IP_USD_MICROS,
     zeroConfMaxUsdMicros: env.ZERO_CONF_MAX_USD_MICROS,
     quoteTtlSeconds: env.QUOTE_TTL_SECONDS,
     evmConfs: env.EVM_CONFS,

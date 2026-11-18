@@ -782,7 +782,9 @@ describe('Real Inventory, Dry-Run Quotes, Health Tips, and Policy Authority (B4-
       const refusal = res.json();
       expect(refusal.reason).toBe('OVER_MAX_SWAP');
       expect(refusal.maxAmount).toBe('1.00');
-      expect(refusal.message).toBe('Amount exceeds maximum swap of $1.00');
+      expect(refusal.message).toBe(
+        'Amount $2.00 exceeds maximum swap of $1.00',
+      );
       QuoteRefusalSchema.parse(refusal);
     });
 
