@@ -102,14 +102,57 @@ describe('browser Bitcoin Cash chain', () => {
     expect(await rejection(dead.getUtxos('00'))).toMatch(/Nothing was sent/);
   });
 
-  it('broadcasts through one server only, never retried on another', async () => {
+  it('broadcasts on the next server when the first cannot connect', async () => {
     const log: string[] = [];
     const chain = createBrowserBchChain({
       urls: ['wss://a', 'wss://b'],
       createClient: fake({ 'wss://a': 'fail' }, log),
     });
-    expect(await rejection(chain.broadcast('00'))).toMatch(/down wss:\/\/a/);
-    expect(log).toEqual(['connect wss://a']);
+    expect(await chain.broadcast('00')).toBe('txid-from-wss://b');
+    expect(log).toEqual(['connect wss://a', 'connect wss://b']);
+  });
+
+  it('never repeats a send on another server after one went out', async () => {
+    const log: string[] = [];
+    const chain = createBrowserBchChain({
+      urls: ['wss://a', 'wss://b'],
+      createClient: (url: string) => ({
+        connect: async () => {
+          log.push(`connect ${url}`);
+        },
+        close: () => undefined,
+        listUnspent: async () => [],
+        broadcast: async () => {
+          log.push(`send ${url}`);
+          throw new Error('timeout after send');
+        },
+        getTipHeight: async () => 1,
+      }),
+    });
+    expect(await rejection(chain.broadcast('00'))).toMatch(
+      /timeout after send/,
+    );
+    expect(log).toEqual(['connect wss://a', 'send wss://a']);
+  });
+
+  it('keeps the NFT of an output so a lock never spends it', async () => {
+    const nftRow = {
+      ...row,
+      token_data: {
+        category: 'bb'.repeat(32),
+        amount: '0',
+        nft: { capability: 'none', commitment: '01' },
+      },
+    };
+    const chain = createBrowserBchChain({
+      urls: ['wss://a'],
+      createClient: (url: string) => ({
+        ...fake({}, [])(url),
+        listUnspent: async () => [nftRow],
+      }),
+    });
+    const [utxo] = await chain.getUtxos('76a914' + '33'.repeat(20) + '88ac');
+    expect(utxo?.nft).toEqual({ capability: 'none', commitment: '01' });
   });
 
   it('prefers the solver tip and falls back to the server', async () => {

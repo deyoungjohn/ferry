@@ -82,18 +82,45 @@ export function createBrowserBchChain(
                 category: row.token_data.category,
                 amount: BigInt(row.token_data.amount),
               },
+              // An output that also holds an NFT must never be spent by a lock.
+              ...(row.token_data.nft
+                ? {
+                    nft: {
+                      ...(row.token_data.nft.capability
+                        ? { capability: row.token_data.nft.capability }
+                        : {}),
+                      ...(row.token_data.nft.commitment !== undefined
+                        ? { commitment: row.token_data.nft.commitment }
+                        : {}),
+                    },
+                  }
+                : {}),
             }
           : {}),
       }));
     },
-    broadcast(txHex: string): Promise<string> {
-      // A broadcast is not retried on another server after one may have taken it.
-      const url = urls[0]!;
-      const client = make(url);
-      return client
-        .connect()
-        .then(() => client.broadcast(txHex))
-        .finally(() => client.close());
+    async broadcast(txHex: string): Promise<string> {
+      // Servers are tried only until one CONNECTS. After a send has gone out on one server it
+      // is never repeated on another, because the first may have accepted it.
+      const failures: string[] = [];
+      for (const url of urls) {
+        const client = make(url);
+        try {
+          await client.connect();
+        } catch (error) {
+          failures.push(error instanceof Error ? error.message : String(error));
+          client.close();
+          continue;
+        }
+        try {
+          return await client.broadcast(txHex);
+        } finally {
+          client.close();
+        }
+      }
+      throw new Error(
+        `No Bitcoin Cash server answered (${failures.join('; ')}). Nothing was sent.`,
+      );
     },
   };
 }
