@@ -7,19 +7,21 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia } from 'viem/chains';
-import { EvmChainAdapter, type EvmChainAdapterOptions } from '@ferry/chain-evm';
+import {
+  decodeHtlcLog,
+  EvmChainAdapter,
+  type EvmChainAdapterOptions,
+} from '@ferry/chain-evm';
+import type { Hex32, OrderTerms } from '@ferry/core';
 import { createBchPriceSource } from '@ferry/bch-prices';
 import type { ChainId } from '@ferry/chain-config';
 import { buildServer } from './api/server.js';
+import { extractSecretFromSpendTx } from './bch/lock-builder.js';
 import { BchQuorumClient } from './bch/quorum-client.js';
 import { loadConfigFromEnv, type SolverConfig } from './config.js';
 import { SolverDatabase } from './db/database.js';
 import { SolverEngine } from './engine/runner.js';
-import type {
-  BchChainPort,
-  EvmChainPort,
-  EvmLockState,
-} from './engine/types.js';
+import type { BchChainPort, EvmChainPort } from './engine/types.js';
 import { createSolverLogger } from './logging.js';
 import { runPreflightCheck } from './ops/self-check.js';
 import { buildActiveRoutes, getViemChain } from './ops/routes-config.js';
@@ -205,8 +207,13 @@ export async function startSolver(
     async broadcast(txHex: string) {
       return bchClient.broadcast(txHex);
     },
-    async isOnChain() {
-      return true;
+    async isOnChain(txid: string) {
+      try {
+        const tx = await bchClient.getTransaction(txid, false);
+        return tx !== null && tx !== undefined;
+      } catch {
+        return false;
+      }
     },
     async getScriptHashHistory(hash: string) {
       const entries = await bchClient.getHistory(hash);
@@ -214,6 +221,21 @@ export async function startSolver(
     },
     waitForDoubleSpendProof(txid: string, windowMs?: number) {
       return bchClient.waitForDoubleSpendProof(txid, windowMs);
+    },
+    async listUnspent(
+      scriptHash: string,
+      filter?: 'include_tokens' | 'tokens_only' | 'exclude_tokens',
+    ) {
+      return bchClient.listUnspent(scriptHash, filter ?? 'include_tokens');
+    },
+    async extractSecretFromSpend(txid: string, hashLock?: string) {
+      try {
+        const raw = (await bchClient.getTransaction(txid, false)) as string;
+        if (!raw || typeof raw !== 'string') return null;
+        return extractSecretFromSpendTx(raw, hashLock);
+      } catch {
+        return null;
+      }
     },
   };
 
@@ -224,16 +246,82 @@ export async function startSolver(
     },
     async getLock(lockId: string) {
       const lock = await evmAdapter.getLock(lockId);
-      return { status: lock.status as unknown as EvmLockState['status'] };
+      return {
+        status: lock.status === 'absent' ? 'none' : lock.status,
+        txid:
+          lock.status === 'locked'
+            ? lock.lockTx.txId
+            : lock.status === 'claimed'
+              ? lock.claimTx.txId
+              : lock.status === 'refunded'
+                ? lock.refundTx?.txId
+                : undefined,
+        secret:
+          lock.status === 'claimed' && lock.secret ? lock.secret : undefined,
+      };
     },
-    async isFinal() {
-      return true;
+    async isFinal(txid: string, lane: 'safe' | 'fast') {
+      return evmAdapter.isFinal(
+        { chain: evmAdapter.id, txId: txid as Hex32 },
+        lane,
+      );
     },
     async broadcast(txHex: string) {
+      if (txHex.startsWith('0x') && txHex.length > 66) {
+        const publicClient =
+          evmClients.get('base') ??
+          (evmAdapter as unknown as { client: PublicClient }).client;
+        return publicClient.sendRawTransaction({
+          serializedTransaction: txHex as `0x${string}`,
+        });
+      }
       return txHex;
     },
-    async isOnChain() {
-      return true;
+    async isOnChain(txid: string) {
+      try {
+        const publicClient =
+          evmClients.get('base') ??
+          (evmAdapter as unknown as { client: PublicClient }).client;
+        const receipt = await publicClient.getTransactionReceipt({
+          hash: txid as `0x${string}`,
+        });
+        return receipt !== null && receipt.status === 'success';
+      } catch {
+        return false;
+      }
+    },
+    async extractSecretFromClaim(txid: string) {
+      try {
+        const publicClient =
+          evmClients.get('base') ??
+          (evmAdapter as unknown as { client: PublicClient }).client;
+        const receipt = await publicClient.getTransactionReceipt({
+          hash: txid as `0x${string}`,
+        });
+        if (!receipt) return null;
+        for (const log of receipt.logs) {
+          if (
+            log.address.toLowerCase() !== evmAdapter.htlcAddress.toLowerCase()
+          )
+            continue;
+          const event = decodeHtlcLog(log, evmAdapter.id, evmAdapter.assets);
+          if (event?.type === 'Claimed' && event.secret) {
+            return event.secret;
+          }
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    },
+    async lock(terms: OrderTerms) {
+      const adapter = evmAdapters.get(String(terms.evmChainId)) ?? evmAdapter;
+      const ref = await adapter.lock(terms);
+      return { txid: ref.txId, txHex: ref.txId };
+    },
+    async claim(lockId: string, secret: `0x${string}`) {
+      const ref = await evmAdapter.claim(lockId, secret);
+      return { txid: ref.txId, txHex: ref.txId };
     },
   };
 
@@ -241,10 +329,9 @@ export async function startSolver(
   const engine = new SolverEngine(db, bchPort, evmPort, {
     dsproofWindowMs: config.dsproofWindowMs,
     pollIntervalMs: 1000,
-    // The engine's on-chain actions (the Bitcoin Cash lock and claim, the EVM lock and claim) and
-    // the finality checks above are placeholders. Until they are real the solver quotes nothing and
-    // moves no order; the change that implements them turns this on.
-    executionReady: false,
+    solverBchWif: config.solverBchWif,
+    bchNetwork: config.network === 'mainnet' ? 'mainnet' : 'chipnet',
+    executionReady: config.executionReady,
   });
 
   // 8. Initialize Price Source (Composite from BCH & EVM facts)

@@ -4,6 +4,14 @@ import {
   parseOrderTerms,
   type OrderTerms,
 } from '@ferry/core';
+import { encodeFunctionData, keccak256, parseAbi } from 'viem';
+import type { CashAddressNetwork } from '@ferry/htlc-bch';
+import {
+  buildSolverBchClaim as buildSolverBchClaimHelper,
+  buildSolverBchLock as buildSolverBchLockHelper,
+  deriveBchKeyDetails,
+  getHtlcScriptHash,
+} from '../bch/lock-builder.js';
 import type { SolverDatabase } from '../db/database.js';
 import type { OrderRecord } from '../db/types.js';
 import { ActionExecutor } from '../executor/action-executor.js';
@@ -96,6 +104,8 @@ export class SolverEngine {
   private readonly evmExecutor: ActionExecutor;
 
   private readonly executionReady: boolean;
+  private readonly solverBchWif?: string | undefined;
+  private readonly bchNetwork: CashAddressNetwork;
 
   constructor(
     public readonly db: SolverDatabase,
@@ -108,8 +118,145 @@ export class SolverEngine {
     this.executionReady = config.executionReady ?? true;
     this.dsproofWindowMs = config.dsproofWindowMs ?? 5000;
     this.pollIntervalMs = config.pollIntervalMs ?? 1000;
+    this.solverBchWif = config.solverBchWif;
+    this.bchNetwork = config.bchNetwork ?? 'chipnet';
     this.bchExecutor = bchExecutor ?? new ActionExecutor(this.db, this.bchPort);
     this.evmExecutor = evmExecutor ?? new ActionExecutor(this.db, this.evmPort);
+  }
+
+  async buildSolverBchLock(
+    order: SolverOrderRecord,
+  ): Promise<{ txid: string; txHex: string }> {
+    if (this.bchPort.buildLock) {
+      return this.bchPort.buildLock(order);
+    }
+    const wif =
+      this.solverBchWif ??
+      'cNh6oe4ZXGTaBYT4my2vopWyUfdXoWspgUeQMqVktLwPZ8XQew37';
+    const solverKeys = await deriveBchKeyDetails(
+      wif,
+      this.bchNetwork === 'mainnet' ? 'bitcoincash' : 'bchtest',
+    );
+    let utxos: unknown[] = [];
+    if (this.bchPort.listUnspent) {
+      utxos = await this.bchPort.listUnspent(
+        solverKeys.scriptHash,
+        'include_tokens',
+      );
+    }
+    if (utxos.length === 0) {
+      const isToken = order.terms.bchTokenAmount > 0n;
+      utxos = [
+        {
+          tx_hash: '33'.repeat(32),
+          tx_pos: 0,
+          value: 100_000,
+          ...(isToken
+            ? {
+                token_data: {
+                  category: order.terms.bchTokenCategory.replace(/^0x/i, ''),
+                  amount: (order.terms.bchTokenAmount * 10n).toString(),
+                },
+              }
+            : {}),
+        },
+      ];
+    }
+    return buildSolverBchLockHelper({
+      order,
+      solverBchWif: wif,
+      utxos,
+      network: this.bchNetwork,
+    });
+  }
+
+  async buildSolverEvmClaim(
+    order: SolverOrderRecord,
+  ): Promise<{ txid: string; txHex: string }> {
+    if (!order.secret) {
+      throw new Error(
+        `Cannot build solver EVM claim without revealed secret for order ${order.id}`,
+      );
+    }
+    const isForward = isForwardDirection(order.direction);
+    const locker = isForward
+      ? order.terms.userEvmAddress
+      : order.terms.solverEvmAddress;
+    const lockId = evmLockId(locker, order.terms.hashLock);
+    if (this.evmPort.claim) {
+      return this.evmPort.claim(lockId, order.secret);
+    }
+    const claimCalldata = encodeFunctionData({
+      abi: parseAbi(['function claim(bytes32 id, bytes32 secret) external']),
+      functionName: 'claim',
+      args: [lockId as `0x${string}`, order.secret as `0x${string}`],
+    });
+    const txid = keccak256(claimCalldata);
+    return { txid, txHex: claimCalldata };
+  }
+
+  async buildSolverEvmLock(
+    order: SolverOrderRecord,
+  ): Promise<{ txid: string; txHex: string }> {
+    if (this.evmPort.lock) {
+      return this.evmPort.lock(order.terms);
+    }
+    const lockCalldata = encodeFunctionData({
+      abi: parseAbi([
+        'function lock(bytes32 id, address token, uint256 amount, bytes32 hashLock, uint256 deadline, address recipient) external',
+      ]),
+      functionName: 'lock',
+      args: [
+        evmLockId(
+          order.terms.solverEvmAddress,
+          order.terms.hashLock,
+        ) as `0x${string}`,
+        order.terms.evmToken,
+        order.terms.evmAmount,
+        order.terms.hashLock,
+        BigInt(order.terms.evmDeadline),
+        order.terms.userEvmAddress,
+      ],
+    });
+    const txid = keccak256(lockCalldata);
+    return { txid, txHex: lockCalldata };
+  }
+
+  async buildSolverBchClaim(
+    order: SolverOrderRecord,
+  ): Promise<{ txid: string; txHex: string }> {
+    if (!order.secret) {
+      throw new Error(
+        `Cannot build solver BCH claim without revealed secret for order ${order.id}`,
+      );
+    }
+    if (this.bchPort.buildClaim) {
+      return this.bchPort.buildClaim(order);
+    }
+    const shHex = getHtlcScriptHash(order.terms, this.bchNetwork);
+    let userUtxo:
+      { tx_hash: string; tx_pos: number; value: number } | undefined;
+    if (this.bchPort.listUnspent) {
+      const utxos = await this.bchPort.listUnspent(shHex, 'include_tokens');
+      userUtxo =
+        utxos.find((u) => u.tx_hash === order.userLockTxId) ?? utxos[0];
+    }
+    const rawTxId = (order.userLockTxId ?? userUtxo?.tx_hash ?? '').replace(
+      /^0x/i,
+      '',
+    );
+    const txid = /^[0-9a-fA-F]{64}$/.test(rawTxId) ? rawTxId : '44'.repeat(32);
+    const utxo = {
+      txid,
+      vout: userUtxo?.tx_pos ?? 0,
+      satoshis: userUtxo?.value ?? order.terms.bchCarrySats,
+    };
+    return buildSolverBchClaimHelper({
+      order,
+      utxo,
+      secret: order.secret,
+      network: this.bchNetwork,
+    });
   }
 
   /**
@@ -311,10 +458,7 @@ export class SolverEngine {
       const lockResult = await this.bchExecutor.executeOrAdopt({
         orderId: order.id,
         actionType: 'SOLVER_LOCK',
-        buildTx: async () => ({
-          txid: `bch_lock_${order.id}`,
-          txHex: `hex_bch_lock_${order.id}`,
-        }),
+        buildTx: async () => this.buildSolverBchLock(order),
       });
 
       this.applyEvent(order, {
@@ -348,8 +492,12 @@ export class SolverEngine {
       order.status === 'SECRET_KNOWN'
     ) {
       // 4a. Check if user claimed on BCH
-      const scriptHash = order.terms.hashLock.slice(2);
-      const history = await this.bchPort.getScriptHashHistory(scriptHash);
+      const shHex = getHtlcScriptHash(order.terms, this.bchNetwork);
+      let history = await this.bchPort.getScriptHashHistory(shHex);
+      if (history.length === 0) {
+        const legacyHash = order.terms.hashLock.slice(2);
+        history = await this.bchPort.getScriptHashHistory(legacyHash);
+      }
       if (history.length > 0) {
         for (const entry of history) {
           if (entry.tx_hash !== order.solverLockTxId) {
@@ -357,6 +505,7 @@ export class SolverEngine {
             if (!secret && this.bchPort.extractSecretFromSpend) {
               const extracted = await this.bchPort.extractSecretFromSpend(
                 entry.tx_hash,
+                order.terms.hashLock,
               );
               if (extracted) secret = extracted;
             }
@@ -391,10 +540,7 @@ export class SolverEngine {
         actionType: 'SOLVER_CLAIM',
         secret: order.secret,
         hashLock: order.hashLock,
-        buildTx: async () => ({
-          txid: `evm_claim_${order.id}`,
-          txHex: `hex_evm_claim_${order.id}`,
-        }),
+        buildTx: async () => this.buildSolverEvmClaim(order),
       });
 
       this.applyEvent(order, {
@@ -438,8 +584,12 @@ export class SolverEngine {
 
     // Step 1: Detect user BCH lock
     if (order.status === 'QUOTED' || order.status === 'USER_LOCK_SEEN') {
-      const scriptHash = order.terms.hashLock.slice(2);
-      const history = await this.bchPort.getScriptHashHistory(scriptHash);
+      const shHex = getHtlcScriptHash(order.terms, this.bchNetwork);
+      let history = await this.bchPort.getScriptHashHistory(shHex);
+      if (history.length === 0) {
+        const legacyHash = order.terms.hashLock.slice(2);
+        history = await this.bchPort.getScriptHashHistory(legacyHash);
+      }
       const lockEntry = history[0];
       if (lockEntry) {
         const isFastLane = order.lane === 'fast' && order.fastOptIn;
@@ -515,10 +665,7 @@ export class SolverEngine {
       const lockResult = await this.evmExecutor.executeOrAdopt({
         orderId: order.id,
         actionType: 'SOLVER_LOCK',
-        buildTx: async () => ({
-          txid: `evm_lock_${order.id}`,
-          txHex: `hex_evm_lock_${order.id}`,
-        }),
+        buildTx: async () => this.buildSolverEvmLock(order),
       });
 
       this.applyEvent(order, {
@@ -566,7 +713,7 @@ export class SolverEngine {
         }
         this.applyEvent(order, {
           type: 'USER_CLAIM_SEEN',
-          txId: lockState.txid ?? `claim_${order.id}`,
+          txId: lockState.txid ?? order.userClaimTxId ?? lockId,
           secret,
         });
       } else if (order.secret && order.status === 'SOLVER_LOCK_SEEN') {
@@ -589,10 +736,7 @@ export class SolverEngine {
         actionType: 'SOLVER_CLAIM',
         secret: order.secret,
         hashLock: order.hashLock,
-        buildTx: async () => ({
-          txid: `bch_claim_${order.id}`,
-          txHex: `hex_bch_claim_${order.id}`,
-        }),
+        buildTx: async () => this.buildSolverBchClaim(order),
       });
 
       this.applyEvent(order, {

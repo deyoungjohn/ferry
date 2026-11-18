@@ -1,3 +1,6 @@
+import type { OrderTerms } from '@ferry/core';
+import type { SolverOrderRecord } from '../state-machine/types.js';
+
 export interface BchChainPort {
   getTip(): Promise<{ height: number; hash: string }>;
   isQuorumHealthy(): boolean;
@@ -15,7 +18,32 @@ export interface BchChainPort {
     txid: string,
     waitWindowMs?: number,
   ): Promise<{ hasProof: boolean; proof?: unknown }>;
-  extractSecretFromSpend?(txid: string): Promise<`0x${string}` | null>;
+  extractSecretFromSpend?(
+    txid: string,
+    hashLock?: string,
+  ): Promise<`0x${string}` | null>;
+  listUnspent?(
+    scriptHash: string,
+    filter?: string,
+  ): Promise<
+    Array<{
+      tx_hash: string;
+      tx_pos: number;
+      value: number;
+      height: number;
+      token_data?: {
+        category: string;
+        amount: string;
+        nft?: unknown;
+      };
+    }>
+  >;
+  buildLock?(
+    order: SolverOrderRecord,
+  ): Promise<{ txid: string; txHex: string }>;
+  buildClaim?(
+    order: SolverOrderRecord,
+  ): Promise<{ txid: string; txHex: string }>;
 }
 
 export interface EvmLockState {
@@ -39,6 +67,11 @@ export interface EvmChainPort {
     }) => void,
   ): () => void;
   extractSecretFromClaim?(txid: string): Promise<`0x${string}` | null>;
+  lock?(terms: OrderTerms): Promise<{ txid: string; txHex: string }>;
+  claim?(
+    lockId: string,
+    secret: `0x${string}`,
+  ): Promise<{ txid: string; txHex: string }>;
 }
 
 export interface EngineConfig {
@@ -50,4 +83,6 @@ export interface EngineConfig {
   executionReady?: boolean | undefined;
   dsproofWindowMs?: number | undefined; // default 5000 ms
   pollIntervalMs?: number | undefined;
+  solverBchWif?: string | undefined;
+  bchNetwork?: 'mainnet' | 'chipnet' | undefined;
 }
