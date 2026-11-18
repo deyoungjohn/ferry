@@ -130,9 +130,13 @@ import {
   RelayLockRequestSchema,
   RelayLockResponseSchema,
   RevealSecretResponseSchema,
+  MAX_SEND_LINK_QUERY_TAGS,
   SendLinkDetailsResponseSchema,
+  SendLinksQueryRequestSchema,
+  SendLinksQueryResponseSchema,
   SendQuoteRequestSchema,
   StatsResponseSchema,
+  viewTagSchema,
 } from '../src/api/index.js';
 
 const HEX32 = `0x${'ab'.repeat(32)}`;
@@ -373,6 +377,63 @@ describe('Blueprint route schemas in @ferry/core/api', () => {
         lane: 'safe',
       }).windowSeconds,
     ).toBe(86400);
+
+    expect(
+      SendQuoteRequestSchema.parse({
+        token: 'PUSD',
+        chainId: 84532,
+        evmToken: EVM_ADDR,
+        amountIn: '1000000',
+        recipientEvmAddress: EVM_ADDR,
+        userEvmAddress: EVM_ADDR,
+        userBchLockingBytecode: BCH_LOCKING,
+        hashLock: HEX32,
+        windowSeconds: 86400,
+        viewTag: HEX32,
+        lane: 'safe',
+      }).viewTag,
+    ).toBe(HEX32.toLowerCase());
+
+    expect(viewTagSchema.parse('aa'.repeat(32))).toBe(`0x${'aa'.repeat(32)}`);
+    expect(viewTagSchema.parse(`0x${'BB'.repeat(32)}`)).toBe(
+      `0x${'bb'.repeat(32)}`,
+    );
+    expect(() => viewTagSchema.parse('not-a-hex-tag')).toThrow();
+    expect(() => viewTagSchema.parse('0x1234')).toThrow();
+
+    const queryReq = SendLinksQueryRequestSchema.parse({
+      tags: [HEX32, '0x' + '44'.repeat(32)],
+    });
+    expect(queryReq.tags).toHaveLength(2);
+
+    expect(() => SendLinksQueryRequestSchema.parse({ tags: [] })).toThrow();
+    const tooMany = Array.from(
+      { length: MAX_SEND_LINK_QUERY_TAGS + 1 },
+      (_, i) => `0x${i.toString(16).padStart(64, '0')}`,
+    );
+    expect(() =>
+      SendLinksQueryRequestSchema.parse({ tags: tooMany }),
+    ).toThrow();
+
+    const queryRes = SendLinksQueryResponseSchema.parse({
+      links: [
+        {
+          id: 'sl-1',
+          status: 'locked',
+          token: 'PUSD',
+          chainId: 84532,
+          evmToken: EVM_ADDR,
+          recipientEvmAddress: EVM_ADDR,
+          hashLock: HEX32,
+          evmDeadline: 1_794_850_600,
+          bchRefundHeight: 500_144,
+          tag: HEX32,
+          createdAt: 1_794_764_200,
+          updatedAt: 1_794_764_210,
+        },
+      ],
+    });
+    expect(queryRes.links[0]?.tag).toBe(HEX32.toLowerCase());
 
     expect(
       SendLinkDetailsResponseSchema.parse({

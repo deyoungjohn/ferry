@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router';
 import { ResumeSwaps } from '../components/ResumeSwaps';
 
 function swap(step: string, orderId = `0x${'ab'.repeat(32)}`) {
@@ -18,39 +19,43 @@ function swap(step: string, orderId = `0x${'ab'.repeat(32)}`) {
 describe('ResumeSwaps', () => {
   it('shows nothing when no swap is saved', async () => {
     const { container } = render(
-      <ResumeSwaps
-        createDeps={() => ({}) as never}
-        resume={async () => ({ resumed: [], failed: [] })}
-      />,
+      <MemoryRouter>
+        <ResumeSwaps
+          createDeps={() => ({}) as never}
+          resume={async () => ({ resumed: [], failed: [] })}
+        />
+      </MemoryRouter>,
     );
     await waitFor(() => expect(container.firstChild).toBeNull());
   });
 
-  it('lists an open swap and carries on: wait for the solver, then claim', async () => {
+  it('lists an open swap and links to its order page, where the steps are shown', async () => {
     const open = swap('waitCounterLock');
     render(
-      <ResumeSwaps
-        createDeps={() => ({}) as never}
-        resume={async () => ({ resumed: [open as never], failed: [] })}
-      />,
+      <MemoryRouter>
+        <ResumeSwaps
+          createDeps={() => ({}) as never}
+          resume={async () => ({ resumed: [open as never], failed: [] })}
+        />
+      </MemoryRouter>,
     );
-    await screen.findByTestId('resume-swaps');
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    await waitFor(() => expect(open.session.claim).toHaveBeenCalled());
-    expect(open.session.waitCounterLock).toHaveBeenCalled();
+    const link = await screen.findByTestId('resume-open');
+    expect(link).toHaveAttribute('href', `/app/swap/${open.orderId}`);
   });
 
   it('only lists a swap that was never locked, with no button, and shows files it could not check', async () => {
     render(
-      <ResumeSwaps
-        createDeps={() => ({}) as never}
-        resume={async () => ({
-          resumed: [swap('lock') as never],
-          failed: [
-            { orderId: `0x${'cd'.repeat(32)}`, error: 'chain read failed' },
-          ],
-        })}
-      />,
+      <MemoryRouter>
+        <ResumeSwaps
+          createDeps={() => ({}) as never}
+          resume={async () => ({
+            resumed: [swap('lock') as never],
+            failed: [
+              { orderId: `0x${'cd'.repeat(32)}`, error: 'chain read failed' },
+            ],
+          })}
+        />
+      </MemoryRouter>,
     );
     await screen.findByText(/Nothing is at risk/);
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull();

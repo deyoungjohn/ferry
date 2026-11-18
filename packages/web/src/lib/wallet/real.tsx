@@ -24,6 +24,7 @@ import { wagmiConfig } from './evm-config';
 import { validateBchAddressPrefix } from './chain';
 import { wizardConnectTheme } from './wizard-theme';
 import { useBchReconnectTimeout } from './reconnect-timeout';
+import { revokeAccountAccess } from './revoke';
 import { wizardSignParams } from './wizard-sign';
 import { addressFromPubkey } from '../bch/address';
 import {
@@ -45,8 +46,14 @@ import type {
 const queryClient = new QueryClient();
 
 function useRealEvmWallet(): EvmWallet {
-  const { address, chainId, isConnected, isConnecting, isReconnecting } =
-    useAccount();
+  const {
+    address,
+    chainId,
+    connector,
+    isConnected,
+    isConnecting,
+    isReconnecting,
+  } = useAccount();
   const { disconnectAsync } = useDisconnect();
   const { open } = useAppKit();
   const { signTypedDataAsync } = useSignTypedData();
@@ -94,7 +101,10 @@ function useRealEvmWallet(): EvmWallet {
       void open();
     },
     disconnect: async () => {
+      // Taken before disconnecting: afterwards the connector no longer hands it out.
+      const provider = await connector?.getProvider?.().catch(() => null);
       await disconnectAsync();
+      await revokeAccountAccess(provider);
       setPendingRequest(null);
       setPromptHelp(null);
     },
@@ -179,6 +189,7 @@ function useRealBchWallet(
 ): { wallet: BchWallet; dialog: ReactNode } {
   const wizard = useWizardConnect({ dappName: 'Ferry' });
   const connectRef = useRef(wizard.connect);
+  const connectStartedAt = useRef(0);
   const startedFresh = useRef(false);
 
   useEffect(() => {
@@ -276,6 +287,7 @@ function useRealBchWallet(
     connect: () => {
       setPrefixError(null);
       setUserStarted(true);
+      connectStartedAt.current = Date.now();
       // Normal case: open the QR dialog directly. A stale restored
       // attempt needs the clear-and-remount path to offer fresh QR.
       if (wizard.state === 'connecting' || wizard.state === 'reconnecting') {
@@ -410,6 +422,9 @@ function useRealBchWallet(
       <WizardConnectQRDialog
         show={wizard.state === 'connecting'}
         onClose={() => {
+          // A close in the first second is never the person (it is a focus or click that landed
+          // as the window opened); ignoring it keeps the code on screen.
+          if (Date.now() - connectStartedAt.current < 1200) return;
           void wizard.disconnect();
         }}
         uri={wizard.uri}

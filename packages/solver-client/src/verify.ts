@@ -35,6 +35,11 @@ export interface VerifiedQuote {
 }
 
 const DEFAULT_MAX_REF_AGE_SECONDS = 300;
+/**
+ * A Chainlink stablecoin feed is only updated when the price moves or its heartbeat (24 hours on
+ * Base USDC/USD) runs out, so a reading hours old is normal. The solver applies the same rule.
+ */
+const CHAINLINK_MAX_REF_AGE_SECONDS = 24 * 3600 + 300;
 const DEFAULT_MAX_CLOCK_SKEW_SECONDS = 30;
 
 function sameHex(left: string, right: string): boolean {
@@ -193,14 +198,22 @@ export async function verifyQuote(
   const pricing = terms.pricing;
 
   for (const ref of pricing.refs) {
-    const maxAge = context.maxRefAgeBySource?.[ref.source] ?? defaultMaxRefAge;
+    const maxAge =
+      context.maxRefAgeBySource?.[ref.source] ??
+      (ref.source.startsWith('chainlink:')
+        ? Math.max(defaultMaxRefAge, CHAINLINK_MAX_REF_AGE_SECONDS)
+        : defaultMaxRefAge);
     assertField(
       ref.asOf <= nowSeconds + maxClockSkew,
       'pricing.refs',
       `reference price from ${ref.source} is too far in the future`,
     );
+    // A second opinion on the price (the solver marks it "paryon (disagreement ...)", "(warn ...)"
+    // or "(unavailable)") is shown to the person but does not set the price, and the solver never
+    // refuses on its age; only the prices the quote is computed from must be fresh.
+    const informational = /^paryon\b/i.test(ref.source);
     assertField(
-      nowSeconds - ref.asOf <= maxAge,
+      informational || nowSeconds - ref.asOf <= maxAge,
       'pricing.refs',
       `reference price from ${ref.source} is stale`,
     );

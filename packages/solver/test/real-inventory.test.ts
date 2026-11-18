@@ -435,7 +435,7 @@ describe('Real Inventory, Dry-Run Quotes, Health Tips, and Policy Authority (B4-
       expect(res2.statusCode).toBe(422);
       const refusal = res2.json();
       expect(refusal.reason).toBe('INSUFFICIENT_LIQUIDITY');
-      expect(refusal.maxAmount).toBe('3009'); // Real maximum remaining (5000 - 1991 = 3009)
+      expect(refusal.maxAmount).toBe('30.09'); // Real maximum remaining (5000 - 1991 = 3009 units of 0.01)
       expect(refusal.asset).toBe('PUSD');
       QuoteRefusalSchema.parse(refusal);
     });

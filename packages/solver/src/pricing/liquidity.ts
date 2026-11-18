@@ -1,6 +1,7 @@
 import { availableLiquidity } from '@ferry/core';
 
-export const QUOTE_TTL_S = 60; // 60s quote validity
+/** Default quote validity: five minutes, long enough to read the terms, save the recovery file and sign. */
+export const QUOTE_TTL_S = 300;
 export const MIN_SWAP_USD_MICROS = 1_000_000n; // $1.00
 export const MAX_SWAP_USD_MICROS = 50_000_000n; // $50.00
 export const MAX_RESERVED_PER_ADDRESS_USD_MICROS = 100_000_000n; // 2x MAX_SWAP ($100)
@@ -263,7 +264,14 @@ export class LiquidityManager {
     ttlSeconds?: number;
     dryRun?: boolean | undefined;
   }):
-    { success: true } | { success: false; reason: string; maxAmount: bigint } {
+    | { success: true }
+    | {
+        success: false;
+        reason: string;
+        /** In token base units when `maxAmountUnit` is 'token', in USD micros when it is 'usdMicros'. */
+        maxAmount: bigint;
+        maxAmountUnit: 'token' | 'usdMicros';
+      } {
     const {
       quoteId,
       userAddress,
@@ -280,26 +288,45 @@ export class LiquidityManager {
 
     this.pruneExpired(nowSeconds);
 
-    const available = this.getAvailableLiquidity(
-      asset,
-      currentInventory,
-      openExposure,
-      nowSeconds,
+    // A new quote from the same address for the same asset replaces the earlier one: a person
+    // retyping an amount must not fill their own limit with quotes they have abandoned.
+    const normAddress = userAddress.toLowerCase();
+    const normAsset = asset.toLowerCase();
+    const superseded = [...this.reservations.values()].filter(
+      (res) =>
+        res.quoteId !== quoteId &&
+        res.userAddress.toLowerCase() === normAddress &&
+        res.asset.toLowerCase() === normAsset,
     );
+    const sumOf = (items: typeof superseded, field: 'amount' | 'micros') =>
+      items.reduce(
+        (total, res) =>
+          total +
+          (field === 'amount' ? res.amount : (res.amountMicros ?? res.amount)),
+        0n,
+      );
+
+    const available =
+      this.getAvailableLiquidity(
+        asset,
+        currentInventory,
+        openExposure,
+        nowSeconds,
+      ) + sumOf(superseded, 'amount');
 
     if (amount > available) {
       return {
         success: false,
         reason: `Insufficient liquidity: requested ${amount}, available ${available}`,
         maxAmount: available,
+        maxAmountUnit: 'token',
       };
     }
 
     const effectiveMicros = amountMicros ?? amount;
-    const addrReserved = this.getActiveReservationsForAddress(
-      userAddress,
-      nowSeconds,
-    );
+    const addrReserved =
+      this.getActiveReservationsForAddress(userAddress, nowSeconds) -
+      sumOf(superseded, 'micros');
     if (addrReserved + effectiveMicros > this.maxReservedPerAddress) {
       return {
         success: false,
@@ -308,10 +335,16 @@ export class LiquidityManager {
           this.maxReservedPerAddress > addrReserved
             ? this.maxReservedPerAddress - addrReserved
             : 0n,
+        maxAmountUnit: 'usdMicros',
       };
     }
 
-    const ipReserved = this.getActiveReservationsForIp(userIp, nowSeconds);
+    const ipReserved =
+      this.getActiveReservationsForIp(userIp, nowSeconds) -
+      sumOf(
+        superseded.filter((res) => res.userIp === userIp),
+        'micros',
+      );
     if (ipReserved + effectiveMicros > this.maxReservedPerIp) {
       return {
         success: false,
@@ -320,12 +353,15 @@ export class LiquidityManager {
           this.maxReservedPerIp > ipReserved
             ? this.maxReservedPerIp - ipReserved
             : 0n,
+        maxAmountUnit: 'usdMicros',
       };
     }
 
     if (dryRun) {
       return { success: true };
     }
+
+    for (const res of superseded) this.reservations.delete(res.quoteId);
 
     this.reservations.set(quoteId, {
       quoteId,

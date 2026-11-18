@@ -95,6 +95,8 @@ export class SolverEngine {
   private readonly bchExecutor: ActionExecutor;
   private readonly evmExecutor: ActionExecutor;
 
+  private readonly executionReady: boolean;
+
   constructor(
     public readonly db: SolverDatabase,
     public readonly bchPort: BchChainPort,
@@ -103,6 +105,7 @@ export class SolverEngine {
     bchExecutor?: ActionExecutor,
     evmExecutor?: ActionExecutor,
   ) {
+    this.executionReady = config.executionReady ?? true;
     this.dsproofWindowMs = config.dsproofWindowMs ?? 5000;
     this.pollIntervalMs = config.pollIntervalMs ?? 1000;
     this.bchExecutor = bchExecutor ?? new ActionExecutor(this.db, this.bchPort);
@@ -113,6 +116,9 @@ export class SolverEngine {
    * Quoting is allowed ONLY when BCH quorum is healthy and quoting is enabled.
    */
   isQuotingEnabled(): boolean {
+    if (!this.executionReady) {
+      return false;
+    }
     if (this.db.isQuotingPaused()) {
       return false;
     }
@@ -229,6 +235,8 @@ export class SolverEngine {
   }
 
   async stepOrder(orderRecord: OrderRecord): Promise<void> {
+    // Placeholder actions must never run against real chains.
+    if (!this.executionReady) return;
     const currentRecord = this.db.getOrder(orderRecord.id);
     if (!currentRecord) return;
     const order = orderRecordToSolverOrder(currentRecord);

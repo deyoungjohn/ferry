@@ -241,6 +241,10 @@ export async function startSolver(
   const engine = new SolverEngine(db, bchPort, evmPort, {
     dsproofWindowMs: config.dsproofWindowMs,
     pollIntervalMs: 1000,
+    // The engine's on-chain actions (the Bitcoin Cash lock and claim, the EVM lock and claim) and
+    // the finality checks above are placeholders. Until they are real the solver quotes nothing and
+    // moves no order; the change that implements them turns this on.
+    executionReady: false,
   });
 
   // 8. Initialize Price Source (Composite from BCH & EVM facts)

@@ -1,21 +1,17 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
+import { ROUTES } from '../lib/routes';
 import {
   resumeAll,
   type ResumeAllResult,
-  type ResumedSwap,
   type UserSwapDependencies,
 } from '@ferry/user-flow';
-import { WAIT_OPTIONS } from '../lib/live/run';
 
 export interface ResumeSwapsProps {
   /** Built lazily so a missing wallet never throws during render. */
   readonly createDeps: () => UserSwapDependencies;
   /** Replaced in tests. */
   readonly resume?: typeof resumeAll;
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 const STEP_TEXT: Record<string, string> = {
@@ -36,8 +32,6 @@ export function ResumeSwaps({
   resume = resumeAll,
 }: ResumeSwapsProps) {
   const [result, setResult] = useState<ResumeAllResult | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [notes, setNotes] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -54,30 +48,6 @@ export function ResumeSwaps({
     // Runs once when the swap page opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  async function carryOn(swap: ResumedSwap) {
-    const id = swap.orderId;
-    setBusy(id);
-    try {
-      const { step } = swap.session.state;
-      if (step === 'waitCounterLock') {
-        await swap.session.waitCounterLock(WAIT_OPTIONS);
-        await swap.session.claim();
-      } else if (step === 'claim') {
-        await swap.session.claim();
-      } else if (step === 'refund') {
-        await swap.session.refund();
-      }
-      setNotes((n) => ({
-        ...n,
-        [id]: STEP_TEXT[swap.session.state.step] ?? '',
-      }));
-    } catch (cause) {
-      setNotes((n) => ({ ...n, [id]: messageOf(cause) }));
-    } finally {
-      setBusy(null);
-    }
-  }
 
   if (!result) return null;
   const open = result.resumed.filter((swap) => !swap.settled);
@@ -100,16 +70,15 @@ export function ResumeSwaps({
               <span className="font-mono text-[11px] text-text-muted">
                 {swap.orderId.slice(0, 10)}…
               </span>
-              <span>{notes[swap.orderId] ?? STEP_TEXT[step] ?? step}</span>
+              <span>{STEP_TEXT[step] ?? step}</span>
               {actionable && (
-                <button
-                  type="button"
-                  disabled={busy !== null}
-                  onClick={() => void carryOn(swap)}
-                  className="self-start rounded-lg border border-hairline bg-surface-2 px-3 py-1 text-xs font-medium hover:bg-surface-3 disabled:opacity-50"
+                <Link
+                  to={ROUTES.swapOrder(swap.orderId)}
+                  data-testid="resume-open"
+                  className="self-start rounded-lg border border-hairline bg-surface-2 px-3 py-1 text-xs font-medium hover:bg-surface-3"
                 >
-                  {busy === swap.orderId ? 'Working…' : 'Continue'}
-                </button>
+                  Open this swap
+                </Link>
               )}
             </li>
           );

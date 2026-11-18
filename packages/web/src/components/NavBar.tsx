@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { Link, NavLink, useLocation } from 'react-router';
 import { isInternalPath } from './Footer';
 import { NETWORK_LABEL, IS_MAINNET } from '../lib/config';
@@ -9,8 +8,8 @@ import { useScrolled } from '../lib/useScrolled';
 import { useWallets } from '../lib/wallet/context';
 import { Brand } from './Brand';
 import { GlassPopover } from './GlassPopover';
-import { WalletSheet } from './WalletSheet';
-import { InfoIcon, WalletIcon } from './icons';
+import { WalletMenu } from './WalletMenu';
+import { InfoIcon } from './icons';
 
 /**
  * Floating navigation pill: clear at the top of the page, glass once the page
@@ -41,15 +40,6 @@ export function NavBar() {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [menuOpen]);
-
-  let buttonLabel = 'Connect';
-  if (evm.status === 'connected' && bch.status === 'connected') {
-    buttonLabel = 'Wallets connected';
-  } else if (evm.status === 'connected') {
-    buttonLabel = `${evm.address?.slice(0, 6)}…`;
-  } else if (bch.status === 'connected') {
-    buttonLabel = `${bch.address?.address.slice(0, 10)}…`;
-  }
 
   return (
     <div className="sticky top-0 z-50 px-2 pt-2 sm:px-4 sm:pt-3">
@@ -122,22 +112,10 @@ export function NavBar() {
             </Link>
           )}
 
-          <button
-            type="button"
-            onClick={() => setWalletSheetOpen(true)}
-            aria-haspopup="dialog"
-            aria-expanded={walletSheetOpen}
-            className={`inline-flex h-11 items-center gap-2 rounded-full px-5 text-[14px] font-semibold transition-colors cursor-pointer ${
-              isConnected
-                ? 'border border-hairline bg-surface-3 text-text hover:border-lime/40'
-                : 'bg-lime text-lime-ink hover:opacity-90'
-            }`}
-          >
-            <WalletIcon
-              className={`size-4 ${isConnected ? 'text-lime' : 'text-lime-ink'}`}
-            />
-            <span>{buttonLabel}</span>
-          </button>
+          <WalletMenu
+            open={walletSheetOpen}
+            onOpenChange={setWalletSheetOpen}
+          />
 
           <button
             type="button"
@@ -174,15 +152,6 @@ export function NavBar() {
           </div>
         )}
       </header>
-
-      {/* Rendered at the page root: a glass bar creates its own frame for fixed children. */}
-      {createPortal(
-        <WalletSheet
-          open={walletSheetOpen}
-          onClose={() => setWalletSheetOpen(false)}
-        />,
-        document.body,
-      )}
     </div>
   );
 }

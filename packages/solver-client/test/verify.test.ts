@@ -146,6 +146,74 @@ describe('verifyQuote', () => {
       verifyQuote(staleRef, request, baseContext),
     ).rejects.toMatchObject({ field: 'pricing.refs' });
 
+    // A Chainlink stablecoin feed is hours old between heartbeats: that is normal, not stale.
+    const chainlinkPricing = (asOf: number) => ({
+      refs: [
+        {
+          asset: 'USDC',
+          usdPrice: '1.00',
+          source: 'chainlink:base:usdc/usd',
+          asOf,
+        },
+        {
+          asset: 'PUSD',
+          usdPrice: '1.00',
+          source: 'cauldron',
+          asOf: NOW_SECONDS,
+        },
+      ],
+      spreadBps: 50,
+      fixedFeeBase: 0n,
+      rounding: 'floor' as const,
+    });
+    const hoursOld = await makeSignedQuote({
+      overrideTerms: { pricing: chainlinkPricing(NOW_SECONDS - 7750) },
+    });
+    await expect(
+      verifyQuote(hoursOld, request, baseContext),
+    ).resolves.toBeDefined();
+    const daysOld = await makeSignedQuote({
+      overrideTerms: { pricing: chainlinkPricing(NOW_SECONDS - 2 * 86_400) },
+    });
+    await expect(
+      verifyQuote(daysOld, request, baseContext),
+    ).rejects.toMatchObject({ field: 'pricing.refs' });
+
+    // A secondary reference (Paryon) hours old is informational: it never blocks a quote, while
+    // the price the quote is computed from still must be fresh.
+    const withOldSecondary = await makeSignedQuote({
+      overrideTerms: {
+        pricing: {
+          refs: [
+            {
+              asset: 'USDC',
+              usdPrice: '1.00',
+              source: 'pyth',
+              asOf: NOW_SECONDS,
+            },
+            {
+              asset: 'PUSD',
+              usdPrice: '1.00',
+              source: 'cauldron',
+              asOf: NOW_SECONDS,
+            },
+            {
+              asset: 'PUSD',
+              usdPrice: '0.998',
+              source: 'paryon (disagreement: 0.27% / 2653 micros)',
+              asOf: NOW_SECONDS - 3600,
+            },
+          ],
+          spreadBps: 50,
+          fixedFeeBase: 0n,
+          rounding: 'floor' as const,
+        },
+      },
+    });
+    await expect(
+      verifyQuote(withOldSecondary, request, baseContext),
+    ).resolves.toBeDefined();
+
     const futureRef = await makeSignedQuote({ refAsOf: NOW_SECONDS + 60 });
     await expect(
       verifyQuote(futureRef, request, baseContext),

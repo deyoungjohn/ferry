@@ -56,9 +56,13 @@ import {
   RevealSecretRequestSchema,
   RevealSecretResponseSchema,
   SendLinkDetailsResponseSchema,
+  SendLinksQueryRequestSchema,
+  SendLinksQueryResponseSchema,
   SendQuoteRequestSchema,
   StatsResponseSchema,
   type ApiErrorCode,
+  type SendLinkDetailsResponse,
+  type SendLinkQueryMatch,
 } from '@ferry/core/api';
 import {
   type EvmChainAdapter,
@@ -80,7 +84,7 @@ import type { BchQuorumClient } from '../bch/quorum-client.js';
 import type { BchQuorumStatus } from '../bch/types.js';
 import { redactConfigForDisplay, type SolverConfig } from '../config.js';
 import type { SolverDatabase } from '../db/database.js';
-import type { PayLinkRecord } from '../db/types.js';
+import type { OrderRecord, PayLinkRecord } from '../db/types.js';
 import type { SolverEngine } from '../engine/runner.js';
 import { createLinkId, verifyPayLinksSignature } from '../paylink/link.js';
 import {
@@ -351,6 +355,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     config.maxSwapUsdMicros,
     costModelReader,
     config.costModelEnabled,
+    config.quoteTtlSeconds,
   );
 
   if (options.logger) {
@@ -2649,6 +2654,15 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const windowSeconds = (raw.windowSeconds ?? 86400) as number;
     const lane = (raw.lane ?? 'safe') as string;
 
+    let viewTag = raw.viewTag !== undefined ? String(raw.viewTag) : undefined;
+    if (
+      viewTag &&
+      !viewTag.startsWith('0x') &&
+      /^[0-9a-fA-F]{64}$/.test(viewTag)
+    ) {
+      viewTag = `0x${viewTag}`;
+    }
+
     const normalizedBody = {
       token,
       chainId,
@@ -2660,6 +2674,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       hashLock,
       windowSeconds,
       ...(raw.note !== undefined ? { note: raw.note } : {}),
+      ...(viewTag !== undefined ? { viewTag } : {}),
       lane,
     };
 
@@ -2674,6 +2689,14 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
 
     const request = parseResult.data;
+
+    if (request.viewTag !== undefined && db.hasSendLinkTag(request.viewTag)) {
+      return sendApiError(
+        reply,
+        'CONFLICT',
+        'viewTag has already been used by another order',
+      );
+    }
 
     if (
       !config.quotingEnabled ||
@@ -2800,6 +2823,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     if (request.note !== undefined) {
       db.saveSendLinkNote(orderIdHex, request.note, now);
     }
+    // The viewTag is kept beside the order, not inside its signed terms.
+    if (request.viewTag !== undefined) {
+      db.saveSendLinkTag(request.viewTag, orderIdHex, now);
+    }
 
     const response = {
       orderId: (orderIdHex.startsWith('0x')
@@ -2813,6 +2840,72 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     QuoteResponseSchema.parse(response);
     return reply.status(200).send(response);
   });
+
+  function formatSendLinkDetails(
+    order: OrderRecord,
+    now: number,
+    note: string | null,
+  ): SendLinkDetailsResponse {
+    let terms: OrderTerms;
+    try {
+      terms = JSON.parse(order.termsJson, (_k, v) =>
+        typeof v === 'string' && /^\d+n$/.test(v) ? BigInt(v.slice(0, -1)) : v,
+      );
+    } catch {
+      throw new Error('Failed to parse stored send link terms');
+    }
+
+    let status: 'pending_lock' | 'locked' | 'claimed' | 'refunded' | 'expired';
+    if (
+      order.status === 'SWAP_COMPLETE' ||
+      order.status === 'CLAIMED' ||
+      order.status === 'SOLVER_CLAIM_FINAL' ||
+      order.status === 'SOLVER_CLAIM_BROADCAST' ||
+      order.status === 'USER_CLAIM_SEEN' ||
+      order.status === 'USER_CLAIM_FINAL'
+    ) {
+      status = 'claimed';
+    } else if (order.status === 'REFUNDED') {
+      status = 'refunded';
+    } else if (order.status === 'EXPIRED' || now > terms.evmDeadline) {
+      status = 'expired';
+    } else if (
+      order.status === 'USER_LOCK_SEEN' ||
+      order.status === 'USER_LOCK_FINAL' ||
+      order.status === 'SOLVER_LOCK_SEEN' ||
+      order.status === 'SOLVER_LOCK_BROADCAST' ||
+      order.status === 'LOCKED'
+    ) {
+      status = 'locked';
+    } else {
+      status = 'pending_lock';
+    }
+
+    const response: SendLinkDetailsResponse = {
+      id: order.id,
+      orderId: (order.id.startsWith('0x')
+        ? order.id
+        : `0x${order.id}`) as Hex32,
+      status,
+      token: (terms.bchToken === 'MUSD' ? 'MUSD' : 'PUSD') as 'PUSD' | 'MUSD',
+      chainId: terms.evmChainId,
+      evmToken: terms.evmToken,
+      amountIn: terms.bchTokenAmount.toString(),
+      amountOut: terms.evmAmount.toString(),
+      recipientEvmAddress: terms.userEvmAddress.toLowerCase() as Hex,
+      hashLock: terms.hashLock as Hex32,
+      evmDeadline: terms.evmDeadline,
+      bchRefundHeight: terms.bchRefundHeight,
+      ...(note !== null ? { note } : {}),
+      ...(/^0x[0-9a-fA-F]{64}$/.test(order.lockId)
+        ? { lockId: order.lockId.toLowerCase() as Hex32 }
+        : {}),
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+    };
+
+    return response;
+  }
 
   // 20. GET /v1/send-links/:id
   app.get<{ Params: { id: string } }>(
@@ -2828,13 +2921,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         );
       }
 
-      let terms: OrderTerms;
+      const now = Math.floor(Date.now() / 1000);
+      const note = db.getSendLinkNote(order.id);
+      let response: SendLinkDetailsResponse;
       try {
-        terms = JSON.parse(order.termsJson, (_k, v) =>
-          typeof v === 'string' && /^\d+n$/.test(v)
-            ? BigInt(v.slice(0, -1))
-            : v,
-        );
+        response = formatSendLinkDetails(order, now, note);
       } catch {
         return sendApiError(
           reply,
@@ -2843,62 +2934,70 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         );
       }
 
-      const now = Math.floor(Date.now() / 1000);
-      let status:
-        'pending_lock' | 'locked' | 'claimed' | 'refunded' | 'expired';
-      if (
-        order.status === 'SWAP_COMPLETE' ||
-        order.status === 'CLAIMED' ||
-        order.status === 'SOLVER_CLAIM_FINAL' ||
-        order.status === 'SOLVER_CLAIM_BROADCAST' ||
-        order.status === 'USER_CLAIM_SEEN' ||
-        order.status === 'USER_CLAIM_FINAL'
-      ) {
-        status = 'claimed';
-      } else if (order.status === 'REFUNDED') {
-        status = 'refunded';
-      } else if (order.status === 'EXPIRED' || now > terms.evmDeadline) {
-        status = 'expired';
-      } else if (
-        order.status === 'USER_LOCK_SEEN' ||
-        order.status === 'USER_LOCK_FINAL' ||
-        order.status === 'SOLVER_LOCK_SEEN' ||
-        order.status === 'SOLVER_LOCK_BROADCAST' ||
-        order.status === 'LOCKED'
-      ) {
-        status = 'locked';
-      } else {
-        status = 'pending_lock';
-      }
-
-      const note = db.getSendLinkNote(order.id);
-      const response = {
-        id: order.id,
-        orderId: (order.id.startsWith('0x')
-          ? order.id
-          : `0x${order.id}`) as Hex32,
-        status,
-        token: (terms.bchToken === 'MUSD' ? 'MUSD' : 'PUSD') as 'PUSD' | 'MUSD',
-        chainId: terms.evmChainId,
-        evmToken: terms.evmToken,
-        amountIn: terms.bchTokenAmount.toString(),
-        amountOut: terms.evmAmount.toString(),
-        recipientEvmAddress: terms.userEvmAddress.toLowerCase() as Hex,
-        hashLock: terms.hashLock as Hex32,
-        evmDeadline: terms.evmDeadline,
-        bchRefundHeight: terms.bchRefundHeight,
-        ...(note !== null ? { note } : {}),
-        ...(/^0x[0-9a-fA-F]{64}$/.test(order.lockId)
-          ? { lockId: order.lockId.toLowerCase() as Hex32 }
-          : {}),
-        createdAt: order.createdAt,
-        updatedAt: order.updatedAt,
-      };
-
       SendLinkDetailsResponseSchema.parse(response);
       return reply.status(200).send(response);
     },
   );
+
+  // 21. POST /v1/send-links/query
+  app.post('/v1/send-links/query', async (req, reply) => {
+    let clientIp: string;
+    try {
+      clientIp = extractClientIp(req, config.trustedProxy, config.network);
+    } catch (err) {
+      if (err instanceof UntrustedProxyHeaderError) {
+        return sendApiError(reply, 'UNAUTHORIZED', err.message);
+      }
+      clientIp = '127.0.0.1';
+    }
+
+    const rateCheck = rateLimiter.checkIp(clientIp);
+    if (!rateCheck.allowed) {
+      return sendApiError(
+        reply,
+        'RATE_LIMITED',
+        `Rate limit exceeded for ${clientIp}`,
+      );
+    }
+
+    const parseResult = SendLinksQueryRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return sendApiError(
+        reply,
+        'VALIDATION_ERROR',
+        'Invalid send links query request payload',
+        { issues: parseResult.error.issues },
+      );
+    }
+
+    const { tags } = parseResult.data;
+    const matchedRecords = db.getOrdersBySendLinkTags(tags);
+    const now = Math.floor(Date.now() / 1000);
+    const matches: SendLinkQueryMatch[] = [];
+
+    for (const match of matchedRecords) {
+      const note = db.getSendLinkNote(match.order.id);
+      try {
+        const details = formatSendLinkDetails(match.order, now, note);
+        matches.push({
+          ...details,
+          tag: (match.tag.startsWith('0x')
+            ? match.tag.toLowerCase()
+            : `0x${match.tag.toLowerCase()}`) as Hex32,
+        });
+      } catch {
+        // Skip corrupted order records gracefully
+      }
+    }
+
+    const response = {
+      links: matches,
+      matches,
+    };
+
+    SendLinksQueryResponseSchema.parse(response);
+    return reply.status(200).send(response);
+  });
 
   return app;
 }

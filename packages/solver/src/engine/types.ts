@@ -42,6 +42,12 @@ export interface EvmChainPort {
 }
 
 export interface EngineConfig {
+  /**
+   * False while the engine's on-chain actions are placeholders: it then quotes nothing and moves
+   * no order, so nobody can lock funds the solver cannot yet complete. Defaults to true so the
+   * local test harness, which supplies its own executors, is unchanged.
+   */
+  executionReady?: boolean | undefined;
   dsproofWindowMs?: number | undefined; // default 5000 ms
   pollIntervalMs?: number | undefined;
 }

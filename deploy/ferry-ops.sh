@@ -44,14 +44,25 @@ as_solver() {
 
 service_active() { systemctl is-active --quiet "$SERVICE"; }
 
+# The solver runs from source, so after a restart it compiles for a while before it answers: up to
+# a couple of minutes on a small server. Waits up to the given number of seconds (default 180).
 wait_for_health() {
-  local tries=30
-  while [ "$tries" -gt 0 ]; do
+  local budget="${1:-180}" waited=0
+  while [ "$waited" -lt "$budget" ]; do
     if curl -fsS --max-time 3 "$LOCAL_API/v1/health" >/dev/null 2>&1; then return 0; fi
-    sleep 2
-    tries=$((tries - 1))
+    if [ "$waited" -eq 0 ]; then say "  waiting for the solver to start (it compiles on start, up to ${budget}s)..."; fi
+    sleep 3
+    waited=$((waited + 3))
   done
   return 1
+}
+
+# Seconds since the solver service last started (0 if unknown).
+solver_uptime_seconds() {
+  local started
+  started="$(systemctl show "$SERVICE" -p ActiveEnterTimestamp --value 2>/dev/null || true)"
+  [ -z "$started" ] && { echo 0; return; }
+  echo $(( $(date +%s) - $(date -d "$started" +%s 2>/dev/null || date +%s) ))
 }
 
 cmd_health() {
@@ -61,6 +72,8 @@ cmd_health() {
   if systemctl is-active --quiet caddy; then ok "caddy is running"; else bad "caddy is not running"; fi
 
   section "Solver answers"
+  # Just restarted: give it time to compile and start before calling it a failure.
+  if [ "$(solver_uptime_seconds)" -lt 240 ]; then wait_for_health 180 || true; fi
   if health_json="$(curl -fsS --max-time 5 "$LOCAL_API/v1/health" 2>/dev/null)"; then
     ok "GET /v1/health answered"
     if command -v jq >/dev/null 2>&1; then
@@ -143,7 +156,7 @@ cmd_update() {
 
   section "Restart the solver"
   sudo systemctl restart "$SERVICE"
-  if wait_for_health; then ok "solver is answering"; else bad "solver did not answer within a minute"; fi
+  if wait_for_health; then ok "solver is answering"; else bad "solver did not answer within three minutes"; fi
 
   cmd_health || {
     say ""
@@ -161,15 +174,18 @@ cmd_caddy() {
   candidate="$(mktemp)"
   trap 'rm -f "$candidate"' RETURN
   sed "s/example\\.org/$DOMAIN/g" "$FERRY_DIR/deploy/Caddyfile" > "$candidate"
+  # Caddy's own user checks it (it opens the log file, which only that user may), so it must be
+  # able to read the candidate.
+  chmod 0644 "$candidate"
   if sudo diff -u "$CADDYFILE" "$candidate" > /tmp/ferry-caddy.diff 2>&1; then
     say "The Caddyfile on this server already matches the repository."
     return 0
   fi
   say "Differences (current -> repository):"
   cat /tmp/ferry-caddy.diff
-  if ! caddy validate --config "$candidate" --adapter caddyfile >/dev/null 2>&1; then
+  if ! sudo -u caddy caddy validate --config "$candidate" --adapter caddyfile >/dev/null 2>&1; then
     say "The repository's Caddyfile does not validate. Not applying it:" >&2
-    caddy validate --config "$candidate" --adapter caddyfile >&2 || true
+    sudo -u caddy caddy validate --config "$candidate" --adapter caddyfile >&2 || true
     return 1
   fi
   read -r -p "Apply this Caddyfile and reload Caddy? [y/N] " answer
