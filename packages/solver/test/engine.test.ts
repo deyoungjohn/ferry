@@ -105,6 +105,59 @@ describe('SolverEngine loop, kill-at-every-state, fast-lane, and quorum gating',
     });
   });
 
+  describe('Stale quotes leave the polled set', () => {
+    it('expires a QUOTED order ten minutes after its quote lapsed, and keeps a fresh one', async () => {
+      const db = createTestDb();
+      const now = Math.floor(Date.now() / 1000);
+      const make = (id: string, hashLock: `0x${string}`, expiry: number) => {
+        const terms = parseOrderTerms({
+          ...dummyForwardTerms,
+          hashLock,
+          quoteExpiry: expiry,
+        });
+        db.saveOrder({
+          id,
+          direction: 'EVM_TO_BCH',
+          status: 'QUOTED',
+          userCounterAddress: terms.userEvmAddress,
+          lockId: hashLock,
+          termsJson: stringifyTerms(terms),
+          hashLock,
+          createdAt: now,
+          updatedAt: now,
+        });
+      };
+      make('ord-stale', `0x${'01'.repeat(32)}`, now - 1200);
+      make('ord-fresh', `0x${'02'.repeat(32)}`, now + 200);
+
+      const engine = newTestEngine(
+        db,
+        {
+          getTip: async () => ({ height: 330000, hash: '0x00tip' }),
+          isQuorumHealthy: () => true,
+          isQuotingEnabled: () => true,
+          broadcast: vi.fn(),
+          isOnChain: async () => false,
+          getScriptHashHistory: async () => [],
+        } as unknown as BchChainPort,
+        {
+          getTip: async () => ({ height: 1000, finalized: true }),
+          getLock: async () => ({ status: 'none' }),
+          isFinal: async () => false,
+          broadcast: vi.fn(),
+          isOnChain: async () => false,
+        } as EvmChainPort,
+        {},
+      );
+      await engine.reconcileOrders();
+      expect(db.getOrder('ord-stale')?.status).toBe('EXPIRED');
+      expect(db.getOrder('ord-fresh')?.status).toBe('QUOTED');
+      expect(db.listNonTerminalOrders().map((o) => o.id)).toEqual([
+        'ord-fresh',
+      ]);
+    });
+  });
+
   describe('Fast-lane 0-conf double-spend proof window and contested case', () => {
     it('refuses counter-lock when double-spend proof is detected (contested case)', async () => {
       const db = createTestDb();

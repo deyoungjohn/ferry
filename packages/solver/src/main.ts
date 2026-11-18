@@ -199,7 +199,7 @@ export async function startSolver(
   // 7. Initialize Solver Engine
   const engine = new SolverEngine(db, bchPort, evmPort, {
     dsproofWindowMs: config.dsproofWindowMs,
-    pollIntervalMs: 1000,
+    pollIntervalMs: 5000,
     solverBchWif: config.solverBchWif,
     bchNetwork: config.network === 'mainnet' ? 'mainnet' : 'chipnet',
     executionReady: config.executionReady,

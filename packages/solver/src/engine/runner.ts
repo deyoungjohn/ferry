@@ -99,6 +99,7 @@ export class SolverEngine {
   private unsubscribers: Array<() => void> = [];
   private readonly dsproofWindowMs: number;
   private readonly pollIntervalMs: number;
+  private passInFlight = false;
   private readonly bchExecutor: ActionExecutor;
   private readonly evmExecutor: ActionExecutor;
 
@@ -116,7 +117,7 @@ export class SolverEngine {
   ) {
     this.executionReady = config.executionReady ?? true;
     this.dsproofWindowMs = config.dsproofWindowMs ?? 5000;
-    this.pollIntervalMs = config.pollIntervalMs ?? 1000;
+    this.pollIntervalMs = config.pollIntervalMs ?? 5000;
     this.solverBchWif = config.solverBchWif;
     this.bchNetwork = config.bchNetwork ?? 'chipnet';
     this.bchExecutor = bchExecutor ?? new ActionExecutor(this.db, this.bchPort);
@@ -271,11 +272,14 @@ export class SolverEngine {
 
     // 3. Start background polling (reconciliation pass ensures dropped notifications never lose secrets)
     this.pollTimer = setInterval(async () => {
-      if (!this.running) return;
+      if (!this.running || this.passInFlight) return;
+      this.passInFlight = true;
       try {
         await this.reconcileOrders();
       } catch {
         // keep polling
+      } finally {
+        this.passInFlight = false;
       }
     }, this.pollIntervalMs);
   }
@@ -347,9 +351,20 @@ export class SolverEngine {
 
   async reconcileOrders(): Promise<void> {
     const nonTerminalOrders = this.db.listNonTerminalOrders();
+    let firstError: unknown;
+    let failed = false;
     for (const orderRecord of nonTerminalOrders) {
-      await this.stepOrder(orderRecord);
+      try {
+        await this.stepOrder(orderRecord);
+      } catch (err) {
+        // one failing order must not block the others; the first error is rethrown after the pass
+        if (!failed) {
+          failed = true;
+          firstError = err;
+        }
+      }
     }
+    if (failed) throw firstError;
   }
 
   async stepOrder(orderRecord: OrderRecord): Promise<void> {
@@ -363,6 +378,19 @@ export class SolverEngine {
       await this.stepForwardOrder(order);
     } else {
       await this.stepReverseOrder(order);
+    }
+    this.expireStaleQuote(order.id);
+  }
+
+  /** A quote nobody locked against leaves the polled set ten minutes after it lapses. */
+  private expireStaleQuote(orderId: string): void {
+    const record = this.db.getOrder(orderId);
+    if (!record || record.status !== 'QUOTED') return;
+    const order = orderRecordToSolverOrder(record);
+    const expiry = (order.terms as { quoteExpiry?: number }).quoteExpiry;
+    const now = Math.floor(Date.now() / 1000);
+    if (typeof expiry === 'number' && now > expiry + 600) {
+      this.applyEvent(order, { type: 'QUOTE_EXPIRED' });
     }
   }
 

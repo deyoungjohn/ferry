@@ -183,9 +183,9 @@ describe('Live Cost Model and Pricing Engine (B4-11)', () => {
         minMarginUsdMicros: 0n,
       });
 
-      // EVM_TO_BCH: solver executes relayLock on Base (258,429 gas) + pays BCH carry (3,000 sats)
+      // EVM_TO_BCH: solver pays the relayed lock on Base (258,429 gas) and its own Bitcoin Cash lock (300 bytes) plus the carry (3,000 sats)
       expect(fwdCost.gasUnits).toBe(258_429n);
-      expect(fwdCost.bchTxBytes).toBe(250);
+      expect(fwdCost.bchTxBytes).toBe(300);
       expect(fwdCost.gasCostUsdMicros).toBeGreaterThan(0n);
       expect(fwdCost.totalCostUsdMicros).toBeGreaterThan(0n);
       const expectedWithMargin = (fwdCost.totalCostUsdMicros * 125n) / 100n;
@@ -198,9 +198,9 @@ describe('Live Cost Model and Pricing Engine (B4-11)', () => {
         minMarginUsdMicros: 0n,
       });
 
-      // BCH_TO_EVM: solver executes lock on Base (212,455 gas) + pays BCH carry (3,000 sats)
+      // BCH_TO_EVM: solver locks on Base (212,455 gas) and claims on Bitcoin Cash (250 bytes); the carry comes back
       expect(revCost.gasUnits).toBe(212_455n);
-      expect(revCost.bchTxBytes).toBe(300);
+      expect(revCost.bchTxBytes).toBe(250);
     });
 
     it('picks cost_model at $1 swap: proportional spread < cost, fixed fee covers cost floor', () => {
@@ -252,7 +252,7 @@ describe('Live Cost Model and Pricing Engine (B4-11)', () => {
         highCost.requiredFeeUsdMicros,
       );
 
-      // Without min margin, spread ($0.02) covers cost ($0.015)
+      // Without min margin, a $20 swap's spread ($0.08) covers the cost ($0.030)
       const normalCost = calculateRouteCost({
         direction: 'EVM_TO_BCH',
         inputs,
@@ -261,7 +261,7 @@ describe('Live Cost Model and Pricing Engine (B4-11)', () => {
       });
 
       const adjSpread = applyCostModelToQuote({
-        amountInUsdMicros: 5_000_000n,
+        amountInUsdMicros: 20_000_000n, // $20 -> 40 bps = $0.08
         baseSpreadBps: 40,
         routeCost: normalCost,
         costModelEnabled: true,
@@ -447,7 +447,7 @@ describe('Live Cost Model and Pricing Engine (B4-11)', () => {
       const costs = quote.terms.pricing.costs;
       expect(costs.pricingChoice).toBe('cost_model');
       expect(costs.gasUnits).toBe('258429');
-      expect(costs.bchTxBytes).toBe(250);
+      expect(costs.bchTxBytes).toBe(300);
       expect(costs.sources.length).toBe(4);
       expect(costs.sources.map((s: { name: string }) => s.name)).toContain(
         'ETH/USD',
@@ -805,8 +805,8 @@ describe('Live Cost Model and Pricing Engine (B4-11)', () => {
       expect(report.output).toContain('BCH Fee Rate:  1.25 sats/byte');
       expect(report.output).toContain('usdc:base (EVM_TO_BCH)');
       expect(report.output).toContain('usdc:base (BCH_TO_EVM)');
-      expect(report.output).toContain('$1 swap: fee $0.010888 (cost_model)');
-      expect(report.output).toContain('$5 swap: fee $0.020000 (spread)');
+      expect(report.output).toContain('$1 swap: fee $0.030026 (cost_model)');
+      expect(report.output).toContain('$5 swap: fee $0.030026 (cost_model)');
       expect(report.output).toContain('$50 swap: fee $0.200000 (spread)');
 
       db.close();

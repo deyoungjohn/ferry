@@ -323,20 +323,23 @@ export function calculateRouteCost(
   let bchFeeSats: bigint;
 
   if (params.direction === 'EVM_TO_BCH') {
+    // Solver pays: the relayed EVM lock, its own Bitcoin Cash lock (with the carry
+    // placed in the covenant output).
     gasUnits = relayLockGas;
     l1FeeWei = baseGas.l1FeeWeiPerRelayLock;
-    bchTxBytes = BCH_CLAIM_TX_BYTES;
-    bchFeeSats = BigInt(
-      Math.max(1, Math.ceil(bchTxBytes * bchFeeRate.effectiveSatsPerByte)),
-    );
-  } else {
-    gasUnits = solverLockGas;
-    l1FeeWei = baseGas.l1FeeWeiPerLock;
     bchTxBytes = BCH_LOCK_TX_BYTES;
     const lockMinerSats = BigInt(
       Math.max(1, Math.ceil(bchTxBytes * bchFeeRate.effectiveSatsPerByte)),
     );
     bchFeeSats = lockMinerSats + bchCarrySats;
+  } else {
+    // Solver pays: its EVM lock and the Bitcoin Cash claim; the carry comes back.
+    gasUnits = solverLockGas;
+    l1FeeWei = baseGas.l1FeeWeiPerLock;
+    bchTxBytes = BCH_CLAIM_TX_BYTES;
+    bchFeeSats = BigInt(
+      Math.max(1, Math.ceil(bchTxBytes * bchFeeRate.effectiveSatsPerByte)),
+    );
   }
 
   const totalEvmWei = gasUnits * baseGas.gasPriceWei + l1FeeWei;
