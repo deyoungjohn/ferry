@@ -59,6 +59,27 @@ const erc20Abi = [
     inputs: [{ name: 'owner', type: 'address' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
+  {
+    type: 'function',
+    name: 'name',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'string' }],
+  },
+  {
+    type: 'function',
+    name: 'version',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'string' }],
+  },
+  {
+    type: 'function',
+    name: 'DOMAIN_SEPARATOR',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'bytes32' }],
+  },
 ] as const satisfies Abi;
 
 // ---------------------------------------------------------------------------
@@ -197,6 +218,131 @@ export function buildOrderPermitTypedData(
     nonce,
     deadline: lockIntentFromTerms(terms).intentDeadline,
   });
+}
+
+function permitDomainSeparator(
+  name: string,
+  version: string,
+  chainId: number,
+  verifyingContract: Address,
+): Hex {
+  return hashDomain({
+    domain: { name, version, chainId: BigInt(chainId), verifyingContract },
+    types: DOMAIN_TYPES,
+  });
+}
+
+/**
+ * The permit domain of a token, read from the chain and verified: the name comes
+ * from `name()`, and the version is the one (the token's own `version()` when it
+ * has one, else "1" or "2") whose derived domain separator equals the token's
+ * `DOMAIN_SEPARATOR()`. If none reproduces it, no permit is built.
+ */
+export async function readPermitDomain(input: {
+  client: PublicClient;
+  token: string;
+  chainId: number;
+}): Promise<
+  Required<
+    Pick<TokenFacts, 'address' | 'name' | 'version' | 'domainSeparator'>
+  > & { permit: true }
+> {
+  const address = requireAddress(input.token, 'Token address');
+  const read = <T>(functionName: 'name' | 'version' | 'DOMAIN_SEPARATOR') =>
+    input.client.readContract({
+      address,
+      abi: erc20Abi,
+      functionName,
+    }) as Promise<T>;
+  const [name, onChainSeparator, declaredVersion] = await Promise.all([
+    read<string>('name'),
+    read<Hex>('DOMAIN_SEPARATOR'),
+    read<string>('version').catch(() => null),
+  ]);
+  const candidates = [
+    ...new Set([
+      ...(declaredVersion === null ? [] : [declaredVersion]),
+      '1',
+      '2',
+    ]),
+  ];
+  const version = candidates.find(
+    (candidate) =>
+      permitDomainSeparator(
+        name,
+        candidate,
+        input.chainId,
+        address,
+      ).toLowerCase() === onChainSeparator.toLowerCase(),
+  );
+  if (version === undefined) {
+    throw new UserSideError(
+      'No permit domain version reproduces the token domain separator; refusing to build a permit',
+    );
+  }
+  return {
+    address,
+    name,
+    version,
+    domainSeparator: onChainSeparator,
+    permit: true,
+  };
+}
+
+/** What the user's wallet needs for the first step of a forward swap. */
+export async function buildUserLockPayload(input: {
+  client: PublicClient;
+  terms: OrderTerms;
+  /** Whether the configured token supports EIP-2612. */
+  permit: boolean;
+}) {
+  const { client, terms } = input;
+  const lockIntentTypedData = buildLockIntentTypedData(terms);
+  if (input.permit) {
+    const [facts, nonce] = await Promise.all([
+      readPermitDomain({
+        client,
+        token: terms.evmToken,
+        chainId: terms.evmChainId,
+      }),
+      readPermitNonce(client, terms.evmToken, terms.userEvmAddress),
+    ]);
+    const permitTypedData = buildOrderPermitTypedData(terms, facts, nonce);
+    if (permitTypedData === null) {
+      throw new UserSideError('Expected a permit token');
+    }
+    return {
+      mode: 'permit-intent' as const,
+      lockIntentTypedData,
+      permitTypedData,
+    };
+  }
+  const token = requireAddress(terms.evmToken, 'Token address');
+  const htlc = requireAddress(terms.evmHtlc, 'Contract address');
+  const allowance = await client.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'allowance',
+    args: [requireAddress(terms.userEvmAddress, 'Owner'), htlc],
+  });
+  const lockIntent = lockIntentFromTerms(terms);
+  return {
+    mode: 'approve-lock' as const,
+    approve: { token, spender: htlc, amount: terms.evmAmount },
+    lockCall: {
+      address: htlc,
+      functionName: 'lock' as const,
+      args: [
+        token,
+        requireAddress(terms.solverEvmAddress, 'Recipient'),
+        terms.evmAmount,
+        terms.hashLock,
+        lockIntent.deadline,
+      ] as const,
+    },
+    /** The complete list to send, including the reset a USDT-style token needs. */
+    transactions: planApproveAndLock({ terms, allowance }),
+  };
 }
 
 /** The owner's current permit nonce, read from the token. */

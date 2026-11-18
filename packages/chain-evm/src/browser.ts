@@ -5,6 +5,7 @@ export {
   LOCK_GAS_UPPER_BOUND,
   UserSideError,
   buildClaimTransaction,
+  buildUserLockPayload,
   buildLockIntentTypedData,
   buildOrderPermitTypedData,
   buildPermitTypedData,
@@ -15,6 +16,7 @@ export {
   lockIntentFromTerms,
   planApproveAndLock,
   prepareApproveAndLock,
+  readPermitDomain,
   readPermitNonce,
 } from './user-side.js';
 export type {

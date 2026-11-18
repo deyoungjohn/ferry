@@ -10,7 +10,6 @@ import type { Address, Hash, PublicClient, WalletClient } from 'viem';
 import {
   evmLockId,
   isValidSecret,
-  lockIntentTypedData,
   orderId,
   parseEvmChainConfig,
 } from '@ferry/core';
@@ -41,6 +40,7 @@ import {
   UnsupportedAssetError,
 } from './errors.js';
 import { decodeHtlcLog, fetchLogsChunked } from './logs.js';
+import { buildUserLockPayload } from './user-side.js';
 import { getSignerSendQueue } from './send-queue.js';
 
 export interface EvmChainAdapterOptions {
@@ -129,103 +129,14 @@ export class EvmChainAdapter implements ChainAdapter {
   async buildUserLock(terms: OrderTerms): Promise<UnsignedLock> {
     this.assertTermsMatchChain(terms);
     const asset = this.requireAsset(terms.evmToken);
-    const owner = getAddress(terms.userEvmAddress);
-    const token = getAddress(terms.evmToken);
-    const recipient = getAddress(terms.solverEvmAddress);
-    const amount = terms.evmAmount;
-    const hashLock = terms.hashLock;
-    const deadline = BigInt(terms.evmDeadline);
-    const intentDeadline = BigInt(terms.quoteExpiry + 3600);
-
-    const intentTypedData = lockIntentTypedData(
-      { chainId: this.chainId, verifyingContract: this.htlcAddress },
-      {
-        token,
-        recipient,
-        amount,
-        hashLock,
-        deadline,
-        intentDeadline,
-      },
-    );
-
-    const id = orderId(terms);
-
-    if (!asset.permit) {
-      return {
-        chain: this.id,
-        orderId: id,
-        payload: {
-          mode: 'approve-lock' as const,
-          approve: {
-            token,
-            spender: this.htlcAddress,
-            amount,
-          },
-          lockCall: {
-            address: this.htlcAddress,
-            functionName: 'lock' as const,
-            args: [token, recipient, amount, hashLock, deadline] as const,
-          },
-        },
-      };
-    }
-
-    const [tokenName, tokenVersion, nonce] = await Promise.all([
-      this.client.readContract({
-        address: token,
-        abi: erc20Abi,
-        functionName: 'name',
-      }),
-      this.client
-        .readContract({
-          address: token,
-          abi: erc20Abi,
-          functionName: 'version',
-        })
-        .catch(() => '1'),
-      this.client.readContract({
-        address: token,
-        abi: erc20Abi,
-        functionName: 'nonces',
-        args: [owner],
-      }),
-    ]);
-
-    const permitTypedData = {
-      domain: {
-        name: tokenName,
-        version: tokenVersion,
-        chainId: this.chainId,
-        verifyingContract: token,
-      },
-      types: {
-        Permit: [
-          { name: 'owner', type: 'address' },
-          { name: 'spender', type: 'address' },
-          { name: 'value', type: 'uint256' },
-          { name: 'nonce', type: 'uint256' },
-          { name: 'deadline', type: 'uint256' },
-        ],
-      },
-      primaryType: 'Permit' as const,
-      message: {
-        owner,
-        spender: this.htlcAddress,
-        value: amount,
-        nonce,
-        deadline: intentDeadline,
-      },
-    };
-
     return {
       chain: this.id,
-      orderId: id,
-      payload: {
-        mode: 'permit-intent' as const,
-        lockIntentTypedData: intentTypedData,
-        permitTypedData,
-      },
+      orderId: orderId(terms),
+      payload: await buildUserLockPayload({
+        client: this.client,
+        terms,
+        permit: asset.permit,
+      }),
     };
   }
 

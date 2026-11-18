@@ -11,7 +11,7 @@ import {
   keccak256,
   stringToHex,
 } from 'viem';
-import type { Address, Hex } from 'viem';
+import type { Address, Hex, PublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { loadChainConfig } from '@ferry/chain-config';
 import type { ChainId, Network } from '@ferry/chain-config';
@@ -119,6 +119,34 @@ export function isSameFerryHtlcBytecode(
   );
 }
 
+/**
+ * The first block in which `address` has code, by binary search over historical
+ * state. Returns undefined when the endpoint cannot serve old state (many public
+ * endpoints prune it), so the caller reports no block rather than a wrong one.
+ */
+export async function findDeployBlock(
+  client: PublicClient,
+  address: Address,
+): Promise<bigint | undefined> {
+  try {
+    const hasCodeAt = async (blockNumber: bigint) => {
+      const code = await client.getCode({ address, blockNumber });
+      return code !== undefined && code !== '0x';
+    };
+    let high = await client.getBlockNumber();
+    if (!(await hasCodeAt(high))) return undefined;
+    let low = 0n;
+    while (low < high) {
+      const middle = (low + high) / 2n;
+      if (await hasCodeAt(middle)) high = middle;
+      else low = middle + 1n;
+    }
+    return low;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function deployFerryHtlc(
   options: DeployFerryHtlcOptions,
 ): Promise<DeployFerryHtlcResult> {
@@ -149,6 +177,7 @@ export async function deployFerryHtlc(
         factory,
         salt: FERRY_HTLC_SALT,
         initCodeHash: artifact.initCodeHash,
+        deployBlock: await findDeployBlock(publicClient, predicted),
       };
     }
     throw new Error(
