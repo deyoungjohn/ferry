@@ -22,7 +22,9 @@ import { createPublicClient, http, type Address, type Hex } from 'viem';
 import { base } from 'viem/chains';
 import { WalletContext } from '../lib/wallet/context';
 import { readBchTipHeight } from '../lib/solver/tip';
-import { evmTxUrl } from '../lib/explorer';
+import { bchTxUrl, evmTxUrl } from '../lib/explorer';
+import { createBrowserBchChain } from '../lib/live/bch-chain';
+import { buildBchRecoveryTransaction } from '@ferry/htlc-bch';
 import { CopyDiagnosticsButton } from '../components/CopyDiagnosticsButton';
 import { InfoIcon, ExternalLinkIcon } from '../components/icons';
 import { useToast } from '../lib/toast/ToastContext';
@@ -225,8 +227,73 @@ export function RecoverPage() {
     }
   }
 
-  const handleClaim = () => sendEvmRecovery('claim');
-  const handleRefund = () => sendEvmRecovery('refund');
+  /**
+   * The Bitcoin Cash side: the claim of an EVM to BCH swap, or the refund of a BCH to EVM lock.
+   * It needs no wallet and no signature (the covenant pays the address fixed in the file): the
+   * page finds the locked output, builds the transaction and sends it through public servers.
+   */
+  async function recoverOnBch(action: 'claim' | 'refund') {
+    if (!recoveryFile) return;
+    setBusy(true);
+    setError(null);
+    setActionResult(null);
+    try {
+      const chain = createBrowserBchChain({
+        solverUrl: (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+          ?.split(',')[0]
+          ?.trim(),
+      });
+      const utxos = await chain.getUtxos(
+        recoveryFile.contracts.bch.lockingBytecode.replace(/^0x/i, ''),
+      );
+      if (utxos.length === 0) {
+        setError(
+          action === 'claim'
+            ? "The solver's Bitcoin Cash lock was not found, so there is nothing to claim yet."
+            : 'Your Bitcoin Cash lock was not found, so there is nothing to refund.',
+        );
+        return;
+      }
+      let locktime: number | undefined;
+      if (action === 'refund') {
+        const tip = await chain.getTipHeight();
+        if (tip < recoveryFile.terms.bchRefundHeight) {
+          setError(
+            `The refund opens at Bitcoin Cash block ${recoveryFile.terms.bchRefundHeight.toLocaleString('en-US')}, about ${formatDuration((recoveryFile.terms.bchRefundHeight - tip) * 600)} from now.`,
+          );
+          return;
+        }
+        locktime = Math.max(tip, recoveryFile.terms.bchRefundHeight);
+      }
+      const built = buildBchRecoveryTransaction({
+        file: recoveryFile,
+        utxos: utxos.map((u) => ({
+          txid: u.txid,
+          vout: u.vout,
+          satoshis: u.satoshis,
+        })),
+        ...(locktime !== undefined ? { locktime } : {}),
+      });
+      const txid = await chain.broadcast(built.txHex);
+      setActionResult(
+        `${action === 'claim' ? 'Claim' : 'Refund'} sent. Check it on the explorer: ${bchTxUrl(txid)}`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : `The ${action} was not sent. Nothing changed on chain.`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const forward = recoveryFile?.terms.direction === 'EVM_TO_BCH';
+  const handleClaim = () =>
+    forward ? recoverOnBch('claim') : sendEvmRecovery('claim');
+  const handleRefund = () =>
+    forward ? sendEvmRecovery('refund') : recoverOnBch('refund');
 
   function handleViewEvmCalldata() {
     if (!recoveryFile) return;

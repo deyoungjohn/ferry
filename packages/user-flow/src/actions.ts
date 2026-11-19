@@ -330,10 +330,10 @@ export function formatBchAmount(sats: bigint): string {
 export function insufficientBchMessage(builderMessage: string): string {
   const match = /required (\d+), available (\d+)/.exec(builderMessage);
   if (!match) {
-    return 'Your Bitcoin Cash address does not hold enough BCH to lock this swap. Nothing was locked. Add a little BCH to it and try again.';
+    return 'Your wallet needs a little BCH to pay the network fee. Nothing was locked.';
   }
   const required = BigInt(match[1]!);
   const available = BigInt(match[2]!);
   const missing = required > available ? required - available : 0n;
-  return `Your Bitcoin Cash address needs a little BCH to pay the network fee and the small amount that travels with your tokens: about ${formatBchAmount(required)}, and it holds ${formatBchAmount(available)}. Add about ${formatBchAmount(missing)} to this address and press the button again. Nothing was locked.`;
+  return `Your wallet needs a little BCH to pay the network fee. You hold ${formatBchAmount(available)} and you need ${formatBchAmount(required)} (${formatBchAmount(missing)} more). Nothing was locked.`;
 }

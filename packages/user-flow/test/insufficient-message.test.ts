@@ -11,6 +11,7 @@ describe('insufficient BCH message', () => {
     expect(text).toContain('0.00004633 BCH');
     expect(text).toContain('0.000035 BCH');
     expect(text).toContain('0.00001133 BCH');
+    expect(text.length).toBeLessThan(170);
     expect(text).not.toMatch(/satoshi/i);
     expect(text).toContain('Nothing was locked');
   });
