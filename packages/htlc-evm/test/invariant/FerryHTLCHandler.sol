@@ -81,16 +81,23 @@ contract FerryHTLCHandler is Test {
         ) = htlc.locks(id);
         if (state != FerryHTLC.State.Locked || lockToken != address(token)) return;
 
-        bool claimMode = modeSeed % 2 == 0;
-        if (!claimMode && block.timestamp < deadline) vm.warp(deadline);
+        uint256 mode = modeSeed % 3;
+        bool claimMode = mode == 0;
+        bool refundMode = mode == 1;
 
-        uint256 beforeBalance = token.balanceOf(claimMode ? recipient : sender);
+        if (refundMode && block.timestamp < deadline) vm.warp(deadline);
+
+        address destination = claimMode ? recipient : sender;
+        uint256 beforeBalance = token.balanceOf(destination);
         if (claimMode) {
             htlc.claim(id, secrets[id]);
-        } else {
+        } else if (refundMode) {
             htlc.refund(id);
+        } else {
+            vm.prank(recipient);
+            htlc.release(id);
         }
-        uint256 afterBalance = token.balanceOf(claimMode ? recipient : sender);
+        uint256 afterBalance = token.balanceOf(destination);
 
         if (afterBalance - beforeBalance != amount) badDestination = true;
 
@@ -109,6 +116,9 @@ contract FerryHTLCHandler is Test {
             doubleResolved = true;
         } catch { }
         try htlc.refund(id) {
+            doubleResolved = true;
+        } catch { }
+        try htlc.release(id) {
             doubleResolved = true;
         } catch { }
 

@@ -17,6 +17,8 @@ import {
 export interface EvmReading {
   readonly nowSeconds: number;
   readonly lockStatus: LockChainStatus;
+  readonly refundTx?: string | undefined;
+  readonly refundKind?: 'release' | 'keeper' | 'user' | undefined;
 }
 
 export interface BchReading {

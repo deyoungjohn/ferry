@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { orderId as computeOrderId, type RecoveryTerms } from '@ferry/core';
 import { RecoverPage } from '../routes/RecoverPage';
@@ -203,5 +203,77 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
       name: /Claim Funds with Secret/i,
     });
     expect(claimBtn).toBeInTheDocument();
+  });
+
+  it('displays "The solver returned your funds" with explorer link for release', async () => {
+    vi.stubEnv('VITE_SOLVER_URLS', 'https://solver.test');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          state: 'RELEASED',
+          txids: {
+            evmRefund:
+              '0x3333444455556666777788889999aaaabbbbccccddddeeeeffff000011112222',
+          },
+        }),
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <RecoverPage />
+      </MemoryRouter>,
+    );
+    const textarea = screen.getByLabelText(/Or paste recovery file JSON:/i);
+    fireEvent.change(textarea, {
+      target: { value: JSON.stringify(validRecoveryFile) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Load File/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('recovery-released')).toHaveTextContent(
+        'The solver returned your funds',
+      );
+    });
+    const link = screen.getByTestId('recovery-release-link');
+    expect(link.getAttribute('href')).toContain('basescan.org/tx/0x33334444');
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it('displays "Refunded automatically" with explorer link for keeper refund', async () => {
+    vi.stubEnv('VITE_SOLVER_URLS', 'https://solver.test');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          state: 'SOLVER_REFUNDED',
+          txids: {
+            evmRefund:
+              '0x444455556666777788889999aaaabbbbccccddddeeeeffff0000111122223333',
+          },
+        }),
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <RecoverPage />
+      </MemoryRouter>,
+    );
+    const textarea = screen.getByLabelText(/Or paste recovery file JSON:/i);
+    fireEvent.change(textarea, {
+      target: { value: JSON.stringify(validRecoveryFile) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Load File/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('recovery-keeper-refunded')).toHaveTextContent(
+        'Refunded automatically',
+      );
+    });
+    const link = screen.getByTestId('recovery-keeper-link');
+    expect(link.getAttribute('href')).toContain('basescan.org/tx/0x44445555');
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 });

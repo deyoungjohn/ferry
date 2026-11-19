@@ -23,6 +23,7 @@ export function isTerminalStatus(status: OrderStatus): boolean {
     status === 'DONE' ||
     status === 'EXPIRED' ||
     status === 'REJECTED' ||
+    status === 'RELEASED' ||
     status === 'SOLVER_REFUNDED'
   );
 }
@@ -371,12 +372,38 @@ export function transition(
       );
     }
 
+    case 'SOLVER_RELEASED': {
+      if (
+        current === 'QUOTED' ||
+        current === 'USER_LOCK_SEEN' ||
+        current === 'USER_LOCK_FINAL' ||
+        current === 'REJECTED' ||
+        current === 'EXPIRED'
+      ) {
+        return {
+          nextStatus: 'RELEASED',
+          mutations: {
+            solverRefundTxId: event.txId,
+            ...(event.reason ? { rejectionReason: event.reason } : {}),
+          },
+        };
+      }
+      throw new Error(
+        `Illegal transition: cannot apply SOLVER_RELEASED in state ${current}`,
+      );
+    }
+
     case 'BCH_DEADLINE_PASSED':
     case 'COUNTER_DEADLINE_PASSED': {
       if (
         current === 'SOLVER_LOCK_SEEN' ||
         current === 'SECRET_KNOWN' ||
-        current === 'SOLVER_LOCK_BROADCAST'
+        current === 'SOLVER_LOCK_BROADCAST' ||
+        current === 'QUOTED' ||
+        current === 'USER_LOCK_SEEN' ||
+        current === 'USER_LOCK_FINAL' ||
+        current === 'REJECTED' ||
+        current === 'EXPIRED'
       ) {
         return {
           nextStatus: 'SOLVER_REFUNDED',

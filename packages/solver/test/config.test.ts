@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PREDICTED_FERRY_HTLC_ADDRESS } from '@ferry/chain-config';
 import {
   DEFAULT_DEV_EVM_PRIVATE_KEY,
   KNOWN_DEV_EVM_KEYS,
@@ -125,9 +126,7 @@ describe('mainnet defaults from the recorded chain facts', () => {
     expect(config.baseUsdcAddress).toBe(
       '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     );
-    expect(config.baseHtlcAddress).toBe(
-      '0x8b968625F983420B571C102eC0b57F7e509c916e',
-    );
+    expect(config.baseHtlcAddress).toBe(PREDICTED_FERRY_HTLC_ADDRESS);
   });
 
   it('lets FERRY_HTLC_ADDRESS set the contract address', () => {

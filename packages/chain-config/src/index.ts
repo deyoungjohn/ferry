@@ -37,6 +37,7 @@ export {
   FERRY_HTLC_INIT_CODE_HASH,
   FERRY_HTLC_SALT,
   PREDICTED_FERRY_HTLC_ADDRESS,
+  PREVIOUS_FERRY_HTLC_ADDRESS,
   eip712DomainSeparator,
   predictHtlcAddress,
   usdt0Domain,

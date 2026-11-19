@@ -1,4 +1,7 @@
-import { listDeployedContracts } from '@ferry/chain-config/browser';
+import {
+  listDeployedContracts,
+  PREDICTED_FERRY_HTLC_ADDRESS,
+} from '@ferry/chain-config/browser';
 import chainsData from '../../../../chain-config/src/data/chains.json';
 import { evmLockId, type Hex, type Hex32 } from '@ferry/core';
 import { claimRequestTypedData } from '@ferry/core/api';
@@ -96,9 +99,9 @@ export async function claimSendLinkLive(
   if (!htlcAddress) {
     // The recorded deployments are bundled with the page; reading the chain config from disk
     // does not work in a browser.
-    htlcAddress = listDeployedContracts(chainsData).find(
-      (item) => item.chainId === chainId,
-    )?.address;
+    htlcAddress =
+      listDeployedContracts(chainsData).find((item) => item.chainId === chainId)
+        ?.address ?? PREDICTED_FERRY_HTLC_ADDRESS;
   }
 
   if (!htlcAddress) {

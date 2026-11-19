@@ -558,7 +558,17 @@ export class SolverDatabase {
   listNonTerminalOrders(): OrderRecord[] {
     const stmt = this.db.prepare(`
       SELECT * FROM orders 
-      WHERE status NOT IN ('DONE', 'EXPIRED', 'REJECTED', 'REFUNDED', 'SOLVER_REFUNDED')
+      WHERE status NOT IN ('DONE', 'EXPIRED', 'REJECTED', 'RELEASED', 'REFUNDED', 'SOLVER_REFUNDED')
+      ORDER BY created_at ASC
+    `);
+    const rows = stmt.all() as Array<Record<string, unknown>>;
+    return rows.map((row) => this.mapOrderRow(row));
+  }
+
+  listOrdersForKeeper(): OrderRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM orders
+      WHERE status NOT IN ('DONE', 'RELEASED', 'SOLVER_REFUNDED')
       ORDER BY created_at ASC
     `);
     const rows = stmt.all() as Array<Record<string, unknown>>;

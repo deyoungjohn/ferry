@@ -719,6 +719,142 @@ contract FerryHTLCTest is Test {
         assertEq(uint8(_getLock(id).state), uint8(FerryHTLC.State.Refunded));
     }
 
+    function test_release_onlyRecipientCanRelease() public {
+        bytes32 id = _lockAsUser();
+
+        // user (sender) cannot release
+        vm.prank(user);
+        vm.expectRevert(FerryHTLC.NotRecipient.selector);
+        htlc.release(id);
+
+        // stranger cannot release
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(FerryHTLC.NotRecipient.selector);
+        htlc.release(id);
+
+        // recipient CAN release
+        uint256 beforeBalance = usdc.balanceOf(user);
+        vm.prank(RECIPIENT);
+        htlc.release(id);
+
+        assertEq(usdc.balanceOf(user), beforeBalance + AMOUNT);
+        assertEq(uint8(_getLock(id).state), uint8(FerryHTLC.State.Refunded));
+    }
+
+    function test_release_returnsFundsToSender() public {
+        bytes32 id = _lockAsUser();
+        uint256 userBefore = usdc.balanceOf(user);
+        uint256 recipientBefore = usdc.balanceOf(RECIPIENT);
+
+        vm.expectEmit(true, false, false, false, address(htlc));
+        emit FerryHTLC.Refunded(id);
+
+        vm.prank(RECIPIENT);
+        htlc.release(id);
+
+        assertEq(usdc.balanceOf(user), userBefore + AMOUNT);
+        assertEq(usdc.balanceOf(RECIPIENT), recipientBefore);
+    }
+
+    function test_release_beforeDeadlineSucceeds() public {
+        bytes32 id = _lockAsUser();
+        assertTrue(block.timestamp < deadline);
+
+        vm.prank(RECIPIENT);
+        htlc.release(id);
+        assertEq(uint8(_getLock(id).state), uint8(FerryHTLC.State.Refunded));
+    }
+
+    function test_release_afterDeadlineSucceeds() public {
+        bytes32 id = _lockAsUser();
+        vm.warp(deadline + 1 hours);
+
+        vm.prank(RECIPIENT);
+        htlc.release(id);
+        assertEq(uint8(_getLock(id).state), uint8(FerryHTLC.State.Refunded));
+    }
+
+    function test_release_afterClaimReverts() public {
+        bytes32 id = _lockAsUser();
+        htlc.claim(id, secret);
+
+        vm.prank(RECIPIENT);
+        vm.expectRevert(FerryHTLC.NotLocked.selector);
+        htlc.release(id);
+    }
+
+    function test_release_afterRefundReverts() public {
+        bytes32 id = _lockAsUser();
+        vm.warp(deadline);
+        htlc.refund(id);
+
+        vm.prank(RECIPIENT);
+        vm.expectRevert(FerryHTLC.NotLocked.selector);
+        htlc.release(id);
+    }
+
+    function test_release_twiceReverts() public {
+        bytes32 id = _lockAsUser();
+        vm.prank(RECIPIENT);
+        htlc.release(id);
+
+        vm.prank(RECIPIENT);
+        vm.expectRevert(FerryHTLC.NotLocked.selector);
+        htlc.release(id);
+    }
+
+    function test_claim_afterReleaseReverts() public {
+        bytes32 id = _lockAsUser();
+        vm.prank(RECIPIENT);
+        htlc.release(id);
+
+        vm.expectRevert(FerryHTLC.NotLocked.selector);
+        htlc.claim(id, secret);
+    }
+
+    function test_refund_afterReleaseReverts() public {
+        bytes32 id = _lockAsUser();
+        vm.prank(RECIPIENT);
+        htlc.release(id);
+
+        vm.warp(deadline);
+        vm.expectRevert(FerryHTLC.NotLocked.selector);
+        htlc.refund(id);
+    }
+
+    function test_release_unknownIdReverts() public {
+        vm.prank(RECIPIENT);
+        vm.expectRevert(FerryHTLC.NotLocked.selector);
+        htlc.release(bytes32(uint256(12345)));
+    }
+
+    function testFuzz_release_onlyRecipientAndConservesFunds(
+        bytes32 fuzzSecret,
+        uint96 fuzzAmount,
+        uint64 deadlineOffset,
+        address caller
+    ) public {
+        uint256 amount = bound(uint256(fuzzAmount), 1, 1_000e6);
+        uint64 offset = uint64(bound(uint256(deadlineOffset), 2, 365 days));
+        uint64 fuzzDeadline = uint64(block.timestamp + offset);
+        bytes32 fuzzHashLock = sha256(abi.encodePacked(fuzzSecret));
+
+        vm.prank(user);
+        bytes32 id = htlc.lock(address(usdc), RECIPIENT, amount, fuzzHashLock, fuzzDeadline);
+
+        if (caller != RECIPIENT) {
+            vm.prank(caller);
+            vm.expectRevert(FerryHTLC.NotRecipient.selector);
+            htlc.release(id);
+        }
+
+        uint256 beforeBalance = usdc.balanceOf(user);
+        vm.prank(RECIPIENT);
+        htlc.release(id);
+        assertEq(usdc.balanceOf(user), beforeBalance + amount);
+        assertEq(uint8(_getLock(id).state), uint8(FerryHTLC.State.Refunded));
+    }
+
     function _lockAsUser() internal returns (bytes32 id) {
         vm.prank(user);
         id = htlc.lock(address(usdc), RECIPIENT, AMOUNT, hashLock, deadline);

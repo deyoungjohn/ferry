@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CHAIN_IDS,
   NETWORKS,
-  PREDICTED_FERRY_HTLC_ADDRESS,
+  PREVIOUS_FERRY_HTLC_ADDRESS,
   loadChainData,
   parseChainConfigData,
   routeIneligibilityReasons,
@@ -65,8 +65,8 @@ describe('chain fact data', () => {
     for (const id of CHAIN_IDS) {
       for (const network of NETWORKS) {
         const deployment = data.chains[id][network].deployment;
-        // Base was recorded on 2026-11-17 and the other five mainnets on 2026-11-19; testnets stay null.
-        const deployed: Record<string, number> = {
+        // Previous mainnet deployments were recorded on 2026-11-17 and 2026-11-19; now superseded pending redeploy of release-capable contract.
+        const previousDeployed: Record<string, number> = {
           base: 58633459,
           ethereum: 26450983,
           arbitrum: 525697203,
@@ -75,9 +75,16 @@ describe('chain fact data', () => {
           robinhood: 118437901,
         };
         if (network === 'mainnet') {
-          expect(deployment.htlcAddress).toBe(PREDICTED_FERRY_HTLC_ADDRESS);
-          expect(deployment.deployBlock).toBe(deployed[id]);
-          expect(deployment.evidence.status).toBe('verified');
+          expect(deployment.htlcAddress).toBeNull();
+          expect(deployment.deployBlock).toBeNull();
+          expect(deployment.evidence.status).toBe('unavailable');
+          expect(deployment.evidence.source).toBe(
+            'superseded, redeploy pending',
+          );
+          expect(deployment.previous?.htlcAddress).toBe(
+            PREVIOUS_FERRY_HTLC_ADDRESS,
+          );
+          expect(deployment.previous?.deployBlock).toBe(previousDeployed[id]);
           continue;
         }
         expect(deployment.htlcAddress).toBeNull();

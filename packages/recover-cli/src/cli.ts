@@ -99,6 +99,13 @@ export async function runRecoverCli(
   if (args.rpcUrl && args.evmState === undefined) {
     const probe = await probeEvmLockStatus(file, args.rpcUrl);
     resolvedEvmState = probe.lockStatus;
+    if (
+      probe.htlcAddress &&
+      probe.htlcAddress.toLowerCase() !==
+        file.contracts.evm.htlcAddress.toLowerCase()
+    ) {
+      file.contracts.evm.htlcAddress = probe.htlcAddress;
+    }
     if (args.nowSeconds === undefined) {
       resolvedNow = probe.nowSeconds;
     }

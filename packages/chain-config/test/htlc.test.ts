@@ -16,7 +16,7 @@ describe('CREATE2 prediction', () => {
   it('matches the address in the blueprint', () => {
     expect(predictHtlcAddress()).toBe(PREDICTED_FERRY_HTLC_ADDRESS);
     expect(predictHtlcAddress()).toBe(
-      '0x8b968625F983420B571C102eC0b57F7e509c916e',
+      '0xfC28c2596C553353578a5a444d2316514009DAdF',
     );
   });
 
@@ -27,7 +27,7 @@ describe('CREATE2 prediction', () => {
   it('uses the committed salt and init-code hash', () => {
     expect(FERRY_HTLC_SALT).toBe(keccak256(stringToHex('ferry-htlc.v1')));
     expect(FERRY_HTLC_INIT_CODE_HASH).toBe(
-      '0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430',
+      '0x4ca8e6ac893b54008f3c1b9064f6670a9bbf17f55e0f1ef71888c802ce418eea',
     );
   });
 });

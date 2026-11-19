@@ -60,13 +60,18 @@
           }
         },
         "deployment": {
-          "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
-          "deployBlock": 58633459,
+          "htlcAddress": null,
+          "deployBlock": null,
           "relayCostUsd": null,
+          "previous": {
+            "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
+            "deployBlock": 58633459
+          },
           "evidence": {
-            "status": "verified",
-            "source": "eth_getCode at the address returns the FerryHTLC runtime code with the immutable slots masked (record-deployment); explorer source verification on Basescan; first block with code found by bisection on an archive endpoint",
-            "date": "2026-11-17"
+            "status": "unavailable",
+            "source": "superseded, redeploy pending",
+            "date": "2026-11-19",
+            "note": "previous: address 0x8b968625F983420B571C102eC0b57F7e509c916e at block 58633459 (retained for recovery of live test lock)"
           }
         },
         "tokens": [
@@ -177,8 +182,8 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
-            "date": "2026-11-16",
+            "source": "Not deployed; predicted address 0xfC28c2596C553353578a5a444d2316514009DAdF from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0x4ca8e6ac893b54008f3c1b9064f6670a9bbf17f55e0f1ef71888c802ce418eea (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "date": "2026-11-19",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
         },
@@ -270,13 +275,18 @@
           }
         },
         "deployment": {
-          "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
-          "deployBlock": 26450983,
+          "htlcAddress": null,
+          "deployBlock": null,
           "relayCostUsd": null,
+          "previous": {
+            "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
+            "deployBlock": 26450983
+          },
           "evidence": {
-            "status": "verified",
-            "source": "eth_getCode at the address returns the FerryHTLC runtime code with the immutable slots masked (record-deployment); source verified on Etherscan; first block with code found by bisection on an archive endpoint",
-            "date": "2026-11-19"
+            "status": "unavailable",
+            "source": "superseded, redeploy pending",
+            "date": "2026-11-19",
+            "note": "previous: address 0x8b968625F983420B571C102eC0b57F7e509c916e at block 26450983"
           }
         },
         "tokens": [
@@ -439,8 +449,8 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
-            "date": "2026-11-16",
+            "source": "Not deployed; predicted address 0xfC28c2596C553353578a5a444d2316514009DAdF from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0x4ca8e6ac893b54008f3c1b9064f6670a9bbf17f55e0f1ef71888c802ce418eea (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "date": "2026-11-19",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
         },
@@ -532,13 +542,18 @@
           }
         },
         "deployment": {
-          "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
-          "deployBlock": 525697203,
+          "htlcAddress": null,
+          "deployBlock": null,
           "relayCostUsd": null,
+          "previous": {
+            "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
+            "deployBlock": 525697203
+          },
           "evidence": {
-            "status": "verified",
-            "source": "eth_getCode at the address returns the FerryHTLC runtime code with the immutable slots masked (record-deployment); source verified on Arbiscan; first block with code found by bisection on an archive endpoint",
-            "date": "2026-11-19"
+            "status": "unavailable",
+            "source": "superseded, redeploy pending",
+            "date": "2026-11-19",
+            "note": "previous: address 0x8b968625F983420B571C102eC0b57F7e509c916e at block 525697203"
           }
         },
         "tokens": [
@@ -581,7 +596,7 @@
             "symbol": "USDT",
             "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
             "decimals": 6,
-            "name": "USD\u20ae0",
+            "name": "USD₮0",
             "version": "1",
             "domainSeparator": "0x566af68fb471b22d6421762f84aa7bd761c670a2e4d5c8a47d4085d5957b127c",
             "permit": true,
@@ -601,7 +616,7 @@
               },
               "eip712": {
                 "status": "verified",
-                "source": "DOMAIN_SEPARATOR() = 0x566af68fb471b22d6421762f84aa7bd761c670a2e4d5c8a47d4085d5957b127c, which equals the EIP-712 domain for name USD\u20ae0, version 1, chainId 42161 and the token address; version() itself reverts",
+                "source": "DOMAIN_SEPARATOR() = 0x566af68fb471b22d6421762f84aa7bd761c670a2e4d5c8a47d4085d5957b127c, which equals the EIP-712 domain for name USD₮0, version 1, chainId 42161 and the token address; version() itself reverts",
                 "date": "2026-11-15"
               },
               "permit": {
@@ -701,8 +716,8 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
-            "date": "2026-11-16",
+            "source": "Not deployed; predicted address 0xfC28c2596C553353578a5a444d2316514009DAdF from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0x4ca8e6ac893b54008f3c1b9064f6670a9bbf17f55e0f1ef71888c802ce418eea (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "date": "2026-11-19",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
         },
@@ -804,13 +819,18 @@
           }
         },
         "deployment": {
-          "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
-          "deployBlock": 32096216,
+          "htlcAddress": null,
+          "deployBlock": null,
           "relayCostUsd": null,
+          "previous": {
+            "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
+            "deployBlock": 32096216
+          },
           "evidence": {
-            "status": "verified",
-            "source": "eth_getCode at the address returns the FerryHTLC runtime code with the immutable slots masked (record-deployment); source verified on Sourcify (exact match); first block with code found by bisection on an archive endpoint",
-            "date": "2026-11-19"
+            "status": "unavailable",
+            "source": "superseded, redeploy pending",
+            "date": "2026-11-19",
+            "note": "previous: address 0x8b968625F983420B571C102eC0b57F7e509c916e at block 32096216"
           }
         },
         "tokens": [
@@ -922,8 +942,8 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
-            "date": "2026-11-16",
+            "source": "Not deployed; predicted address 0xfC28c2596C553353578a5a444d2316514009DAdF from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0x4ca8e6ac893b54008f3c1b9064f6670a9bbf17f55e0f1ef71888c802ce418eea (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "date": "2026-11-19",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
         },
@@ -1016,13 +1036,18 @@
           }
         },
         "deployment": {
-          "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
-          "deployBlock": 134553116,
+          "htlcAddress": null,
+          "deployBlock": null,
           "relayCostUsd": null,
+          "previous": {
+            "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
+            "deployBlock": 134553116
+          },
           "evidence": {
-            "status": "verified",
-            "source": "eth_getCode at the address returns the FerryHTLC runtime code with the immutable slots masked (record-deployment); source verified on Sourcify (exact match); first block with code found by bisection on an archive endpoint",
-            "date": "2026-11-19"
+            "status": "unavailable",
+            "source": "superseded, redeploy pending",
+            "date": "2026-11-19",
+            "note": "previous: address 0x8b968625F983420B571C102eC0b57F7e509c916e at block 134553116"
           }
         },
         "tokens": [
@@ -1076,7 +1101,7 @@
             "verification": {
               "address": {
                 "status": "verified",
-                "source": "https://www.binance.com/en/collateral-btokens lists the BEP20 wrapped token at 0x55d398326f99059fF775485246999027B3197955; BscScan has the verified contract; https://tether.to/en/supported-protocols/ lists only XAU\u20ae for BNB Smart Chain",
+                "source": "https://www.binance.com/en/collateral-btokens lists the BEP20 wrapped token at 0x55d398326f99059fF775485246999027B3197955; BscScan has the verified contract; https://tether.to/en/supported-protocols/ lists only XAU₮ for BNB Smart Chain",
                 "date": "2026-11-15"
               },
               "decimals": {
@@ -1186,8 +1211,8 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
-            "date": "2026-11-16",
+            "source": "Not deployed; predicted address 0xfC28c2596C553353578a5a444d2316514009DAdF from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0x4ca8e6ac893b54008f3c1b9064f6670a9bbf17f55e0f1ef71888c802ce418eea (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "date": "2026-11-19",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
         },
@@ -1281,13 +1306,18 @@
           }
         },
         "deployment": {
-          "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
-          "deployBlock": 118437901,
+          "htlcAddress": null,
+          "deployBlock": null,
           "relayCostUsd": null,
+          "previous": {
+            "htlcAddress": "0x8b968625F983420B571C102eC0b57F7e509c916e",
+            "deployBlock": 118437901
+          },
           "evidence": {
-            "status": "verified",
-            "source": "eth_getCode at the address returns the FerryHTLC runtime code with the immutable slots masked (record-deployment); source verified on Sourcify (exact match); first block with code found by bisection on an archive endpoint",
-            "date": "2026-11-19"
+            "status": "unavailable",
+            "source": "superseded, redeploy pending",
+            "date": "2026-11-19",
+            "note": "previous: address 0x8b968625F983420B571C102eC0b57F7e509c916e at block 118437901"
           }
         },
         "tokens": [
@@ -1400,8 +1430,8 @@
           "relayCostUsd": null,
           "evidence": {
             "status": "unavailable",
-            "source": "Not deployed; predicted address 0x8b968625F983420B571C102eC0b57F7e509c916e from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430 (preparation/Ferry_Blueprint.md \u00a718; packages/htlc-evm/README.md)",
-            "date": "2026-11-16",
+            "source": "Not deployed; predicted address 0xfC28c2596C553353578a5a444d2316514009DAdF from the canonical factory 0x4e59b44847b379578588920cA78FbF26c0B4956C, salt keccak256(\"ferry-htlc.v1\") and init code hash 0x4ca8e6ac893b54008f3c1b9064f6670a9bbf17f55e0f1ef71888c802ce418eea (preparation/Ferry_Blueprint.md §18; packages/htlc-evm/README.md)",
+            "date": "2026-11-19",
             "note": "loadChainConfig resolves the predicted address; the verify script skips eth_getCode while the deployment address is null."
           }
         },

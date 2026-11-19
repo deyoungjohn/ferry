@@ -13,6 +13,7 @@ export type OrderStatus =
   | 'DONE'
   | 'EXPIRED'
   | 'REJECTED'
+  | 'RELEASED'
   | 'SOLVER_REFUNDED';
 
 export type ForwardOrderStatus = OrderStatus;
@@ -61,6 +62,7 @@ export type SolverEvent =
   | { type: 'SWAP_COMPLETE' }
   | { type: 'QUOTE_EXPIRED' }
   | { type: 'INVALID_TERMS'; reason: string }
+  | { type: 'SOLVER_RELEASED'; txId: string; reason?: string }
   | { type: 'BCH_DEADLINE_PASSED'; refundTxId: string }
   | { type: 'COUNTER_DEADLINE_PASSED'; refundTxId: string };
 

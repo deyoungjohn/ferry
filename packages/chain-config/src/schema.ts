@@ -90,10 +90,17 @@ export const tokenFactsSchema = z.object({
 });
 export type TokenFacts = z.infer<typeof tokenFactsSchema>;
 
+export const previousDeploymentSchema = z.object({
+  htlcAddress: addressSchema,
+  deployBlock: z.number().int().positive().nullable(),
+});
+export type PreviousDeployment = z.infer<typeof previousDeploymentSchema>;
+
 export const deploymentFactsSchema = z.object({
   htlcAddress: addressSchema.nullable(),
   deployBlock: z.number().int().positive().nullable(),
   relayCostUsd: z.number().nonnegative().nullable(),
+  previous: previousDeploymentSchema.optional(),
   evidence: factEvidenceSchema,
 });
 export type DeploymentFacts = z.infer<typeof deploymentFactsSchema>;

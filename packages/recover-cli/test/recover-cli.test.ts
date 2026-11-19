@@ -417,4 +417,12 @@ describe('@ferry/recover-cli', () => {
     expect(bchRes.txHex).toMatch(/^[0-9a-f]+$/);
     expect(bchRes.txid).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it('knows both new predicted and previous addresses', async () => {
+    const { PREDICTED_FERRY_HTLC_ADDRESS, PREVIOUS_FERRY_HTLC_ADDRESS } =
+      await import('@ferry/chain-config');
+    const { KNOWN_FERRY_HTLC_ADDRESSES } = await import('../src/recover.js');
+    expect(KNOWN_FERRY_HTLC_ADDRESSES).toContain(PREDICTED_FERRY_HTLC_ADDRESS);
+    expect(KNOWN_FERRY_HTLC_ADDRESSES).toContain(PREVIOUS_FERRY_HTLC_ADDRESS);
+  });
 });

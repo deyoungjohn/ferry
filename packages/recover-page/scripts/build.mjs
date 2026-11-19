@@ -7,22 +7,26 @@ const here = (path) => fileURLToPath(new URL(path, import.meta.url));
 const outputPath = here('../../../recover.html');
 
 /** Public endpoints per EVM chain id, from the recorded chain facts. */
-async function rpcUrls() {
+async function factsMaps() {
   const data = JSON.parse(
     await readFile(here('../../chain-config/src/data/chains.json'), 'utf8'),
   );
-  const map = {};
+  const rpcMap = {};
+  const explorerMap = {};
   for (const chain of Object.values(data.chains)) {
     for (const network of [chain.mainnet, chain.testnet]) {
       if (!network?.chainId) continue;
       const urls = (network.rpcUrls ?? []).map((item) => item.url);
-      if (urls.length > 0) map[network.chainId] = urls;
+      if (urls.length > 0) rpcMap[network.chainId] = urls;
+      if (network.explorerUrl)
+        explorerMap[network.chainId] = network.explorerUrl;
     }
   }
-  return map;
+  return { rpcMap, explorerMap };
 }
 
 export async function buildHtml() {
+  const { rpcMap, explorerMap } = await factsMaps();
   const result = await build({
     entryPoints: [here('../src/main.ts')],
     bundle: true,
@@ -31,10 +35,12 @@ export async function buildHtml() {
     platform: 'browser',
     target: ['es2022'],
     conditions: ['ferry-source', 'import', 'module', 'default'],
+    alias: { 'node:fs': here('./empty.js') },
     minify: true,
     legalComments: 'none',
     define: {
-      __RPC_URLS__: JSON.stringify(await rpcUrls()),
+      __RPC_URLS__: JSON.stringify(rpcMap),
+      __EXPLORER_URLS__: JSON.stringify(explorerMap),
       'process.env.NODE_ENV': '"production"',
     },
   });

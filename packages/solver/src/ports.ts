@@ -186,5 +186,19 @@ export function createEvmPort(options: EvmPortOptions): EvmChainPort {
       const ref = await adapterFor(chainId).claim(lockId, secret);
       return { txid: ref.txId, txHex: ref.txId };
     },
+    async release(lockId: string, chainId?: number) {
+      const adapter = adapterFor(chainId);
+      if (!adapter.release) {
+        throw new Error(
+          `Adapter for chain ${chainId ?? adapter.id} does not support release`,
+        );
+      }
+      const ref = await adapter.release(lockId);
+      return { txid: ref.txId, txHex: ref.txId };
+    },
+    async refund(lockId: string, chainId?: number) {
+      const ref = await adapterFor(chainId).refund(lockId);
+      return { txid: ref.txId, txHex: ref.txId };
+    },
   };
 }

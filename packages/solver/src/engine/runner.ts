@@ -446,6 +446,11 @@ export class SolverEngine {
       }
     }
     if (failed) throw firstError;
+    try {
+      await this.runRefundKeeper();
+    } catch (err) {
+      this.onEngineEvent?.({ error: String(err) }, 'Refund keeper pass failed');
+    }
   }
 
   async stepOrder(orderRecord: OrderRecord): Promise<void> {
@@ -516,6 +521,14 @@ export class SolverEngine {
           });
         }
 
+        if (order.terms.quoteExpiry && now > order.terms.quoteExpiry) {
+          await this.earlyReleaseUserLock(
+            order,
+            'Quote expired while waiting for user lock confirmation',
+          );
+          return;
+        }
+
         const isFinal = await this.evmPort.isFinal(
           lockState.txid,
           order.lane ?? 'safe',
@@ -535,10 +548,18 @@ export class SolverEngine {
       const bchTip = await this.bchPort.getTip();
       const timingDecision = checkCounterLockTiming(order, bchTip.height, now);
       if (!timingDecision.allowed) {
-        this.applyEvent(order, {
-          type: 'INVALID_TERMS',
-          reason: `Timing invariant F failed: ${timingDecision.reason}`,
-        });
+        await this.earlyReleaseUserLock(
+          order,
+          `Timing invariant F failed: ${timingDecision.reason}`,
+        );
+        return;
+      }
+
+      if (order.terms.quoteExpiry && now > order.terms.quoteExpiry) {
+        await this.earlyReleaseUserLock(
+          order,
+          'Quote expired before counter-lock',
+        );
         return;
       }
 
@@ -565,6 +586,17 @@ export class SolverEngine {
             : { exists: true, confirmations: 10, safe: true },
       );
       if (!revealDecision.allowed) {
+        if (
+          revealDecision.reason === 'fast-consent' ||
+          revealDecision.reason === 'fast-cap' ||
+          revealDecision.reason === 'dsproof'
+        ) {
+          await this.earlyReleaseUserLock(
+            order,
+            `Fast-lane refusal: ${revealDecision.reason}`,
+          );
+          return;
+        }
         this.onEngineEvent?.(
           { orderId: order.id, reason: revealDecision.reason },
           'Counter-lock waits',
@@ -901,6 +933,121 @@ export class SolverEngine {
           txId: order.solverClaimTxId,
         });
         this.applyEvent(order, { type: 'SWAP_COMPLETE' });
+      }
+    }
+  }
+
+  private readonly keeperAttempted = new Set<string>();
+
+  async earlyReleaseUserLock(
+    order: SolverOrderRecord,
+    reason: string,
+  ): Promise<void> {
+    const lockId = evmLockId(order.terms.userEvmAddress, order.terms.hashLock);
+    const chainId = Number(order.terms.evmChainId);
+
+    try {
+      const lockState = await this.evmPort.getLock(lockId, chainId);
+      if (lockState.status === 'locked' && this.evmPort.release) {
+        this.onEngineEvent?.(
+          { orderId: order.id, lockId, reason },
+          'Early release of user EVM lock',
+        );
+
+        const releaseResult = await this.evmExecutor.executeOrAdopt({
+          orderId: order.id,
+          actionType: 'SOLVER_RELEASE',
+          buildTx: async () => this.evmPort.release!(lockId, chainId),
+        });
+
+        this.applyEvent(order, {
+          type: 'SOLVER_RELEASED',
+          txId: releaseResult.txid,
+          reason,
+        });
+        return;
+      } else if (lockState.status === 'refunded') {
+        this.applyEvent(order, {
+          type: 'SOLVER_RELEASED',
+          txId: lockState.txid ?? '',
+          reason,
+        });
+        return;
+      }
+    } catch (err) {
+      this.onOrderError?.(order.id, 'EARLY_RELEASE_ERROR', err);
+    }
+
+    this.applyEvent(order, {
+      type: 'INVALID_TERMS',
+      reason,
+    });
+  }
+
+  async runRefundKeeper(): Promise<void> {
+    if (!this.executionReady || !this.evmPort.refund) return;
+    const now = Math.floor(Date.now() / 1000);
+    const orders = this.db.listOrdersForKeeper();
+
+    for (const record of orders) {
+      if (
+        record.status === 'DONE' ||
+        record.status === 'SOLVER_REFUNDED' ||
+        record.status === 'RELEASED'
+      ) {
+        continue;
+      }
+      if (!isForwardDirection(record.direction as SwapDirection)) {
+        continue;
+      }
+
+      const order = orderRecordToSolverOrder(record);
+      const evmDeadline = order.terms.evmDeadline;
+      if (!evmDeadline || now <= evmDeadline) {
+        continue;
+      }
+
+      const lockId = evmLockId(
+        order.terms.userEvmAddress,
+        order.terms.hashLock,
+      );
+      if (this.keeperAttempted.has(lockId)) {
+        continue;
+      }
+
+      const chainId = Number(order.terms.evmChainId);
+      try {
+        const lockState = await this.evmPort.getLock(lockId, chainId);
+        if (lockState.status === 'locked') {
+          this.keeperAttempted.add(lockId);
+          this.onEngineEvent?.(
+            { orderId: order.id, lockId },
+            'Keeper refunding expired user lock',
+          );
+          const refundResult = await this.evmExecutor.executeOrAdopt({
+            orderId: order.id,
+            actionType: 'SOLVER_REFUND',
+            buildTx: async () => this.evmPort.refund!(lockId, chainId),
+          });
+
+          this.applyEvent(order, {
+            type: 'COUNTER_DEADLINE_PASSED',
+            refundTxId: refundResult.txid,
+          });
+          this.onEngineEvent?.(
+            { orderId: order.id, lockId, txid: refundResult.txid },
+            'Keeper refunded user lock',
+          );
+        } else if (lockState.status === 'refunded') {
+          this.keeperAttempted.add(lockId);
+          this.applyEvent(order, {
+            type: 'COUNTER_DEADLINE_PASSED',
+            refundTxId: lockState.txid ?? '',
+          });
+        }
+      } catch (err) {
+        this.keeperAttempted.add(lockId);
+        this.onOrderError?.(order.id, 'KEEPER_REFUND_FAILED', err);
       }
     }
   }

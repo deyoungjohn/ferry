@@ -14,9 +14,12 @@ export const CREATE2_FACTORY: Address =
 export const FERRY_HTLC_SALT: Hex = keccak256(stringToHex('ferry-htlc.v1'));
 
 export const FERRY_HTLC_INIT_CODE_HASH: Hex =
-  '0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430';
+  '0x4ca8e6ac893b54008f3c1b9064f6670a9bbf17f55e0f1ef71888c802ce418eea';
 
 export const PREDICTED_FERRY_HTLC_ADDRESS: Address =
+  '0xfC28c2596C553353578a5a444d2316514009DAdF';
+
+export const PREVIOUS_FERRY_HTLC_ADDRESS: Address =
   '0x8b968625F983420B571C102eC0b57F7e509c916e';
 
 const EIP712_DOMAIN_TYPEHASH: Hex = keccak256(

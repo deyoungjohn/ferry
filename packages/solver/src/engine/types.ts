@@ -93,6 +93,14 @@ export interface EvmChainPort {
     secret: `0x${string}`,
     chainId?: number,
   ): Promise<{ txid: string; txHex: string }>;
+  release?(
+    lockId: string,
+    chainId?: number,
+  ): Promise<{ txid: string; txHex: string }>;
+  refund?(
+    lockId: string,
+    chainId?: number,
+  ): Promise<{ txid: string; txHex: string }>;
 }
 
 export interface EngineConfig {

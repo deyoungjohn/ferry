@@ -68,6 +68,7 @@ export const SolverConfigSchema = z
     pegToleranceUsdMicros: z.coerce.bigint().default(10000n),
     sourceDisagreementWarnUsdMicros: z.coerce.bigint().default(10000n),
     sourceDisagreementRefuseUsdMicros: z.coerce.bigint().default(20000n),
+    keeperRefundMinMultiplier: z.coerce.number().default(2),
     paryonMaxAgeSeconds: z.coerce.number().default(7200),
     costModelEnabled: z.coerce.boolean().default(true),
     costSafetyPercent: z.coerce.number().default(25),
@@ -229,7 +230,8 @@ function mainnetBaseDefaults(env: Record<string, string | undefined>) {
   return {
     rpcUrl: firstUrl(env.RPC_URL_BASE) ?? base?.rpcUrls[0],
     chainId: base?.chainId,
-    htlc: base?.htlcAddress ?? undefined,
+    htlc:
+      base?.htlcAddress ?? base?.deployment.predictedHtlcAddress ?? undefined,
     usdc: base?.assets.find((a) => a.symbol === 'USDC')?.address,
   };
 }
@@ -339,6 +341,10 @@ export function loadConfigFromEnv(
     sourceDisagreementRefuseUsdMicros:
       env.SOURCE_DISAGREEMENT_REFUSE_USD_MICROS ||
       env.SOURCE_DISAGREEMENT_REFUSE,
+    keeperRefundMinMultiplier:
+      env.KEEPER_REFUND_MIN_MULTIPLIER !== undefined
+        ? Number(env.KEEPER_REFUND_MIN_MULTIPLIER)
+        : undefined,
     paryonMaxAgeSeconds: env.PARYON_MAX_AGE_SECONDS || env.PARYON_MAX_AGE,
     costModelEnabled:
       env.COST_MODEL_ENABLED !== undefined

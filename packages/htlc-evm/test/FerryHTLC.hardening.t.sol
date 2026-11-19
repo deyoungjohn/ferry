@@ -229,4 +229,48 @@ contract FerryHTLCHardeningTest is Test {
         vm.expectRevert();
         htlc.claim(id, secret);
     }
+
+    function test_releaseAndClaim_sameBlock_onlyFirstWins() public {
+        uint256 amount = 1_000e6;
+        bytes32 secret = keccak256("same-block-race");
+        uint64 deadline = uint64(block.timestamp) + 1 hours;
+
+        usdc.mint(owner, amount);
+        vm.startPrank(owner);
+        usdc.approve(address(htlc), amount);
+        bytes32 id = htlc.lock(
+            address(usdc), recipient, amount, sha256(abi.encodePacked(secret)), deadline
+        );
+        vm.stopPrank();
+
+        // Release first in block
+        vm.prank(recipient);
+        htlc.release(id);
+
+        // Claim in the same block reverts NotLocked
+        vm.expectRevert(FerryHTLC.NotLocked.selector);
+        htlc.claim(id, secret);
+    }
+
+    function test_claimAndRelease_sameBlock_onlyFirstWins() public {
+        uint256 amount = 1_000e6;
+        bytes32 secret = keccak256("same-block-race-2");
+        uint64 deadline = uint64(block.timestamp) + 1 hours;
+
+        usdc.mint(owner, amount);
+        vm.startPrank(owner);
+        usdc.approve(address(htlc), amount);
+        bytes32 id = htlc.lock(
+            address(usdc), recipient, amount, sha256(abi.encodePacked(secret)), deadline
+        );
+        vm.stopPrank();
+
+        // Claim first in block
+        htlc.claim(id, secret);
+
+        // Release in the same block reverts NotLocked
+        vm.prank(recipient);
+        vm.expectRevert(FerryHTLC.NotLocked.selector);
+        htlc.release(id);
+    }
 }
