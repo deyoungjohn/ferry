@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     include: ['test/**/*.test.ts'],
     fileParallelism: false,
+    sequence: { groupOrder: 99 },
     testTimeout: 300_000,
     hookTimeout: 300_000,
   },
