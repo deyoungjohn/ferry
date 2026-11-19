@@ -806,6 +806,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           ? (evmAsset?.symbol ?? 'USDC')
           : request.bchToken,
       receiveAsset,
+      evmChain: chainFact.id,
       amountIn: amountInBigInt,
       inputDecimals: inDecimals,
       outputDecimals: outDecimals,
@@ -2635,6 +2636,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         direction: 'EVM_TO_BCH',
         payAsset: 'USDC',
         receiveAsset: link.token,
+        evmChain: 'base',
         amountIn: neededIn,
         userAddress: request.userEvmAddress,
         userIp: '127.0.0.1',
@@ -2921,6 +2923,41 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       );
     }
 
+    // The route (chain and token) must be a recorded, enabled one.
+    const sendRoutes = options.routesContext ?? buildActiveRoutes(config);
+    const sendChain = sendRoutes.chainConfig.facts.find(
+      (c) =>
+        c.chainId === request.chainId ||
+        (c.id === 'base' && config.baseChainId === request.chainId),
+    );
+    const sendAsset =
+      sendChain?.assets.find(
+        (a) => a.address?.toLowerCase() === request.evmToken.toLowerCase(),
+      ) ??
+      (sendChain?.id === 'base' &&
+      request.evmToken.toLowerCase() === config.baseUsdcAddress.toLowerCase()
+        ? { symbol: 'USDC' as const, decimals: 6 }
+        : undefined);
+    const sendRouteActive =
+      sendChain !== undefined &&
+      sendAsset !== undefined &&
+      (sendRoutes.enabledRoutes.some(
+        (r) =>
+          r.chain.toLowerCase() === sendChain.id.toLowerCase() &&
+          r.asset.toLowerCase() === sendAsset.symbol.toLowerCase(),
+      ) ||
+        (sendChain.id === 'base' && Boolean(config.baseHtlcAddress)));
+    if (!sendChain || !sendAsset || !sendRouteActive) {
+      return reply.status(422).send({
+        reason: 'ROUTE_DISABLED',
+        asset: request.token,
+        message: `Route is disabled for chain ${request.chainId} and token ${request.evmToken}`,
+      });
+    }
+    const sendDecimals = sendAsset.decimals ?? 6;
+    const sendHtlc = (sendChain.htlcAddress ??
+      config.baseHtlcAddress) as `0x${string}`;
+
     const now = Math.floor(Date.now() / 1000);
     const quorum = bchClient.getQuorumStatus();
 
@@ -2954,7 +2991,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           asOf: now,
         },
         {
-          asset: 'USDC',
+          asset: sendAsset.symbol,
           usdPrice: '1.000000',
           source: 'reference',
           asOf: now,
@@ -2966,7 +3003,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     };
 
     const inAmount = BigInt(request.amountIn);
-    const amountOut = quoteOut(inAmount, 2, 6, pricingEvidence);
+    const amountOut = quoteOut(inAmount, 2, sendDecimals, pricingEvidence);
 
     const quoteId = `sq-${now}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -2983,7 +3020,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           : `0x${config.tpusdCategory}`) as `0x${string}`,
       evmToken: request.evmToken as `0x${string}`,
       evmChainId: request.chainId,
-      evmHtlc: config.baseHtlcAddress as `0x${string}`,
+      evmHtlc: sendHtlc,
       userEvmAddress: request.recipientEvmAddress as `0x${string}`,
       userBchLockingBytecode: request.userBchLockingBytecode as `0x${string}`,
       solverEvmAddress: solverAccount.address as `0x${string}`,

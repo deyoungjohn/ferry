@@ -139,6 +139,52 @@ describe('Checkable quotes, price sources, and liquidity reservations (blueprint
       }
     });
 
+    it('asks for the EVM stablecoin price on the route chain, not the Bitcoin Cash side', async () => {
+      const now = 1700000000;
+      const asked: Array<[string, string | undefined]> = [];
+      const inner = new MockPriceSource();
+      inner.setPrice('USDT', {
+        usdPrice: 1_000_000n,
+        source: 'chainlink',
+        asOf: now,
+      });
+      inner.setPrice('PUSD', {
+        usdPrice: 998_000n,
+        source: 'cauldron',
+        asOf: now,
+      });
+      const priceSource = {
+        getPrice: (asset: string, chain?: string) => {
+          asked.push([asset, chain]);
+          return inner.getPrice(asset);
+        },
+      };
+      const quoteBuilder = new QuoteBuilder(
+        priceSource,
+        new LiquidityManager(),
+        {
+          spreadBps: 40,
+          fixedFeeUsdMicros: 0n,
+        },
+      );
+      await quoteBuilder.buildQuote({
+        quoteId: 'quote-chain',
+        direction: 'EVM_TO_BCH',
+        payAsset: 'USDT',
+        receiveAsset: 'PUSD',
+        evmChain: 'arbitrum',
+        amountIn: 25_000_000n,
+        userAddress: '0xAlice',
+        userIp: '1.2.3.4',
+        currentInventory: 100_000_000n,
+        openExposure: 0n,
+        nowSeconds: now,
+        termsTemplate: baseTermsTemplate,
+      });
+      expect(asked).toContainEqual(['USDT', 'arbitrum']);
+      expect(asked).toContainEqual(['PUSD', undefined]);
+    });
+
     it('refuses quote with PEG_GUARD when reference price deviates beyond tolerance', async () => {
       const now = 1700000000;
       const priceSource = new MockPriceSource();

@@ -800,13 +800,38 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
   });
 
   describe('7. Send link endpoints (blueprint §23.3, item 5)', () => {
+    it('refuses a send quote for a chain or token that is not an enabled route', async () => {
+      const base = {
+        amount: '10000000',
+        recipientAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
+        windowSeconds: 86400,
+        bchToken: 'PUSD',
+        hashLock: `0x${'ab'.repeat(32)}`,
+      };
+      const otherChain = await app.inject({
+        method: 'POST',
+        url: '/v1/send-quotes',
+        payload: { ...base, destinationChainId: 999999 },
+      });
+      expect(otherChain.statusCode).toBe(422);
+      expect(otherChain.json().reason).toBe('ROUTE_DISABLED');
+      const otherToken = await app.inject({
+        method: 'POST',
+        url: '/v1/send-quotes',
+        payload: {
+          ...base,
+          evmToken: '0x1111111111111111111111111111111111111111',
+        },
+      });
+      expect(otherToken.statusCode).toBe(422);
+      expect(otherToken.json().reason).toBe('ROUTE_DISABLED');
+    });
+
     it('POST /v1/send-quotes plans window, hold fee, and generates send link quote', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/send-quotes',
         payload: {
-          destinationChainId: 8453,
-          token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
           amount: '10000000', // 10 USDC ($10.00)
           recipientAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
           windowSeconds: 86400, // 24 hours
@@ -817,7 +842,7 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.orderId).toBeDefined();
-      expect(body.terms.evmChainId).toBe(8453);
+      expect(body.terms.evmChainId).toBe(84532);
       expect(body.terms.evmDeadline).toBeGreaterThan(0);
       expect(body.terms.bchRefundHeight).toBeGreaterThan(0);
     });
@@ -831,8 +856,6 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
         method: 'POST',
         url: '/v1/send-quotes',
         payload: {
-          destinationChainId: 8453,
-          token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
           amount: '10000000',
           recipientAddress: recipient,
           windowSeconds: 86400,

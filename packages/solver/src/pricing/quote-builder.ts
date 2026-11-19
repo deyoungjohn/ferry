@@ -50,6 +50,8 @@ export interface BuildQuoteParams {
   direction: Direction;
   payAsset: string;
   receiveAsset: string;
+  /** The EVM chain of the route ("arbitrum"), so its own price feed is read; Base when absent. */
+  evmChain?: string | undefined;
   amountIn: bigint;
   userAddress: string;
   userIp: string;
@@ -192,12 +194,20 @@ export class QuoteBuilder {
     let payReading: AssetPriceReading;
     let receiveReading: AssetPriceReading;
     try {
+      // Only the EVM stablecoin has a per-chain feed; the Bitcoin Cash side ignores the chain.
+      const payChain =
+        params.direction === 'EVM_TO_BCH' ? params.evmChain : undefined;
+      const receiveChain =
+        params.direction === 'BCH_TO_EVM' ? params.evmChain : undefined;
       payReading = this.priceSource.getDetailedPrice
-        ? await this.priceSource.getDetailedPrice(params.payAsset)
-        : await this.priceSource.getPrice(params.payAsset);
+        ? await this.priceSource.getDetailedPrice(params.payAsset, payChain)
+        : await this.priceSource.getPrice(params.payAsset, payChain);
       receiveReading = this.priceSource.getDetailedPrice
-        ? await this.priceSource.getDetailedPrice(params.receiveAsset)
-        : await this.priceSource.getPrice(params.receiveAsset);
+        ? await this.priceSource.getDetailedPrice(
+            params.receiveAsset,
+            receiveChain,
+          )
+        : await this.priceSource.getPrice(params.receiveAsset, receiveChain);
       assertFreshPrice(payReading, params.nowSeconds);
       assertFreshPrice(receiveReading, params.nowSeconds);
     } catch (err) {

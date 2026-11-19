@@ -123,8 +123,6 @@ describe('Blinded send link tags and query endpoint (B4-13)', () => {
       method: 'POST',
       url: '/v1/send-quotes',
       payload: {
-        destinationChainId: 8453,
-        token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
         amount: '10000000',
         recipientAddress: recipient,
         windowSeconds: 86400,
