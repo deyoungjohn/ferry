@@ -395,6 +395,8 @@ export const OrderStatusResponseSchema = z.strictObject({
       bchTokenAmount: z.string().regex(/^\d+$/),
       evmAmount: z.string().regex(/^\d+$/),
       evmChainId: positiveUint,
+      evmToken: z.string().min(1).max(32).optional(),
+      evmDecimals: z.number().int().min(0).max(36).optional(),
     })
     .optional(),
 });
@@ -535,6 +537,9 @@ export const RecentOrderItemSchema = z.strictObject({
   direction: z.enum(['EVM_TO_BCH', 'BCH_TO_EVM']),
   bchToken: z.enum(['PUSD', 'MUSD']),
   evmChainId: positiveUint,
+  /** The stablecoin on the EVM side ("USDT"), and its decimals, so the list shows the real token. */
+  evmToken: assetSymbol.optional(),
+  evmDecimals: nonNegInt.optional(),
   bchTokenAmount: z.string().regex(/^\d+$/),
   evmAmount: z.string().regex(/^\d+$/),
   settledAt: unixTimestampSeconds,

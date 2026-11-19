@@ -1034,6 +1034,20 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         bchTokenAmount: terms.bchTokenAmount.toString(),
         evmAmount: terms.evmAmount.toString(),
         evmChainId: Number(terms.evmChainId),
+        ...(() => {
+          const asset = (
+            options.routesContext ?? buildActiveRoutes(config)
+          ).chainConfig.facts
+            .find((c) => c.chainId === Number(terms.evmChainId))
+            ?.assets.find(
+              (a) =>
+                a.address?.toLowerCase() ===
+                String(terms.evmToken).toLowerCase(),
+            );
+          return asset
+            ? { evmToken: asset.symbol, evmDecimals: asset.decimals ?? 6 }
+            : {};
+        })(),
       },
     };
 
@@ -1869,22 +1883,35 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
   app.get('/v1/orders/recent', async (_req, reply) => {
     const recent = db.getRecentSwaps(50);
-    const orders = recent.map((s) => ({
-      orderId: (s.orderId.startsWith('0x')
-        ? s.orderId
-        : `0x${s.orderId}`) as Hex32,
-      direction: (s.direction === 'BCH_TO_COUNTER'
-        ? 'BCH_TO_EVM'
-        : 'EVM_TO_BCH') as 'EVM_TO_BCH' | 'BCH_TO_EVM',
-      bchToken: (s.bchSymbol === 'MUSD' ? 'MUSD' : 'PUSD') as 'PUSD' | 'MUSD',
-      evmChainId: config.baseChainId ?? 8453,
-      bchTokenAmount: s.bchTokenAmount.toString(),
-      evmAmount: s.counterAmount.toString(),
-      settledAt: s.settledAt,
-      durationSeconds: Math.max(0, s.durationSeconds),
-      ...(s.sourceTxId ? { sourceTxId: s.sourceTxId } : {}),
-      ...(s.claimTxId ? { claimTxId: s.claimTxId } : {}),
-    }));
+    const facts = (options.routesContext ?? buildActiveRoutes(config))
+      .chainConfig.facts;
+    const orders = recent.map((s) => {
+      const chainId = s.evmChainId ?? config.baseChainId ?? 8453;
+      const asset = facts
+        .find((c) => c.chainId === chainId)
+        ?.assets.find(
+          (a) => a.address?.toLowerCase() === s.evmTokenAddress?.toLowerCase(),
+        );
+      return {
+        orderId: (s.orderId.startsWith('0x')
+          ? s.orderId
+          : `0x${s.orderId}`) as Hex32,
+        direction: (s.direction === 'BCH_TO_COUNTER'
+          ? 'BCH_TO_EVM'
+          : 'EVM_TO_BCH') as 'EVM_TO_BCH' | 'BCH_TO_EVM',
+        bchToken: (s.bchSymbol === 'MUSD' ? 'MUSD' : 'PUSD') as 'PUSD' | 'MUSD',
+        evmChainId: chainId,
+        ...(asset
+          ? { evmToken: asset.symbol, evmDecimals: asset.decimals ?? 6 }
+          : {}),
+        bchTokenAmount: s.bchTokenAmount.toString(),
+        evmAmount: s.counterAmount.toString(),
+        settledAt: s.settledAt,
+        durationSeconds: Math.max(0, s.durationSeconds),
+        ...(s.sourceTxId ? { sourceTxId: s.sourceTxId } : {}),
+        ...(s.claimTxId ? { claimTxId: s.claimTxId } : {}),
+      };
+    });
 
     const response = {
       orders,

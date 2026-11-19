@@ -87,16 +87,54 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * What a wallet or library failure means for a person, in one or two plain sentences: no library
+ * versions, request dumps or "Details:" tails. The raw error stays on `cause` for the log.
+ */
+export function plainWalletMessage(error: unknown): string {
+  const raw = messageOf(error);
+  const code = (error as { code?: unknown } | null)?.code;
+  if (
+    code === 4001 ||
+    /user (rejected|denied|cancel)|rejected the request|denied (the )?request|request rejected/i.test(
+      raw,
+    )
+  ) {
+    return 'You cancelled the request in your wallet. Nothing was locked.';
+  }
+  if (
+    /insufficient funds|exceeds the balance|gas required exceeds/i.test(raw)
+  ) {
+    return "Your wallet does not have enough of the chain's gas token to pay the network fee. Add some and try again. Nothing was locked.";
+  }
+  if (
+    /chain.*(mismatch|not configured|does not match)|unrecognized chain|switch.*chain/i.test(
+      raw,
+    )
+  ) {
+    return 'Your wallet is on a different network than this swap. Switch network in your wallet and try again. Nothing was locked.';
+  }
+  if (/timed? ?out|timeout/i.test(raw)) {
+    return 'Your wallet did not answer in time. Open it, check for a pending request, and try again. Nothing was locked.';
+  }
+  const first =
+    raw
+      .split(/\n|Details:|Version:|Request Arguments:|Docs:/)[0]
+      ?.trim()
+      .replace(/\.$/, '') ?? '';
+  return first
+    ? `The wallet did not complete the request: ${first}. Nothing was locked.`
+    : 'The wallet did not complete the request. Nothing was locked.';
+}
+
 /** Run a wallet request; a refusal becomes a plain error that says nothing was locked. */
 export async function guardWallet<T>(action: () => Promise<T>): Promise<T> {
   try {
     return await action();
   } catch (error) {
-    throw new UserFlowError(
-      'WALLET_REJECTED',
-      `The wallet did not complete the request: ${messageOf(error)}. Nothing was locked.`,
-      { cause: error },
-    );
+    throw new UserFlowError('WALLET_REJECTED', plainWalletMessage(error), {
+      cause: error,
+    });
   }
 }
 

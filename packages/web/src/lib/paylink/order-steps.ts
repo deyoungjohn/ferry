@@ -22,6 +22,8 @@ export interface OrderSnapshot {
         readonly bchTokenAmount: string;
         readonly evmAmount: string;
         readonly evmChainId: number;
+        readonly evmToken?: string | undefined;
+        readonly evmDecimals?: number | undefined;
       }
     | undefined;
 }
@@ -97,8 +99,10 @@ export function payLinkSteps(
   snapshot: OrderSnapshot | null,
   paid: boolean,
   createdAt?: number,
-  chainId = 8453,
+  chainIdHint = 8453,
 ): ProcessStep[] {
+  // The chain the server recorded for the order wins over the page's guess.
+  const chainId = snapshot?.summary?.evmChainId ?? chainIdHint;
   const t = snapshot?.txids ?? {};
   const states = pick([
     true,
@@ -153,8 +157,10 @@ export function sendLinkSteps(
   claimed: boolean,
   done = false,
   createdAt?: number,
-  chainId = 8453,
+  chainIdHint = 8453,
 ): ProcessStep[] {
+  // The chain the server recorded for the order wins over the page's guess.
+  const chainId = snapshot?.summary?.evmChainId ?? chainIdHint;
   const t = snapshot?.txids ?? {};
   const states = pick([
     true,
@@ -204,24 +210,51 @@ export function sendLinkSteps(
   ];
 }
 
-/** "5.00 USDC → 4.98 PUSD" for a swap, from the server's summary (the figure at the top of a swap). */
+/** One side of a swap, for the header: an amount, a token, and the chain it sits on. */
+export interface SwapEnd {
+  readonly amount: string;
+  readonly token: string;
+  /** An EVM chain id, or "bch" for Bitcoin Cash. */
+  readonly chain: number | 'bch';
+}
+
+function twoPlaces(raw: string, decimals: number): string {
+  const units = BigInt(raw);
+  const value =
+    decimals >= 2
+      ? units / 10n ** BigInt(decimals - 2)
+      : units * 10n ** BigInt(2 - decimals);
+  const text = value.toString().padStart(3, '0');
+  return `${text.slice(0, -2)}.${text.slice(-2)}`;
+}
+
+/** The two ends of a swap, from the server's summary: what leaves and what arrives. */
+export function swapEnds(
+  direction: 'EVM_TO_BCH' | 'BCH_TO_EVM',
+  summary: NonNullable<OrderSnapshot['summary']>,
+): { from: SwapEnd; to: SwapEnd } {
+  const evm: SwapEnd = {
+    amount: twoPlaces(summary.evmAmount, summary.evmDecimals ?? 6),
+    token: summary.evmToken ?? 'USDC',
+    chain: summary.evmChainId,
+  };
+  const bch: SwapEnd = {
+    amount: twoPlaces(summary.bchTokenAmount, 2),
+    token: summary.bchToken,
+    chain: 'bch',
+  };
+  return direction === 'EVM_TO_BCH'
+    ? { from: evm, to: bch }
+    : { from: bch, to: evm };
+}
+
+/** "5.00 USDC → 4.98 PUSD" as one line (for places that cannot show the two columns). */
 export function swapAmountText(
   direction: 'EVM_TO_BCH' | 'BCH_TO_EVM',
   summary: NonNullable<OrderSnapshot['summary']>,
-  evmToken = 'USDC',
 ): string {
-  const cents = (raw: string, decimals: number) => {
-    const units = BigInt(raw);
-    const value =
-      decimals >= 2
-        ? units / 10n ** BigInt(decimals - 2)
-        : units * 10n ** BigInt(2 - decimals);
-    const text = value.toString().padStart(3, '0');
-    return `${text.slice(0, -2)}.${text.slice(-2)}`;
-  };
-  const evm = `${cents(summary.evmAmount, 6)} ${evmToken}`;
-  const bch = `${cents(summary.bchTokenAmount, 2)} ${summary.bchToken}`;
-  return direction === 'EVM_TO_BCH' ? `${evm} → ${bch}` : `${bch} → ${evm}`;
+  const { from, to } = swapEnds(direction, summary);
+  return `${from.amount} ${from.token} → ${to.amount} ${to.token}`;
 }
 
 /** How far a swap has got, from the server's record alone: 0 nothing, up to 4 done. */
@@ -246,8 +279,10 @@ export function swapMilestones(
 export function swapSteps(
   snapshot: OrderSnapshot | null,
   direction: 'EVM_TO_BCH' | 'BCH_TO_EVM',
-  chainId = 8453,
+  chainIdHint = 8453,
 ): ProcessStep[] {
+  // The chain the server recorded for the order wins over the page's guess.
+  const chainId = snapshot?.summary?.evmChainId ?? chainIdHint;
   const t = snapshot?.txids ?? {};
   const forward = direction === 'EVM_TO_BCH';
   const m = swapMilestones(snapshot, direction);

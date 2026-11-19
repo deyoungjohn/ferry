@@ -1,5 +1,10 @@
 import { formatDuration } from '@ferry/core';
-import { bchTxUrl, chainLabel, evmTxUrl } from '../lib/explorer';
+import {
+  bchTxUrl,
+  chainLabel,
+  evmExplorerName,
+  evmTxUrl,
+} from '../lib/explorer';
 import { chainIconUrl, tokenIconUrl } from '../lib/icons';
 import { ROUTES } from '../lib/routes';
 import { useEffect, useMemo, useState } from 'react';
@@ -242,11 +247,7 @@ function ExplorerCell({
   const onBch = /bitcoin cash/i.test(chain);
   const chainId = Number(/\d+/.exec(chain)?.[0] ?? 0);
   const url = onBch ? bchTxUrl(hash) : evmTxUrl(chainId, hash);
-  const name = onBch
-    ? 'BCH explorer'
-    : chainId === 8453
-      ? 'Basescan'
-      : 'Explorer';
+  const name = onBch ? 'BCH explorer' : evmExplorerName(chainId);
   if (!url) return <span className="text-text-dim">—</span>;
   return (
     <a

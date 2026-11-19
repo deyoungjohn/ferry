@@ -822,6 +822,8 @@ export class SolverDatabase {
     counterSymbol: string;
     counterDecimals: number;
     counterAmount: bigint;
+    evmChainId?: number | undefined;
+    evmTokenAddress?: string | undefined;
     bchSymbol: string;
     bchDecimals: number;
     bchTokenAmount: bigint;
@@ -845,6 +847,8 @@ export class SolverDatabase {
       counterSymbol: string;
       counterDecimals: number;
       counterAmount: bigint;
+      evmChainId?: number | undefined;
+      evmTokenAddress?: string | undefined;
       bchSymbol: string;
       bchDecimals: number;
       bchTokenAmount: bigint;
@@ -888,6 +892,12 @@ export class SolverDatabase {
           counterSymbol: 'USDC',
           counterDecimals: 6,
           counterAmount: termsBigInt(terms.evmAmount),
+          evmChainId:
+            terms.evmChainId !== undefined
+              ? Number(terms.evmChainId)
+              : undefined,
+          evmTokenAddress:
+            typeof terms.evmToken === 'string' ? terms.evmToken : undefined,
           bchSymbol: terms.bchToken || 'PUSD',
           bchDecimals: 2,
           bchTokenAmount: termsBigInt(terms.bchTokenAmount),

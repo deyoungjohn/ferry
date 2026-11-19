@@ -13,7 +13,12 @@ import { createBchPriceSource } from '@ferry/bch-prices';
 import type { FastifyInstance } from 'fastify';
 import type { SolverRoutesContext } from './routes-config.js';
 import { loadConfigFromEnv, type SolverConfig } from '../config.js';
-import { buildActiveRoutes, getViemChain } from './routes-config.js';
+import {
+  buildActiveRoutes,
+  getRouteFixedFeeUsdMicros,
+  getViemChain,
+  routeMinSwapUsdMicros,
+} from './routes-config.js';
 import { BchQuorumClient } from '../bch/quorum-client.js';
 import {
   buildSolverBchLock,
@@ -522,7 +527,9 @@ export async function runSelfCheck(
   log('');
 
   // 11. Execute $1 dryRun Quote for Each Enabled Route
-  log('6. Dry-Run $1 Quote Verification for Enabled Routes:');
+  log(
+    "6. Dry-Run Quote Verification for Enabled Routes (each route's own minimum):",
+  );
   const verdicts: RouteSelfCheckVerdict[] = [];
 
   for (const enabledRoute of routesContext.enabledRoutes) {
@@ -536,8 +543,17 @@ export async function runSelfCheck(
     const requestedToken = tokenFact?.address ?? config.baseUsdcAddress;
     const evmDecimals = tokenFact?.decimals ?? 6;
 
-    // Test A: EVM_TO_BCH ($1 swap: 10^decimals base units, e.g. 1_000_000 for 6 dec)
-    const evmAmountIn = (10n ** BigInt(evmDecimals)).toString();
+    // The test swap is the route's own minimum ($1, or $5 on Ethereum), in whole dollars.
+    const testDollars =
+      routeMinSwapUsdMicros(
+        getRouteFixedFeeUsdMicros(
+          enabledRoute.chain,
+          config.fixedFeeUsdMicros > 0n ? config.fixedFeeUsdMicros : undefined,
+        ),
+      ) / 1_000_000n;
+
+    // Test A: EVM_TO_BCH (the minimum in the token's base units, e.g. 5_000_000 for 6 dec)
+    const evmAmountIn = (testDollars * 10n ** BigInt(evmDecimals)).toString();
     const fwdRes = await app.inject({
       method: 'POST',
       url: '/v1/quotes',
@@ -579,8 +595,8 @@ export async function runSelfCheck(
       log(`   [FAIL] ${enabledRoute.key.padEnd(14)} (EVM->BCH): ${details}`);
     }
 
-    // Test B: BCH_TO_EVM ($1 swap: 100 atoms PUSD)
-    const bchAmountIn = '100';
+    // Test B: BCH_TO_EVM (the minimum in PUSD atoms: 100 per dollar)
+    const bchAmountIn = (testDollars * 100n).toString();
     const revRes = await app.inject({
       method: 'POST',
       url: '/v1/quotes',

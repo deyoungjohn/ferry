@@ -15,13 +15,14 @@ import { latestWallet } from '../lib/live/latest-wallets';
 import { readSnapshot, writeSnapshot } from '../lib/paylink/snapshot-cache';
 import {
   readOrderTxids,
-  swapAmountText,
+  swapEnds,
   swapMilestones,
   swapSteps,
   type OrderSnapshot,
 } from '../lib/paylink/order-steps';
 import { ProcessSteps } from './links/ProcessSteps';
-import { bchTxUrl, evmTxUrl } from '../lib/explorer';
+import { SwapEnds } from './SwapEnds';
+import { bchTxUrl, evmTokenInfo, evmTxUrl } from '../lib/explorer';
 import { TxLink } from './TxLink';
 
 const POLL_MS = 15_000;
@@ -289,14 +290,17 @@ export function LiveOrderView({
         className="mx-auto max-w-lg px-4 py-8 sm:px-6"
         data-testid="order-readonly"
       >
-        <h1 className="text-2xl font-semibold text-text">
-          {snap.summary ? swapAmountText(snap.direction, snap.summary) : 'Swap'}
-        </h1>
+        <h1 className="text-2xl font-semibold text-text">Swap</h1>
+        {snap.summary ? (
+          <SwapEnds {...swapEnds(snap.direction, snap.summary)} />
+        ) : null}
         <p className="mt-1 break-all font-mono text-[11px] text-text-dim">
           {orderId}
         </p>
         <div className="mt-6">
-          <ProcessSteps steps={swapSteps(snap, snap.direction)} />
+          <ProcessSteps
+            steps={swapSteps(snap, snap.direction, snap.summary?.evmChainId)}
+          />
         </div>
         <p className="mt-4 text-xs text-text-dim">
           This swap was started in another browser, so this page only shows its
@@ -339,9 +343,11 @@ export function LiveOrderView({
   const forward = state?.direction === 'EVM_TO_BCH';
   const evmChainId = (() => {
     try {
-      return fileJson ? parseRecoveryFileJson(fileJson).terms.evmChainId : 8453;
+      return fileJson
+        ? parseRecoveryFileJson(fileJson).terms.evmChainId
+        : (snap?.summary?.evmChainId ?? 8453);
     } catch {
-      return 8453;
+      return snap?.summary?.evmChainId ?? 8453;
     }
   })();
   const evmUrl = (hash: string) => evmTxUrl(evmChainId, hash);
@@ -396,21 +402,22 @@ export function LiveOrderView({
     if (m.userLock) return 3;
     return 2;
   })();
-  const amountText = (() => {
+  const ends = (() => {
     if (fileTerms) {
-      return swapAmountText(
-        fileTerms.direction,
-        {
-          bchToken: fileTerms.bchToken,
-          bchTokenAmount: String(fileTerms.bchTokenAmount),
-          evmAmount: String(fileTerms.evmAmount),
-          evmChainId: fileTerms.evmChainId,
-        },
-        embedded ? undefined : undefined,
+      const info = evmTokenInfo(
+        fileTerms.evmChainId,
+        String(fileTerms.evmToken),
       );
+      return swapEnds(fileTerms.direction, {
+        bchToken: fileTerms.bchToken,
+        bchTokenAmount: String(fileTerms.bchTokenAmount),
+        evmAmount: String(fileTerms.evmAmount),
+        evmChainId: fileTerms.evmChainId,
+        ...(info ? { evmToken: info.symbol, evmDecimals: info.decimals } : {}),
+      });
     }
     return snap?.summary && snap.direction
-      ? swapAmountText(snap.direction, snap.summary)
+      ? swapEnds(snap.direction, snap.summary)
       : null;
   })();
   const sessionIndex = state ? stepIndex(state.step) : 0;
@@ -475,14 +482,7 @@ export function LiveOrderView({
         </p>
       )}
 
-      {amountText && (
-        <p
-          className="mt-5 text-xl font-bold text-text"
-          data-testid="order-amount"
-        >
-          {amountText}
-        </p>
-      )}
+      {ends && <SwapEnds {...ends} />}
 
       <ol className="mt-4 space-y-3" data-testid="order-steps">
         {STEPS.map((item, index) => {

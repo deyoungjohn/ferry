@@ -225,11 +225,11 @@ export function TokenPicker({
                         <span className="flex min-w-0 items-center gap-2.5">
                           <TokenDot token={token} chain={chain} size={32} />
                           <span className="flex min-w-0 flex-col">
-                            <span className="truncate text-sm font-semibold text-foreground">
-                              {token.name}
+                            <span className="truncate text-base font-bold text-foreground">
+                              {token.symbol}
                             </span>
                             <span className="truncate text-[11px] text-muted-foreground">
-                              {token.symbol}
+                              {token.name}
                             </span>
                           </span>
                         </span>

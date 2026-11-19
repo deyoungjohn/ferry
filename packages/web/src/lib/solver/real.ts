@@ -316,6 +316,8 @@ export class RealSolverClient implements SolverClient {
           bchTokenAmount: string;
           evmAmount: string;
           evmChainId: number;
+          evmToken?: string;
+          evmDecimals?: number;
           settledAt: number;
           durationSeconds: number;
           sourceTxId?: string;
@@ -325,15 +327,16 @@ export class RealSolverClient implements SolverClient {
       const orders = Array.isArray(data.orders) ? data.orders : [];
       const all: RecentSwap[] = orders.map((o) => {
         const bch = Number(o.bchTokenAmount) / 100;
-        const evm = Number(o.evmAmount) / 1_000_000;
+        const evm = Number(o.evmAmount) / 10 ** (o.evmDecimals ?? 6);
+        const evmToken = o.evmToken ?? 'USDC';
         const forward = o.direction === 'EVM_TO_BCH';
         return {
           id: o.orderId,
           timestampSeconds: o.settledAt,
-          fromToken: forward ? 'USDC' : o.bchToken,
+          fromToken: forward ? evmToken : o.bchToken,
           fromAmount: forward ? evm : bch,
           fromChain: forward ? `Chain ${o.evmChainId}` : 'Bitcoin Cash',
-          toToken: forward ? o.bchToken : 'USDC',
+          toToken: forward ? o.bchToken : evmToken,
           toAmount: forward ? bch : evm,
           toChain: forward ? 'Bitcoin Cash' : `Chain ${o.evmChainId}`,
           durationSeconds: o.durationSeconds,

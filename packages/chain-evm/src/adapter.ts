@@ -73,6 +73,8 @@ const erc20Abi = parseAbi([
   'function version() external view returns (string)',
   'function nonces(address owner) external view returns (uint256)',
   'function balanceOf(address account) external view returns (uint256)',
+  'function decimals() external view returns (uint8)',
+  'function symbol() external view returns (string)',
   'function allowance(address owner, address spender) external view returns (uint256)',
   'function approve(address spender, uint256 amount) external',
 ]);
@@ -124,6 +126,40 @@ export class EvmChainAdapter implements ChainAdapter {
 
   lockId(owner: string, hashLock: Hex32): Hex32 {
     return evmLockId(owner, hashLock);
+  }
+
+  /** "You hold 3.36 USDC and need 5.00 USDC." in the token's own units, rounded the safe way. */
+  private async describeShortBalance(
+    token: Address,
+    balance: bigint,
+    amount: bigint,
+  ): Promise<string> {
+    try {
+      const [decimals, symbol] = await Promise.all([
+        this.client.readContract({
+          address: token,
+          abi: erc20Abi,
+          functionName: 'decimals',
+        }),
+        this.client.readContract({
+          address: token,
+          abi: erc20Abi,
+          functionName: 'symbol',
+        }),
+      ]);
+      const places = Math.min(2, Number(decimals));
+      const scale = 10n ** BigInt(Number(decimals) - places);
+      const show = (units: bigint, up: boolean) => {
+        const cents = up ? (units + scale - 1n) / scale : units / scale;
+        const text = cents.toString().padStart(places + 1, '0');
+        return places === 0
+          ? text
+          : `${text.slice(0, -places)}.${text.slice(-places)}`;
+      };
+      return `You hold ${show(balance, false)} ${symbol} and need ${show(amount, true)} ${symbol}.`;
+    } catch {
+      return `You hold ${balance} and need ${amount} (smallest units of the token).`;
+    }
   }
 
   async buildUserLock(terms: OrderTerms): Promise<UnsignedLock> {
@@ -189,7 +225,7 @@ export class EvmChainAdapter implements ChainAdapter {
     if (balance < amount) {
       throw new RelayLockRejectedError(
         'INSUFFICIENT_USER_BALANCE',
-        `Owner holds ${balance} base units but the lock needs ${amount}`,
+        await this.describeShortBalance(token, balance, amount),
       );
     }
 

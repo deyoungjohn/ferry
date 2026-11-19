@@ -211,9 +211,12 @@ describe('the order page', () => {
     // The session never answers: only the server's record and the saved file are known.
     vi.spyOn(UserSwapSession, 'resume').mockReturnValue(new Promise(() => {}));
     renderPage(false);
-    expect(await screen.findByTestId('order-amount')).toHaveTextContent(
-      '5.00 USDC → 4.98 PUSD',
-    );
+    const header = await screen.findByTestId('order-amount');
+    expect(header).toHaveTextContent('From');
+    expect(header).toHaveTextContent('5.00 USDC');
+    expect(header).toHaveTextContent('To');
+    expect(header).toHaveTextContent('4.98 PUSD');
+    expect(header).not.toHaveTextContent('→');
     await waitFor(() =>
       expect(screen.getByTestId('order-step-waitCounterLock')).toHaveAttribute(
         'data-state',
@@ -236,9 +239,9 @@ describe('the order page', () => {
     );
     window.localStorage.clear();
     renderPage(false);
-    expect(await screen.findByTestId('order-readonly')).toHaveTextContent(
-      '5.00 USDC → 4.98 PUSD',
-    );
+    const readonly = await screen.findByTestId('order-readonly');
+    expect(readonly).toHaveTextContent('5.00 USDC');
+    expect(readonly).toHaveTextContent('4.98 PUSD');
     expect(screen.getAllByTestId('tx-link').length).toBeGreaterThan(0);
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
