@@ -184,7 +184,7 @@ export function PayLinksPage() {
 
       <MorphWorkspace
         form={
-          <div className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card sm:p-7">
+          <div className="h-full rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card sm:p-7">
             <h2 className="mb-5 text-base font-semibold text-text">
               Create a Pay Link
             </h2>
@@ -334,7 +334,7 @@ export function PayLinksPage() {
         }
         result={
           activeCreated ? (
-            <div className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card">
+            <div className="flex h-full flex-col rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card sm:p-7">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-text">
                   Your Pay Link is Ready
@@ -345,7 +345,7 @@ export function PayLinksPage() {
               </div>
 
               {/* QR Code */}
-              <div className="flex justify-center my-4 p-4 rounded-xl bg-surface-2 border border-hairline">
+              <div className="my-4 flex flex-1 items-center justify-center rounded-xl border border-hairline bg-surface-2 p-4">
                 <div className="rounded-lg bg-white p-3">
                   <QRCodeSVG value={payLinkUrl(activeCreated.id)} size={160} />
                 </div>

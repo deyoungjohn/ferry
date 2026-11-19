@@ -39,8 +39,8 @@ export function MorphWorkspace({ form, result, table }: MorphWorkspaceProps) {
           className={
             // Above the result while it moves, so the result is uncovered as the form leaves.
             hasResult
-              ? 'relative z-10 lg:col-span-1'
-              : 'relative z-10 lg:col-span-2 lg:mx-auto lg:w-full lg:max-w-xl'
+              ? 'relative z-10 lg:col-span-1 [&>*]:h-full'
+              : 'relative z-10 lg:col-span-2 lg:mx-auto lg:w-full lg:max-w-xl [&>*]:h-full'
           }
         >
           {form}
@@ -54,7 +54,7 @@ export function MorphWorkspace({ form, result, table }: MorphWorkspaceProps) {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: reduce ? 0 : 96 }}
               transition={reduce ? transition : { ...SPRING, delay: 0.12 }}
-              className="relative z-0 lg:col-span-1"
+              className="relative z-0 lg:col-span-1 [&>*]:h-full"
             >
               {result}
             </motion.div>
