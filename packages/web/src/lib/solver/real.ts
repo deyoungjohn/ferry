@@ -212,7 +212,7 @@ export class RealSolverClient implements SolverClient {
       return {
         completedSwaps: 0,
         totalVolumeUsd: 0,
-        medianSecondsFast: 30,
+        medianSecondsFast: 0,
         isHonestEmpty: true,
       };
     }
@@ -229,7 +229,7 @@ export class RealSolverClient implements SolverClient {
         return {
           completedSwaps,
           totalVolumeUsd,
-          medianSecondsFast: Number(data.medianFastSeconds ?? 0) || 30,
+          medianSecondsFast: Number(data.medianFastSeconds ?? 0),
           isHonestEmpty: completedSwaps === 0,
         };
       }
@@ -239,7 +239,7 @@ export class RealSolverClient implements SolverClient {
     return {
       completedSwaps: 0,
       totalVolumeUsd: 0,
-      medianSecondsFast: 30,
+      medianSecondsFast: 0,
       isHonestEmpty: true,
     };
   }

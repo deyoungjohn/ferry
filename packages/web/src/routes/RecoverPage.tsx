@@ -280,79 +280,6 @@ export function RecoverPage() {
         </Link>
       </div>
 
-      {/* What is a recovery file explainer panel (Requirement 4) */}
-      <div
-        data-testid="what-is-recovery-panel"
-        className="mb-6 rounded-card border border-hairline bg-surface-1/60 p-5 text-xs shadow-elev-card"
-      >
-        <div className="flex items-center gap-2 mb-2">
-          <InfoIcon className="size-4 text-lime shrink-0" />
-          <h2 className="text-sm font-semibold text-text">
-            What is a recovery file?
-          </h2>
-        </div>
-        <p className="text-text-muted leading-relaxed">
-          A recovery file is a local JSON backup created when you start a swap.
-          It holds the contract addresses, lock scripts, refund deadlines and
-          secret hash. Ferry is non-custodial: the contracts, not this website
-          or any solver, hold your funds, and a refund after the deadline needs
-          nobody&apos;s permission.
-        </p>
-        <p className="mt-2 text-text-muted leading-relaxed">
-          <span className="font-medium text-text">
-            If this website is down:
-          </span>{' '}
-          download the standalone recovery page (one file, no installation).
-          Open it from your own computer, load your recovery file, and it reads
-          the blockchain servers directly, works out what you can do, and sends
-          the refund or claim: an EVM transaction through your browser wallet,
-          or a Bitcoin Cash transaction that needs no wallet and no signature.
-          It needs no part of Ferry to be running. You can also refund on Base
-          from the block explorer (Write Contract, then{' '}
-          <span className="font-mono">refund</span>) after the deadline.
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-dim border-t border-hairline/60 pt-2.5">
-          {deployed.map((item) => (
-            <a
-              key={`${item.chain}-${item.address}`}
-              href={`${item.explorerUrl}/address/${item.address}#writeContract`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-lime hover:underline inline-flex items-center gap-1"
-            >
-              <span>Refund on {item.name} (block explorer)</span>
-              <ExternalLinkIcon className="size-3" />
-            </a>
-          ))}
-          <a
-            href="/recover.html"
-            download="ferry-recover.html"
-            data-testid="download-recover-page"
-            className="text-lime hover:underline inline-flex items-center gap-1"
-          >
-            <span>Download the standalone recovery page</span>
-          </a>
-          <a
-            href="https://github.com/deyoungjohn/ferry/blob/main/recover.html"
-            target="_blank"
-            rel="noreferrer"
-            className="text-lime hover:underline inline-flex items-center gap-1"
-          >
-            <span>Same file on GitHub (works when this site is down)</span>
-            <ExternalLinkIcon className="size-3" />
-          </a>
-          <a
-            href="https://github.com/deyoungjohn/ferry/tree/main/packages/recover-cli"
-            target="_blank"
-            rel="noreferrer"
-            className="text-lime hover:underline inline-flex items-center gap-1"
-          >
-            <span>Command-line tool: @ferry/recover-cli</span>
-            <ExternalLinkIcon className="size-3" />
-          </a>
-        </div>
-      </div>
-
       {/* Upload Well */}
       <div className="mb-6 rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card">
         <h2 className="text-sm font-semibold text-text mb-2">
@@ -433,6 +360,79 @@ export function RecoverPage() {
             {actionResult}
           </div>
         )}
+      </div>
+
+      {/* What is a recovery file explainer panel (Requirement 4) */}
+      <div
+        data-testid="what-is-recovery-panel"
+        className="mb-6 rounded-card border border-hairline bg-surface-1/60 p-5 text-xs shadow-elev-card"
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <InfoIcon className="size-4 text-lime shrink-0" />
+          <h2 className="text-sm font-semibold text-text">
+            What is a recovery file?
+          </h2>
+        </div>
+        <p className="text-text-muted leading-relaxed">
+          A recovery file is a local JSON backup created when you start a swap.
+          It holds the contract addresses, lock scripts, refund deadlines and
+          secret hash. Ferry is non-custodial: the contracts, not this website
+          or any solver, hold your funds, and a refund after the deadline needs
+          nobody&apos;s permission.
+        </p>
+        <p className="mt-2 text-text-muted leading-relaxed">
+          <span className="font-medium text-text">
+            If this website is down:
+          </span>{' '}
+          download the standalone recovery page (one file, no installation).
+          Open it from your own computer, load your recovery file, and it reads
+          the blockchain servers directly, works out what you can do, and sends
+          the refund or claim: an EVM transaction through your browser wallet,
+          or a Bitcoin Cash transaction that needs no wallet and no signature.
+          It needs no part of Ferry to be running. You can also refund on Base
+          from the block explorer (Write Contract, then{' '}
+          <span className="font-mono">refund</span>) after the deadline.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-dim border-t border-hairline/60 pt-2.5">
+          {deployed.map((item) => (
+            <a
+              key={`${item.chain}-${item.address}`}
+              href={`${item.explorerUrl}/address/${item.address}#writeContract`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-lime hover:underline inline-flex items-center gap-1"
+            >
+              <span>Refund on {item.name} (block explorer)</span>
+              <ExternalLinkIcon className="size-3" />
+            </a>
+          ))}
+          <a
+            href="/recover.html"
+            download="ferry-recover.html"
+            data-testid="download-recover-page"
+            className="text-lime hover:underline inline-flex items-center gap-1"
+          >
+            <span>Download the standalone recovery page</span>
+          </a>
+          <a
+            href="https://github.com/deyoungjohn/ferry/blob/main/recover.html"
+            target="_blank"
+            rel="noreferrer"
+            className="text-lime hover:underline inline-flex items-center gap-1"
+          >
+            <span>Same file on GitHub (works when this site is down)</span>
+            <ExternalLinkIcon className="size-3" />
+          </a>
+          <a
+            href="https://github.com/deyoungjohn/ferry/tree/main/packages/recover-cli"
+            target="_blank"
+            rel="noreferrer"
+            className="text-lime hover:underline inline-flex items-center gap-1"
+          >
+            <span>Command-line tool: @ferry/recover-cli</span>
+            <ExternalLinkIcon className="size-3" />
+          </a>
+        </div>
       </div>
 
       {/* File Details & Core recoveryActions Plan (Requirement 3) */}

@@ -26,6 +26,17 @@ export function toSeconds(ts: number | null | undefined): number {
   return Math.floor(ts);
 }
 
+/** Amounts are stored in the terms as decimal strings, with a trailing "n" for a bigint ("1000000n"). */
+function termsBigInt(value: unknown): bigint {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number') return BigInt(Math.trunc(value));
+  if (typeof value === 'string') {
+    const cleaned = value.replace(/n$/, '');
+    return /^\d+$/.test(cleaned) ? BigInt(cleaned) : 0n;
+  }
+  return 0n;
+}
+
 export class SolverDatabase {
   public readonly db: DatabaseType;
 
@@ -519,7 +530,7 @@ export class SolverDatabase {
       }
       try {
         const terms = JSON.parse(order.termsJson);
-        const amount = BigInt(terms.evmAmount || 0);
+        const amount = termsBigInt(terms.evmAmount);
         totalMicros += convertCeil(amount, 6, 6);
       } catch {
         // ignore malformed terms
@@ -722,19 +733,16 @@ export class SolverDatabase {
     for (const row of rows) {
       try {
         const terms = JSON.parse(row.terms_json);
-        const amount = BigInt(terms.evmAmount || 0);
+        const amount = termsBigInt(terms.evmAmount);
         totalVolumeMicros += amount;
       } catch {
         // ignore
       }
 
-      if (row.lane === 'fast') {
-        const dur = Math.max(
-          0,
-          toSeconds(row.updated_at) - toSeconds(row.created_at),
-        );
-        fastDurations.push(dur);
-      }
+      // Every settled swap counts, whatever its lane: most run on the safe lane.
+      fastDurations.push(
+        Math.max(0, toSeconds(row.updated_at) - toSeconds(row.created_at)),
+      );
     }
 
     fastDurations.sort((a, b) => a - b);
@@ -827,10 +835,10 @@ export class SolverDatabase {
               : 'COUNTER_TO_BCH',
           counterSymbol: 'USDC',
           counterDecimals: 6,
-          counterAmount: BigInt(terms.evmAmount || 0),
+          counterAmount: termsBigInt(terms.evmAmount),
           bchSymbol: terms.bchToken || 'PUSD',
           bchDecimals: 2,
-          bchTokenAmount: BigInt(terms.bchTokenAmount || 0),
+          bchTokenAmount: termsBigInt(terms.bchTokenAmount),
           durationSeconds,
           baseTxId,
           bchTxId: bchTxId.startsWith('0x') ? bchTxId.slice(2) : bchTxId,

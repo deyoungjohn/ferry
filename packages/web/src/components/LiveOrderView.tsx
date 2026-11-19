@@ -11,6 +11,8 @@ import { WalletContext } from '../lib/wallet/context';
 import { createLiveDependencies } from '../lib/live/ports';
 import { createLocalRecoveryStore } from '../lib/live/recovery-store';
 import { WAIT_OPTIONS } from '../lib/live/run';
+
+const POLL_MS = 15_000;
 import { ROUTES } from '../lib/routes';
 
 /** The steps a person sees, in order. A swap in either direction passes through all of them. */
@@ -56,6 +58,7 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
   const [fileJson, setFileJson] = useState<string | null>(null);
   const sessionRef = useRef<UserSwapSession | null>(null);
   const running = useRef(false);
+  const checkingRef = useRef(false);
   const [checking, setChecking] = useState(false);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
 
@@ -106,6 +109,36 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
     // The swap is picked up once per order, and again when the wallets arrive.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId, wallets?.bch.address?.address]);
+
+  // Until the swap has reached its end (done or refunded), look at the chains every 15 seconds:
+  // a failed or stalled step must not leave the page frozen until it is reloaded.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const session = sessionRef.current;
+      if (!session || running.current || checkingRef.current) return;
+      const step = session.state.step;
+      if (step === 'done' || step === 'refunded' || step === 'lock') return;
+      void (async () => {
+        checkingRef.current = true;
+        try {
+          await session.refresh();
+          setState(session.state);
+          if (
+            session.state.step === 'claim' ||
+            session.state.step === 'waitCounterLock'
+          ) {
+            await carryOn(session, false);
+          }
+        } catch {
+          // the next tick tries again
+        } finally {
+          checkingRef.current = false;
+        }
+      })();
+    }, POLL_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function carryOn(session: UserSwapSession, mayLock: boolean) {
     if (running.current) return;

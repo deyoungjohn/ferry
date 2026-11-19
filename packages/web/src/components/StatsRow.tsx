@@ -70,7 +70,7 @@ export function StatsRow() {
               <div>
                 <p className="text-2xl font-bold text-text">—</p>
                 <p className="mt-1 text-xs text-text-muted">
-                  Median time (fast lane)
+                  Median time
                 </p>
               </div>
             </div>
@@ -93,10 +93,10 @@ export function StatsRow() {
             </div>
             <div>
               <p className="text-3xl font-bold text-lime">
-                {stats.medianSecondsFast}s
+                {formatMedian(stats.medianSecondsFast)}
               </p>
               <p className="mt-1 text-xs text-text-muted">
-                Median time (fast lane)
+                Median time
               </p>
             </div>
           </div>
@@ -104,4 +104,13 @@ export function StatsRow() {
       </div>
     </section>
   );
+}
+
+/** "45s", "7m 30s"; a dash when no swap has finished yet. */
+function formatMedian(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return rest > 0 ? `${minutes}m ${rest}s` : `${minutes}m`;
 }

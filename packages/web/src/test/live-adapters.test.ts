@@ -119,6 +119,26 @@ describe('browser Bitcoin Cash chain', () => {
     expect(utxos).toHaveLength(1);
   });
 
+  it('also asks the solver, so the page and the solver look at the same chain', async () => {
+    const chain = createBrowserBchChain({
+      urls: ['wss://a'],
+      solverUrl: 'https://solver.example',
+      fetchFn: (async (input: RequestInfo | URL) => {
+        expect(String(input)).toMatch(/\/v1\/bch\/utxos\/[0-9a-f]{64}$/);
+        return new Response(JSON.stringify({ utxos: [row] }), { status: 200 });
+      }) as typeof fetch,
+      createClient: () => ({
+        connect: async () => undefined,
+        close: () => undefined,
+        listUnspent: async () => [],
+        broadcast: async () => 'x',
+        getTipHeight: async () => 900,
+      }),
+    });
+    const utxos = await chain.getUtxos(`76a914${'11'.repeat(20)}88ac`);
+    expect(utxos).toHaveLength(1);
+  });
+
   it('broadcasts on the next server when the first cannot connect', async () => {
     const log: string[] = [];
     const chain = createBrowserBchChain({

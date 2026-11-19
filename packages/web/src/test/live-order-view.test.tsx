@@ -126,4 +126,24 @@ describe('the order page', () => {
       /refund is available/,
     );
   });
+
+  it('keeps looking after a step failed, and carries on when the chain moves', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const session = fakeSession('waitCounterLock');
+      let failures = 1;
+      session.waitCounterLock = vi.fn(async () => {
+        if (failures-- > 0) throw new Error('The solver lock was not found.');
+        session.state = { ...session.state, step: 'claim' };
+      });
+      vi.spyOn(UserSwapSession, 'resume').mockResolvedValue(session as never);
+      renderPage(false);
+      expect(await screen.findByTestId('order-error')).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(16_000);
+      await waitFor(() => expect(session.claim).toHaveBeenCalled());
+      expect(session.refresh).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

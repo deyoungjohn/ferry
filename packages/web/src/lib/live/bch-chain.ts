@@ -71,8 +71,21 @@ export function createBrowserBchChain(
       const scriptHash = scriptHashOf(lockingBytecodeHex);
       // Ask every server and merge what they say: one that lags behind answers "nothing"
       // for an output another already shows, and the first answer must not win.
-      const answers = await Promise.allSettled(
-        urls.map(async (url) => {
+      const fetchFn = options.fetchFn ?? fetch;
+      const solverRead = async () => {
+        if (!options.solverUrl) return [];
+        const res = await fetchFn(
+          `${options.solverUrl.replace(/\/+$/, '')}/v1/bch/utxos/${scriptHash}`,
+        );
+        if (!res.ok) throw new Error(`solver answered ${res.status}`);
+        const body = (await res.json()) as {
+          utxos?: Awaited<ReturnType<FulcrumLike['listUnspent']>>;
+        };
+        return body.utxos ?? [];
+      };
+      const answers = await Promise.allSettled([
+        ...(options.solverUrl ? [solverRead()] : []),
+        ...urls.map(async (url) => {
           const client = make(url);
           try {
             await client.connect();
@@ -81,7 +94,7 @@ export function createBrowserBchChain(
             client.close();
           }
         }),
-      );
+      ]);
       const seen = new Set<string>();
       const rows: Awaited<ReturnType<FulcrumLike['listUnspent']>> = [];
       for (const answer of answers) {

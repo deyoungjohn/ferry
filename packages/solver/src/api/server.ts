@@ -1743,6 +1743,32 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       .send({ orders, asOf: Math.floor(Date.now() / 1000) });
   });
 
+  // GET /v1/bch/utxos/:scriptHash: the solver's own (quorum) view of the unspent outputs at a
+  // script hash, so the page and the solver look at the same chain. Public chain data only. The
+  // page never relies on it alone: it merges this with its own reads, and a wrong answer can
+  // only make a claim fail, never lose funds (the refund does not use it).
+  app.get<{ Params: { scriptHash: string } }>(
+    '/v1/bch/utxos/:scriptHash',
+    async (req, reply) => {
+      const { scriptHash } = req.params;
+      if (!/^[0-9a-fA-F]{64}$/.test(scriptHash)) {
+        return reply
+          .status(400)
+          .send({ error: 'scriptHash must be 64 hex characters' });
+      }
+      try {
+        const utxos = await bchClient.listUnspent(scriptHash, 'include_tokens');
+        return reply
+          .status(200)
+          .send({ utxos, asOf: Math.floor(Date.now() / 1000) });
+      } catch (error) {
+        return reply.status(503).send({
+          error: `Bitcoin Cash read failed: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    },
+  );
+
   app.get('/v1/orders/recent', async (_req, reply) => {
     const recent = db.getRecentSwaps(50);
     const orders = recent.map((s) => ({
