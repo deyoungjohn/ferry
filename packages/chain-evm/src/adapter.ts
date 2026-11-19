@@ -392,6 +392,30 @@ export class EvmChainAdapter implements ChainAdapter {
     return { chain: this.id, txId };
   }
 
+  private async findLockTx(lockId: Hex32): Promise<Hex32 | null> {
+    try {
+      const tip = await this.client.getBlockNumber();
+      const lookback = 60_000n; // about a day on Base
+      const from = tip > lookback ? tip - lookback : 0n;
+      const logs = await fetchLogsChunked(
+        this.client,
+        this.htlcAddress,
+        from > this.deployBlock ? from : this.deployBlock,
+        tip,
+        this.maxLogRange ? { maxRange: this.maxLogRange } : undefined,
+      );
+      for (const log of logs) {
+        const event = decodeHtlcLog(log, this.id, this.assets);
+        if (event?.type === 'Locked' && event.lockId === lockId) {
+          return event.tx.txId;
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   async getLock(lockId: string): Promise<LockState> {
     const lockRaw = await this.client.readContract({
       address: this.htlcAddress,
@@ -417,10 +441,19 @@ export class EvmChainAdapter implements ChainAdapter {
       deadline: Number(deadline),
     };
 
-    const cachedLockTx =
+    let cachedLockTx =
       this.lastSeenTxByAction.get(`lock:${lockId}`) ??
       this.lastSeenTxByAction.get(`relayLock:${lockId}`) ??
       ZERO_TX;
+    if (cachedLockTx === ZERO_TX && stateNum === 1) {
+      // After a restart (or for a lock made by another process) the transaction is not in
+      // memory: read it from the contract's Locked event for this lock.
+      const found = await this.findLockTx(lockId as Hex32);
+      if (found) {
+        cachedLockTx = found;
+        this.lastSeenTxByAction.set(`lock:${lockId}`, found);
+      }
+    }
     const lockTx: TxRef = { chain: this.id, txId: cachedLockTx };
 
     if (stateNum === 1) {

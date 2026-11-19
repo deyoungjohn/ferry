@@ -71,7 +71,8 @@ export function orderRecordToSolverOrder(
     id: record.id,
     direction: record.direction as SwapDirection,
     status: record.status as OrderStatus,
-    lane: record.lane,
+    // A fast lane the person never consented to is the safe lane (the wait for finality is longer, not endless).
+    lane: record.lane === 'fast' && !record.fastOptIn ? 'safe' : record.lane,
     fastOptIn: record.fastOptIn,
     firstSeenAtMs: record.firstSeenAtMs,
     terms,
