@@ -21,4 +21,16 @@ test accounts with `anvil_setBalance`, sets token balances on the fork, and stop
 the fork before moving to the next chain. Missing RPC names are reported as
 skipped chains, not as failures.
 
+The current matrix covers health, quote, relay-lock with permit and
+approve-plus-lock tokens, and the minimum, maximum, wrong-chain and wrong-token
+refusals. Base, Ethereum, Arbitrum, BNB and Robinhood pass on the live forks. Arc
+is skipped because its USDC token does not expose a discoverable ERC-20 balance
+storage slot; use the manual checklist for it.
+
+The following still require a manual or harness extension pass: full BCH claim
+and refund flows, finality/reorg boundaries, quote and deadline timing, solver
+inventory and gas refusals, bad permits, wallet reverts, crash/restart at every
+step, keeper refunds and early release, wrong/late/non-recipient claims,
+18-decimal and rounding cases, and gas spikes/replacements/nonce gaps.
+
 The suite is not part of the normal unit run; `FERRY_RUN_FORK=1` is required.
