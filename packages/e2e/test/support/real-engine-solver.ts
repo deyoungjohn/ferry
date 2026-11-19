@@ -107,6 +107,9 @@ export async function startRealEngineSolver(params: {
   tokenAddress: Address;
   bchChain: FakeBchChain;
   solverBch: BchIdentity;
+  tokenDecimals?: number;
+  tokenPermit?: boolean;
+  solverEvmKey?: Hex;
   solverEnv?: Readonly<Record<string, string>>;
   /**
    * Use the reference on-chain actions from the test support code instead of the
@@ -114,7 +117,7 @@ export async function startRealEngineSolver(params: {
    */
   referenceActions?: boolean;
 }): Promise<RealEngineSolver> {
-  const solverAccount = privateKeyToAccount(SOLVER_KEY);
+  const solverAccount = privateKeyToAccount(params.solverEvmKey ?? SOLVER_KEY);
   const publicClient = createPublicClient({
     chain: params.chain,
     transport: http(params.rpcUrl),
@@ -140,8 +143,8 @@ export async function startRealEngineSolver(params: {
         {
           symbol: 'USDC',
           address: params.tokenAddress,
-          decimals: 6,
-          permit: true,
+          decimals: params.tokenDecimals ?? 6,
+          permit: params.tokenPermit ?? true,
         },
       ],
     },
@@ -161,7 +164,7 @@ export async function startRealEngineSolver(params: {
     COST_MODEL_ENABLED: '0',
     ALLOW_DEV_KEYS: '1',
     OPERATOR_TOKEN: 'a'.repeat(32),
-    SOLVER_EVM_PRIVATE_KEY: SOLVER_KEY,
+    SOLVER_EVM_PRIVATE_KEY: params.solverEvmKey ?? SOLVER_KEY,
     SOLVER_BCH_WIF: params.solverBch.wif,
     BASE_CHAIN_ID: String(params.chain.id),
     BASE_RPC_URL: params.rpcUrl,

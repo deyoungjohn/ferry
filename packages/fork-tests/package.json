@@ -1,0 +1,29 @@
+{
+  "name": "@ferry/fork-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Opt-in anvil fork matrix for every supported chain.",
+  "scripts": {
+    "fork": "FERRY_RUN_FORK=1 vitest run --config vitest.config.ts --reporter=verbose",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint --cache src test"
+  },
+  "dependencies": {
+    "@bitauth/libauth": "3.0.0",
+    "@ferry/chain-config": "workspace:*",
+    "@ferry/chain-evm": "workspace:*",
+    "@ferry/core": "workspace:*",
+    "@ferry/htlc-bch": "workspace:*",
+    "@ferry/htlc-evm": "workspace:*",
+    "@ferry/solver": "workspace:*",
+    "@ferry/solver-client": "workspace:*",
+    "viem": "2.57.10"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}
