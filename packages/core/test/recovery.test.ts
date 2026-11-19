@@ -288,3 +288,13 @@ describe('RecoveryFile schema, serialization, and direction-aware recoveryAction
     expect(evmToBchNoSecret.waits).toHaveLength(2);
   });
 });
+
+import { formatDuration } from '../src/recovery.js';
+describe('formatDuration', () => {
+  it('reads as hours, minutes and seconds', () => {
+    expect(formatDuration(74977)).toBe('20 h 49 min');
+    expect(formatDuration(450)).toBe('7 min 30 s');
+    expect(formatDuration(45)).toBe('45 s');
+    expect(formatDuration(7200)).toBe('2 h');
+  });
+});

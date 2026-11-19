@@ -209,7 +209,7 @@ export function recoveryActions(
         waits.push({
           chain: 'EVM',
           action: 'refund',
-          waitingFor: `Waiting for EVM refund deadline (${remaining}s remaining)`,
+          waitingFor: `Waiting for EVM refund deadline (${formatDuration(remaining)} remaining)`,
         });
       }
     } else if (chainState.evmLock.state === 'none') {
@@ -345,4 +345,17 @@ export function buildEvmRecoveryCalldata(
     value: 0n,
     lockId,
   };
+}
+
+/** Seconds as a short human duration: "20 h 49 min", "7 min 30 s", "45 s". */
+export function formatDuration(totalSeconds: number): string {
+  const total = Math.max(0, Math.round(totalSeconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  if (hours > 0)
+    return minutes > 0 ? `${hours} h ${minutes} min` : `${hours} h`;
+  if (minutes > 0)
+    return seconds > 0 ? `${minutes} min ${seconds} s` : `${minutes} min`;
+  return `${seconds} s`;
 }
