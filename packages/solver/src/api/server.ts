@@ -2372,6 +2372,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       memo: link.memo,
       createdAt: link.createdAt,
       expiresAt: link.expiresAt,
+      ...(link.status === 'paid' ? { paidAt: link.updatedAt } : {}),
       verified: link.verified,
     };
 

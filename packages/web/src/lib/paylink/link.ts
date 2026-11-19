@@ -10,6 +10,8 @@ export interface PayLinkData {
   readonly verified: boolean;
   readonly status: 'open' | 'reserved' | 'paid' | 'expired' | 'cancelled';
   readonly createdAt: number;
+  /** When the link was paid (Unix seconds), once the solver reports it. */
+  readonly paidAt?: number | undefined;
 }
 
 export interface SendLinkData {
@@ -26,6 +28,8 @@ export interface SendLinkData {
   readonly note?: string | undefined;
   readonly status: 'open' | 'claimed' | 'expired';
   readonly createdAt: number;
+  /** When the link was claimed (Unix seconds), when known. */
+  readonly claimedAt?: number | undefined;
   readonly secret?: string | undefined;
   readonly orderId?: string | undefined;
   readonly refundDate?: string | undefined;

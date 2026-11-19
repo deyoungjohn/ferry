@@ -6,6 +6,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { isAddress } from 'viem';
 import { sendLinkUrl, type SendLinkData } from '../lib/paylink/link';
 import { NETWORK_PROFILE } from '../lib/config';
+import { MorphWorkspace } from '../components/links/MorphWorkspace';
+import { LinksTable, type LinkRow } from '../components/links/LinksTable';
 import { useToast } from '../lib/toast/ToastContext';
 import { Select } from '../components/ui/select';
 import { ClaimWindowField } from '../components/ui/claim-window';
@@ -35,6 +37,25 @@ import { resumeSendLinkLock } from '../lib/send/resume-send-link';
 export interface SendLinksPageProps {
   readonly isLive?: boolean | undefined;
   readonly dependencies?: SendLinkDependencies | undefined;
+}
+
+function toRow(link: SendLinkData): LinkRow {
+  const lock =
+    link.lockStatus === 'pending_lock'
+      ? { status: 'Pending lock', tone: 'warn' as const }
+      : link.status === 'claimed'
+        ? { status: 'Claimed', tone: 'ok' as const }
+        : link.status === 'expired'
+          ? { status: 'Expired', tone: 'warn' as const }
+          : { status: 'Open', tone: 'neutral' as const };
+  return {
+    id: link.id,
+    href: `/send/${link.id}`,
+    amount: `${link.amount.toFixed(2)} ${link.destinationToken} (${link.destinationChain})`,
+    createdAt: link.createdAt,
+    completedAt: link.status === 'claimed' ? (link.claimedAt ?? null) : null,
+    ...lock,
+  };
 }
 
 export function SendLinksPage({
@@ -221,7 +242,7 @@ export function SendLinksPage({
     : '';
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -241,161 +262,165 @@ export function SendLinksPage({
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Creator Form */}
-        <div className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card">
-          <h2 className="text-sm font-semibold text-text mb-4">
-            Create a Send Link
-          </h2>
-          <form onSubmit={handleCreate} className="space-y-4 text-xs">
-            <div>
-              <label
-                htmlFor="send-dest-address"
-                className="block text-text-muted mb-1"
-              >
-                Recipient EVM Address
-              </label>
-              <input
-                id="send-dest-address"
-                type="text"
-                value={recipientEvm}
-                onChange={(e) => setRecipientEvm(e.target.value)}
-                placeholder="0x…"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                autoComplete="off"
-                inputMode="text"
-                className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 font-mono text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
-              />
-            </div>
+      <MorphWorkspace
+        form={
+          <div className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card sm:p-7">
+            <h2 className="mb-5 text-base font-semibold text-text">
+              Create a Send Link
+            </h2>
+            <form onSubmit={handleCreate} className="space-y-4 text-xs">
+              <div>
+                <label
+                  htmlFor="send-dest-address"
+                  className="block text-text-muted mb-1"
+                >
+                  Recipient EVM Address
+                </label>
+                <input
+                  id="send-dest-address"
+                  type="text"
+                  value={recipientEvm}
+                  onChange={(e) => setRecipientEvm(e.target.value)}
+                  placeholder="0x…"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="off"
+                  inputMode="text"
+                  className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 font-mono text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
+                />
+              </div>
 
-            <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-muted mb-1">
+                    Destination Chain
+                  </label>
+                  <Select
+                    label="Destination Chain"
+                    value={destChain}
+                    onValueChange={(newChainName) => {
+                      setDestChain(newChainName);
+                      const chain = farChains.find(
+                        (c) => c.name === newChainName,
+                      );
+                      if (chain && chain.tokenSymbols[0]) {
+                        setDestToken(chain.tokenSymbols[0]);
+                      }
+                    }}
+                    options={farChains.map((c) => ({
+                      value: c.name,
+                      label:
+                        !c.enabled && c.disabledReason
+                          ? `${c.name} (${c.disabledReason})`
+                          : c.name,
+                      disabled: !c.enabled,
+                    }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-muted mb-1">Token</label>
+                  <Select
+                    label="Token"
+                    value={destToken}
+                    onValueChange={setDestToken}
+                    options={(
+                      farChains.find((c) => c.name === destChain)
+                        ?.tokenSymbols ?? ['USDC']
+                    ).map((sym) => ({ value: sym, label: sym }))}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="send-amount"
+                  className="block text-text-muted mb-1"
+                >
+                  Amount to Send
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="send-amount"
+                    type="number"
+                    step="any"
+                    min="1"
+                    value={amount}
+                    inputMode="decimal"
+                    autoComplete="off"
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="flex-1 rounded-well border border-hairline bg-surface-2 p-2.5 font-semibold text-text focus:border-lime focus:outline-none"
+                  />
+                  <span className="font-semibold text-text">{destToken}</span>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-text-muted mb-1">
-                  Destination Chain
+                  Claim Window
                 </label>
-                <Select
-                  label="Destination Chain"
-                  value={destChain}
-                  onValueChange={(newChainName) => {
-                    setDestChain(newChainName);
-                    const chain = farChains.find(
-                      (c) => c.name === newChainName,
-                    );
-                    if (chain && chain.tokenSymbols[0]) {
-                      setDestToken(chain.tokenSymbols[0]);
-                    }
+                <ClaimWindowField
+                  choice={windowChoice}
+                  custom={customExpiry}
+                  nowMs={nowMs}
+                  onChoiceChange={(next) => {
+                    setNowMs(Date.now());
+                    setWindowChoice(next);
                   }}
-                  options={farChains.map((c) => ({
-                    value: c.name,
-                    label:
-                      !c.enabled && c.disabledReason
-                        ? `${c.name} (${c.disabledReason})`
-                        : c.name,
-                    disabled: !c.enabled,
-                  }))}
+                  onCustomChange={(next) => {
+                    setNowMs(Date.now());
+                    setCustomExpiry(next);
+                  }}
                 />
               </div>
+
               <div>
-                <label className="block text-text-muted mb-1">Token</label>
-                <Select
-                  label="Token"
-                  value={destToken}
-                  onValueChange={setDestToken}
-                  options={(
-                    farChains.find((c) => c.name === destChain)
-                      ?.tokenSymbols ?? ['USDC']
-                  ).map((sym) => ({ value: sym, label: sym }))}
+                <label
+                  htmlFor="send-note"
+                  className="block text-text-muted mb-1"
+                >
+                  Note for the receiver (optional)
+                </label>
+                <textarea
+                  id="send-note"
+                  value={note}
+                  onChange={(e) =>
+                    setNote(e.target.value.replace(/[\r\n]+/g, ' '))
+                  }
+                  maxLength={SEND_LINK_NOTE_MAX_LENGTH}
+                  rows={2}
+                  placeholder="Say what it is for"
+                  className="w-full resize-none rounded-well border border-hairline bg-surface-2 p-2.5 text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
                 />
+                <p className="mt-1 flex justify-between text-[11px] text-text-dim">
+                  <span>
+                    Anyone who has the link can read this note. Do not put
+                    secrets in it.
+                  </span>
+                  <span data-testid="note-count">
+                    {note.length}/{SEND_LINK_NOTE_MAX_LENGTH}
+                  </span>
+                </p>
               </div>
-            </div>
 
-            <div>
-              <label
-                htmlFor="send-amount"
-                className="block text-text-muted mb-1"
+              {error && (
+                <p className="text-danger text-xs" role="alert">
+                  {error}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full rounded-pill bg-olive py-2.5 font-semibold text-text hover:bg-olive/90 transition-colors cursor-pointer disabled:opacity-50"
               >
-                Amount to Send
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  id="send-amount"
-                  type="number"
-                  step="any"
-                  min="1"
-                  value={amount}
-                  inputMode="decimal"
-                  autoComplete="off"
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="flex-1 rounded-well border border-hairline bg-surface-2 p-2.5 font-semibold text-text focus:border-lime focus:outline-none"
-                />
-                <span className="font-semibold text-text">{destToken}</span>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-text-muted mb-1">Claim Window</label>
-              <ClaimWindowField
-                choice={windowChoice}
-                custom={customExpiry}
-                nowMs={nowMs}
-                onChoiceChange={(next) => {
-                  setNowMs(Date.now());
-                  setWindowChoice(next);
-                }}
-                onCustomChange={(next) => {
-                  setNowMs(Date.now());
-                  setCustomExpiry(next);
-                }}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="send-note" className="block text-text-muted mb-1">
-                Note for the receiver (optional)
-              </label>
-              <textarea
-                id="send-note"
-                value={note}
-                onChange={(e) =>
-                  setNote(e.target.value.replace(/[\r\n]+/g, ' '))
-                }
-                maxLength={SEND_LINK_NOTE_MAX_LENGTH}
-                rows={2}
-                placeholder="Say what it is for"
-                className="w-full resize-none rounded-well border border-hairline bg-surface-2 p-2.5 text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
-              />
-              <p className="mt-1 flex justify-between text-[11px] text-text-dim">
-                <span>
-                  Anyone who has the link can read this note. Do not put secrets
-                  in it.
-                </span>
-                <span data-testid="note-count">
-                  {note.length}/{SEND_LINK_NOTE_MAX_LENGTH}
-                </span>
-              </p>
-            </div>
-
-            {error && (
-              <p className="text-danger text-xs" role="alert">
-                {error}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full rounded-pill bg-olive py-2.5 font-semibold text-text hover:bg-olive/90 transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {isSubmitting ? 'Creating Send Link…' : 'Generate Send Link'}
-            </button>
-          </form>
-        </div>
-
-        {/* Generated Preview */}
-        <div className="flex flex-col gap-6">
-          {activeCreated ? (
+                {isSubmitting ? 'Creating Send Link…' : 'Generate Send Link'}
+              </button>
+            </form>
+          </div>
+        }
+        result={
+          activeCreated ? (
             <div className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-text">
@@ -434,8 +459,15 @@ export function SendLinksPage({
                       onClick={() => handleCopy(activeUrl)}
                       className="shrink-0 rounded-pill bg-surface-3 px-3 py-1 font-semibold text-text hover:text-lime cursor-pointer transition-colors"
                     >
-                      {copied ? 'Copied ✓' : 'Copy'}
+                      {copied ? 'Copied' : 'Copy'}
                     </button>
+                    <Link
+                      to={`/send/${activeCreated.id}`}
+                      data-testid="open-send-link"
+                      className="shrink-0 rounded-pill bg-surface-3 px-3 py-1 font-semibold text-text transition-colors hover:text-lime"
+                    >
+                      Open
+                    </Link>
                   </div>
                 </div>
 
@@ -475,61 +507,39 @@ export function SendLinksPage({
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="rounded-card border border-dashed border-hairline bg-surface-1/40 p-8 text-center text-xs text-text-muted">
-              Configure parameters on the left to create a send link.
-            </div>
-          )}
-
-          {/* List */}
-          <div className="rounded-card border border-hairline bg-surface-1 p-4 shadow-elev-card">
-            <h3 className="text-xs font-semibold text-text mb-3">
-              Recent Send Links
-            </h3>
-            <div className="space-y-2">
-              {createdLinks.map((link) => (
-                <div
-                  key={link.id}
-                  className="flex items-center justify-between rounded-well border border-hairline bg-surface-2 p-2.5 text-xs hover:border-lime/30 transition-colors"
+          ) : null
+        }
+        table={
+          <LinksTable
+            title="All send links"
+            completedLabel="Claim date"
+            emptyText="Send links you create appear here."
+            rows={createdLinks.map(toRow)}
+            renderAction={(row) => {
+              const link = createdLinks.find((item) => item.id === row.id);
+              if (!link) return null;
+              return link.lockStatus === 'pending_lock' ? (
+                <button
+                  type="button"
+                  onClick={() => handleResume(link)}
+                  disabled={resumingId === link.id}
+                  className="rounded-pill border border-lime/40 bg-lime/20 px-2.5 py-1 text-xs font-semibold text-lime hover:bg-lime/30"
                 >
-                  <div>
-                    <div className="font-medium text-text">
-                      <Link
-                        to={`/send/${link.id}`}
-                        className="hover:text-lime underline"
-                      >
-                        {link.amount.toFixed(2)} {link.destinationToken} →{' '}
-                        {link.destinationChain}
-                      </Link>
-                    </div>
-                    <span className="font-mono text-[10px] text-text-dim">
-                      {link.id}
-                    </span>
-                  </div>
-                  {link.lockStatus === 'pending_lock' ? (
-                    <button
-                      type="button"
-                      onClick={() => handleResume(link)}
-                      disabled={resumingId === link.id}
-                      className="rounded-pill bg-lime/20 border border-lime/40 px-2.5 py-1 text-[11px] font-semibold text-lime hover:bg-lime/30 cursor-pointer disabled:opacity-50"
-                    >
-                      {resumingId === link.id ? 'Resuming…' : 'Resume'}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setActiveCreated(link)}
-                      className="rounded-pill bg-surface-3 px-2.5 py-1 text-[11px] font-semibold text-text hover:text-lime cursor-pointer"
-                    >
-                      View QR
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+                  {resumingId === link.id ? 'Resuming…' : 'Resume'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setActiveCreated(link)}
+                  className="rounded-pill bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text hover:text-lime"
+                >
+                  View QR
+                </button>
+              );
+            }}
+          />
+        }
+      />
     </div>
   );
 }

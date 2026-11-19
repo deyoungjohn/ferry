@@ -571,6 +571,8 @@ export const PayLinkJsonSchema = z.strictObject({
   createdAt: unixTimestampSeconds,
   expiresAt: unixTimestampSeconds.optional(),
   paidTxid: hex32Schema.optional(),
+  /** When the link was paid (Unix seconds), for a paid link. */
+  paidAt: unixTimestampSeconds.optional(),
   verified: z.boolean().optional(),
 });
 

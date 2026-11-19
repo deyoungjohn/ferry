@@ -12,6 +12,7 @@ import { saveSendLink } from '../lib/paylink/send-store';
 describe('Pay Links & Send Links Pages (Task B3-03)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    window.localStorage.clear();
   });
 
   it('renders PayLinksPage and creates a new pay link with QR code', async () => {
@@ -26,10 +27,18 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/Get paid in PUSD or MUSD/i)).toBeInTheDocument();
 
-    // Verify existing sample pay link
-    expect(screen.getByText(/Dinner split/i)).toBeInTheDocument();
+    // No invented sample link: the table starts empty.
+    expect(screen.queryByText(/Dinner split/i)).toBeNull();
+    expect(
+      screen.getByText(/Pay links you create appear here/i),
+    ).toBeInTheDocument();
 
     // Fill form and create link
+    fireEvent.change(screen.getByLabelText(/Receiving Bitcoin Cash Address/i), {
+      target: {
+        value: 'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk',
+      },
+    });
     const noteInput = screen.getByLabelText(/Note for Payer/i);
     fireEvent.change(noteInput, { target: { value: 'Design Bounty' } });
 
@@ -46,6 +55,16 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
     expect(
       screen.getByText(/Recipient \(Chunked CashAddr\)/i),
     ).toBeInTheDocument();
+
+    // An Open button sits next to Copy, and the table lists the link with a link to its page.
+    expect(screen.getByTestId('open-pay-link')).toBeInTheDocument();
+    const rows = await screen.findAllByTestId('links-row');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.querySelector('a')?.getAttribute('href')).toMatch(
+      /^\/pay\/pl-/,
+    );
+    expect(rows[0]!.textContent).toContain('Open');
+    expect(rows[0]!.textContent).toContain('–');
   });
 
   it('renders PayLinkPage with exact-output quote and correct labels', async () => {

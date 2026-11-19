@@ -1,4 +1,4 @@
-import { useState, useContext, type FormEvent } from 'react';
+import { useState, useContext, useEffect, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
 import { decodeCashAddress } from '@ferry/core';
@@ -9,6 +9,41 @@ import {
   type PayLinkData,
 } from '../lib/paylink/link';
 import { useToast } from '../lib/toast/ToastContext';
+import { listPayLinks, savePayLink } from '../lib/paylink/pay-store';
+import {
+  createPayLinkOnSolver,
+  readPayLinkState,
+} from '../lib/paylink/pay-api';
+import { LIVE_EXECUTION_ENABLED } from '../lib/config';
+import { MorphWorkspace } from '../components/links/MorphWorkspace';
+import { LinksTable, type LinkRow } from '../components/links/LinksTable';
+
+const STATUS_LABEL: Record<PayLinkData['status'], string> = {
+  open: 'Open',
+  reserved: 'Payment started',
+  paid: 'Paid',
+  expired: 'Expired',
+  cancelled: 'Cancelled',
+};
+
+function toRow(link: PayLinkData): LinkRow {
+  return {
+    id: link.id,
+    href: `/pay/${link.id}`,
+    amount: link.amountOut
+      ? `${link.amountOut.toFixed(2)} ${link.token}`
+      : `Any ${link.token}`,
+    createdAt: link.createdAt,
+    completedAt: link.status === 'paid' ? (link.paidAt ?? null) : null,
+    status: STATUS_LABEL[link.status],
+    tone:
+      link.status === 'paid'
+        ? 'ok'
+        : link.status === 'expired' || link.status === 'cancelled'
+          ? 'warn'
+          : 'neutral',
+  };
+}
 
 export function PayLinksPage() {
   const walletContext = useContext(WalletContext);
@@ -19,28 +54,42 @@ export function PayLinksPage() {
   const [isFixed, setIsFixed] = useState(true);
   const [note, setNote] = useState('');
   const [pastedAddress, setPastedAddress] = useState('');
-  const [createdLinks, setCreatedLinks] = useState<PayLinkData[]>([
-    {
-      id: 'pl-sample-01',
-      recipientCashaddr: 'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk',
-      token: 'PUSD',
-      amountOut: 25.0,
-      note: 'Dinner split',
-      verified: true,
-      status: 'open',
-      createdAt: Math.floor(Date.now() / 1000) - 3600,
-    },
-  ]);
+  const [createdLinks, setCreatedLinks] = useState<PayLinkData[]>(() =>
+    listPayLinks(),
+  );
   const [activeCreated, setActiveCreated] = useState<PayLinkData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [creating, setCreating] = useState(false);
 
-  const activeRecipient =
-    pastedAddress.trim() ||
-    bch.address?.address ||
-    'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk';
+  // With a live solver the links exist there, so the address people open is real; the table asks
+  // it for each open link's state (paid, and when).
+  const solverUrl = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+    ?.split(',')[0]
+    ?.trim();
+  const live = LIVE_EXECUTION_ENABLED && Boolean(solverUrl);
+  useEffect(() => {
+    if (!live || !solverUrl) return;
+    let cancelled = false;
+    (async () => {
+      for (const link of listPayLinks()) {
+        if (link.status !== 'open' && link.status !== 'reserved') continue;
+        const state = await readPayLinkState(solverUrl, link.id);
+        if (!state || cancelled) continue;
+        if (state.status !== link.status || state.paidAt !== link.paidAt) {
+          savePayLink({ ...link, ...state });
+        }
+      }
+      if (!cancelled) setCreatedLinks(listPayLinks());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [live, solverUrl]);
 
-  function handleCreate(e: FormEvent) {
+  const activeRecipient = pastedAddress.trim() || bch.address?.address || '';
+
+  async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError(null);
 
@@ -64,21 +113,45 @@ export function PayLinksPage() {
       return;
     }
 
-    const newId = 'pl-' + Math.random().toString(36).substring(2, 10);
-    const newLink: PayLinkData = {
-      id: newId,
-      recipientCashaddr: activeRecipient,
-      token,
-      ...(amountNum !== undefined ? { amountOut: amountNum } : {}),
-      ...(note.trim() ? { note: note.trim() } : {}),
-      verified:
-        bch.status === 'connected' && bch.address?.address === activeRecipient,
-      status: 'open',
-      createdAt: Math.floor(Date.now() / 1000),
-    };
-
-    setCreatedLinks((prev) => [newLink, ...prev]);
-    setActiveCreated(newLink);
+    setCreating(true);
+    try {
+      let id = 'pl-' + Math.random().toString(36).substring(2, 10);
+      let createdAt = Math.floor(Date.now() / 1000);
+      if (live && solverUrl) {
+        const made = await createPayLinkOnSolver(solverUrl, {
+          token,
+          recipientAddress: activeRecipient,
+          amountCents:
+            amountNum !== undefined ? Math.round(amountNum * 100) : undefined,
+          note: note.trim() || undefined,
+        });
+        id = made.id;
+        createdAt = made.createdAt;
+      }
+      const newLink: PayLinkData = {
+        id,
+        recipientCashaddr: activeRecipient,
+        token,
+        ...(amountNum !== undefined ? { amountOut: amountNum } : {}),
+        ...(note.trim() ? { note: note.trim() } : {}),
+        verified:
+          bch.status === 'connected' &&
+          bch.address?.address === activeRecipient,
+        status: 'open',
+        createdAt,
+      };
+      savePayLink(newLink);
+      setCreatedLinks(listPayLinks());
+      setActiveCreated(newLink);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : 'The link could not be created.',
+      );
+    } finally {
+      setCreating(false);
+    }
   }
 
   function handleCopyUrl(url: string) {
@@ -89,7 +162,7 @@ export function PayLinksPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -109,155 +182,158 @@ export function PayLinksPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Creation Form */}
-        <div className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card">
-          <h2 className="text-sm font-semibold text-text mb-4">
-            Create a Pay Link
-          </h2>
-          <form onSubmit={handleCreate} className="space-y-4 text-xs">
-            {/* Recipient Address */}
-            <div>
-              <label
-                htmlFor="recipient-cashaddr"
-                className="block text-text-muted mb-1"
-              >
-                Receiving Bitcoin Cash Address
-              </label>
-              <input
-                id="recipient-cashaddr"
-                type="text"
-                value={pastedAddress}
-                onChange={(e) => setPastedAddress(e.target.value)}
-                placeholder={activeRecipient}
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                autoComplete="off"
-                inputMode="text"
-                className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 font-mono text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
-              />
-              <span className="mt-1 block text-[11px] text-text-dim">
-                {bch.address?.address === activeRecipient
-                  ? '✓ Auto-filled from your connected BCH wallet'
-                  : 'Enter a valid CashAddr'}
-              </span>
-            </div>
-
-            {/* Token Selection */}
-            <div>
-              <label className="block text-text-muted mb-1">
-                Requested Token
-              </label>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setToken('PUSD')}
-                  className={`flex-1 rounded-pill py-2 font-semibold transition-colors cursor-pointer ${
-                    token === 'PUSD'
-                      ? 'bg-lime text-lime-ink'
-                      : 'border border-hairline bg-surface-2 text-text hover:text-lime'
-                  }`}
+      <MorphWorkspace
+        form={
+          <div className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card sm:p-7">
+            <h2 className="mb-5 text-base font-semibold text-text">
+              Create a Pay Link
+            </h2>
+            <form onSubmit={handleCreate} className="space-y-4 text-xs">
+              {/* Recipient Address */}
+              <div>
+                <label
+                  htmlFor="recipient-cashaddr"
+                  className="block text-text-muted mb-1"
                 >
-                  PUSD
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setToken('MUSD')}
-                  className={`flex-1 rounded-pill py-2 font-semibold transition-colors cursor-pointer ${
-                    token === 'MUSD'
-                      ? 'bg-lime text-lime-ink'
-                      : 'border border-hairline bg-surface-2 text-text hover:text-lime'
-                  }`}
-                >
-                  MUSD
-                </button>
+                  Receiving Bitcoin Cash Address
+                </label>
+                <input
+                  id="recipient-cashaddr"
+                  type="text"
+                  value={pastedAddress}
+                  onChange={(e) => setPastedAddress(e.target.value)}
+                  placeholder={activeRecipient}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="off"
+                  inputMode="text"
+                  className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 font-mono text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
+                />
+                <span className="mt-1 block text-[11px] text-text-dim">
+                  {bch.address?.address === activeRecipient
+                    ? '✓ Auto-filled from your connected BCH wallet'
+                    : 'Enter a valid CashAddr'}
+                </span>
               </div>
-            </div>
 
-            {/* Amount Type */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-text-muted">Amount</span>
-                <div className="flex gap-2">
+              {/* Token Selection */}
+              <div>
+                <label className="block text-text-muted mb-1">
+                  Requested Token
+                </label>
+                <div className="flex gap-3">
                   <button
                     type="button"
-                    onClick={() => setIsFixed(true)}
-                    className={`text-[11px] font-medium cursor-pointer ${
-                      isFixed
-                        ? 'text-lime underline'
-                        : 'text-text-dim hover:text-text'
+                    onClick={() => setToken('PUSD')}
+                    className={`flex-1 rounded-pill py-2 font-semibold transition-colors cursor-pointer ${
+                      token === 'PUSD'
+                        ? 'bg-lime text-lime-ink'
+                        : 'border border-hairline bg-surface-2 text-text hover:text-lime'
                     }`}
                   >
-                    Fixed amount
+                    PUSD
                   </button>
-                  <span className="text-text-dim">·</span>
                   <button
                     type="button"
-                    onClick={() => setIsFixed(false)}
-                    className={`text-[11px] font-medium cursor-pointer ${
-                      !isFixed
-                        ? 'text-lime underline'
-                        : 'text-text-dim hover:text-text'
+                    onClick={() => setToken('MUSD')}
+                    className={`flex-1 rounded-pill py-2 font-semibold transition-colors cursor-pointer ${
+                      token === 'MUSD'
+                        ? 'bg-lime text-lime-ink'
+                        : 'border border-hairline bg-surface-2 text-text hover:text-lime'
                     }`}
                   >
-                    Payer chooses
+                    MUSD
                   </button>
                 </div>
               </div>
-              {isFixed && (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    step="any"
-                    min="1"
-                    aria-label="Fixed Amount"
-                    value={fixedAmount}
-                    inputMode="decimal"
-                    autoComplete="off"
-                    onChange={(e) => setFixedAmount(e.target.value)}
-                    placeholder="0.00"
-                    className="flex-1 rounded-well border border-hairline bg-surface-2 p-2.5 font-semibold text-text focus:border-lime focus:outline-none"
-                  />
-                  <span className="font-semibold text-text">{token}</span>
+
+              {/* Amount Type */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-text-muted">Amount</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsFixed(true)}
+                      className={`text-[11px] font-medium cursor-pointer ${
+                        isFixed
+                          ? 'text-lime underline'
+                          : 'text-text-dim hover:text-text'
+                      }`}
+                    >
+                      Fixed amount
+                    </button>
+                    <span className="text-text-dim">·</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsFixed(false)}
+                      className={`text-[11px] font-medium cursor-pointer ${
+                        !isFixed
+                          ? 'text-lime underline'
+                          : 'text-text-dim hover:text-text'
+                      }`}
+                    >
+                      Payer chooses
+                    </button>
+                  </div>
                 </div>
+                {isFixed && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      step="any"
+                      min="1"
+                      aria-label="Fixed Amount"
+                      value={fixedAmount}
+                      inputMode="decimal"
+                      autoComplete="off"
+                      onChange={(e) => setFixedAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="flex-1 rounded-well border border-hairline bg-surface-2 p-2.5 font-semibold text-text focus:border-lime focus:outline-none"
+                    />
+                    <span className="font-semibold text-text">{token}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Note */}
+              <div>
+                <label
+                  htmlFor="pay-note"
+                  className="block text-text-muted mb-1"
+                >
+                  Note for Payer (optional, ≤ 140 characters)
+                </label>
+                <input
+                  id="pay-note"
+                  type="text"
+                  maxLength={140}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="What is this payment for?"
+                  className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
+                />
+              </div>
+
+              {error && (
+                <p className="text-danger text-xs" role="alert">
+                  {error}
+                </p>
               )}
-            </div>
 
-            {/* Note */}
-            <div>
-              <label htmlFor="pay-note" className="block text-text-muted mb-1">
-                Note for Payer (optional, ≤ 140 characters)
-              </label>
-              <input
-                id="pay-note"
-                type="text"
-                maxLength={140}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="What is this payment for?"
-                className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
-              />
-            </div>
-
-            {error && (
-              <p className="text-danger text-xs" role="alert">
-                {error}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              className="w-full rounded-pill bg-olive py-2.5 font-semibold text-text hover:bg-olive/90 transition-colors cursor-pointer"
-            >
-              Generate Pay Link
-            </button>
-          </form>
-        </div>
-
-        {/* Active Generated Link & QR Code */}
-        <div className="flex flex-col gap-6">
-          {activeCreated ? (
+              <button
+                type="submit"
+                disabled={creating}
+                className="w-full rounded-pill bg-olive py-3 font-semibold text-text transition-colors"
+              >
+                {creating ? 'Creating…' : 'Generate Pay Link'}
+              </button>
+            </form>
+          </div>
+        }
+        result={
+          activeCreated ? (
             <div className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-text">
@@ -292,8 +368,15 @@ export function PayLinksPage() {
                       }
                       className="shrink-0 rounded-pill bg-surface-3 px-3 py-1 font-semibold text-text hover:text-lime cursor-pointer transition-colors"
                     >
-                      {copied ? 'Copied ✓' : 'Copy'}
+                      {copied ? 'Copied' : 'Copy'}
                     </button>
+                    <Link
+                      to={`/pay/${activeCreated.id}`}
+                      data-testid="open-pay-link"
+                      className="shrink-0 rounded-pill bg-surface-3 px-3 py-1 font-semibold text-text transition-colors hover:text-lime"
+                    >
+                      Open
+                    </Link>
                   </div>
                 </div>
 
@@ -307,59 +390,17 @@ export function PayLinksPage() {
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="rounded-card border border-dashed border-hairline bg-surface-1/40 p-8 text-center text-xs text-text-muted">
-              Generate a pay link on the left to see your shareable URL and QR
-              code here.
-            </div>
-          )}
-
-          {/* List of Created Links */}
-          <div className="rounded-card border border-hairline bg-surface-1 p-4 shadow-elev-card">
-            <h3 className="text-xs font-semibold text-text mb-3">
-              Your Pay Links
-            </h3>
-            <div className="space-y-2">
-              {createdLinks.map((link) => (
-                <div
-                  key={link.id}
-                  className="flex items-center justify-between rounded-well border border-hairline bg-surface-2 p-2.5 text-xs hover:border-lime/30 transition-colors"
-                >
-                  <div>
-                    <div className="flex items-center gap-1.5 font-medium text-text">
-                      <Link
-                        to={`/pay/${link.id}`}
-                        className="hover:text-lime underline"
-                      >
-                        {link.amountOut
-                          ? `${link.amountOut.toFixed(2)} ${link.token}`
-                          : `Open ${link.token}`}
-                      </Link>
-                      {link.note && (
-                        <span className="text-text-dim text-[11px]">
-                          ({link.note})
-                        </span>
-                      )}
-                    </div>
-                    <span className="font-mono text-[10px] text-text-dim">
-                      {link.id}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setActiveCreated(link)}
-                      className="rounded-pill bg-surface-3 px-2.5 py-1 text-[11px] font-semibold text-text hover:text-lime cursor-pointer"
-                    >
-                      View QR
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+          ) : null
+        }
+        table={
+          <LinksTable
+            title="All pay links"
+            completedLabel="Payment date"
+            emptyText="Pay links you create appear here."
+            rows={createdLinks.map(toRow)}
+          />
+        }
+      />
     </div>
   );
 }
