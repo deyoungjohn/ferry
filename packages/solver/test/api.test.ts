@@ -509,6 +509,48 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(res.json().orders).toBeInstanceOf(Array);
     });
 
+    it('GET /v1/orders?address lists that address funded swaps and refuses a bad address', async () => {
+      const addr = '0x1111111111111111111111111111111111111111';
+      const now = Math.floor(Date.now() / 1000);
+      const make = (id: string, status: 'DONE' | 'QUOTED') =>
+        db.saveOrder({
+          id: ('0x' + id.repeat(32)) as `0x${string}`,
+          direction: 'EVM_TO_BCH',
+          status,
+          userCounterAddress: addr,
+          lockId: ('0x' + id.repeat(32)) as `0x${string}`,
+          termsJson: JSON.stringify({
+            evmAmount: '1000000n',
+            bchTokenAmount: '99n',
+            bchToken: 'PUSD',
+          }),
+          hashLock: ('0x' + id.repeat(32)) as `0x${string}`,
+          createdAt: now,
+          updatedAt: now,
+        });
+      make('c1', 'DONE');
+      make('c2', 'QUOTED');
+      const ok = await app.inject({
+        method: 'GET',
+        url: `/v1/orders?address=${addr.toUpperCase().replace('0X', '0x')}`,
+      });
+      expect(ok.statusCode).toBe(200);
+      const listed = ok.json().orders;
+      expect(listed).toHaveLength(1);
+      expect(listed[0]).toMatchObject({
+        status: 'DONE',
+        direction: 'EVM_TO_BCH',
+        evmAmount: '1000000',
+        bchTokenAmount: '99',
+        bchToken: 'PUSD',
+      });
+      const bad = await app.inject({
+        method: 'GET',
+        url: '/v1/orders?address=nope',
+      });
+      expect(bad.statusCode).toBe(400);
+    });
+
     it('GET /v1/pegs returns peg snapshot with unix seconds timestamps', async () => {
       const res = await app.inject({ method: 'GET', url: '/v1/pegs' });
       expect(res.statusCode).toBe(200);

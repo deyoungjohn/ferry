@@ -31,6 +31,7 @@ import { ROUTES } from '../lib/routes';
 import { buildCoreQuoteRequest, farTokenFacts } from '../lib/solver/core-quote';
 import { LiveSwapPanel } from './LiveSwapPanel';
 import { ResumeSwaps } from './ResumeSwaps';
+import { MySwaps } from './MySwaps';
 import { createLiveDependencies } from '../lib/live/ports';
 import type { QuoteInput } from '@ferry/user-flow';
 import { readBchTipHeight } from '../lib/solver/tip';
@@ -1263,6 +1264,16 @@ export function SwapCard({
                   chainId: walletContext.evm.chainId ?? 8453,
                 })
               }
+            />
+          )}
+
+        {solver.isLive() &&
+          LIVE_EXECUTION_ENABLED &&
+          solverUrls[0] &&
+          walletContext?.evm.address && (
+            <MySwaps
+              solverUrl={solverUrls[0]}
+              evmAddress={walletContext.evm.address}
             />
           )}
 

@@ -487,6 +487,19 @@ export class SolverDatabase {
     stmt.run(reason ?? 'Action requires operator attention', now, orderId);
   }
 
+  /** Funded orders of one EVM address, newest first (quotes nobody locked against are left out). */
+  listOrdersByAddress(address: string, limit = 50): OrderRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM orders
+      WHERE LOWER(user_counter_address) = LOWER(?)
+        AND status NOT IN ('QUOTED', 'EXPIRED', 'REJECTED')
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+    const rows = stmt.all(address, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.mapOrderRow(row));
+  }
+
   listNonTerminalOrders(): OrderRecord[] {
     const stmt = this.db.prepare(`
       SELECT * FROM orders 

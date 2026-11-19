@@ -1704,6 +1704,45 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   });
 
   // 10. GET /v1/orders/recent
+  // GET /v1/orders?address=0x...: the swaps of one EVM address (the address does not rotate,
+  // unlike a Bitcoin Cash one). Public data only: ids, direction, state, time, amounts.
+  app.get('/v1/orders', async (req, reply) => {
+    const address = String(
+      (req.query as { address?: string } | undefined)?.address ?? '',
+    );
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+      return reply
+        .status(400)
+        .send({ error: 'address must be a 0x-prefixed EVM address' });
+    }
+    const orders = db.listOrdersByAddress(address).map((o) => {
+      let evmAmount = '';
+      let bchTokenAmount = '';
+      let bchToken = '';
+      try {
+        const terms = JSON.parse(o.termsJson) as Record<string, unknown>;
+        evmAmount = String(terms.evmAmount ?? '').replace(/n$/, '');
+        bchTokenAmount = String(terms.bchTokenAmount ?? '').replace(/n$/, '');
+        bchToken = String(terms.bchToken ?? '');
+      } catch {
+        // terms unreadable: still list the order
+      }
+      return {
+        orderId: o.id,
+        direction:
+          o.direction === 'BCH_TO_COUNTER' ? 'BCH_TO_EVM' : 'EVM_TO_BCH',
+        status: o.status,
+        createdAt: o.createdAt,
+        evmAmount,
+        bchTokenAmount,
+        bchToken,
+      };
+    });
+    return reply
+      .status(200)
+      .send({ orders, asOf: Math.floor(Date.now() / 1000) });
+  });
+
   app.get('/v1/orders/recent', async (_req, reply) => {
     const recent = db.getRecentSwaps(50);
     const orders = recent.map((s) => ({
