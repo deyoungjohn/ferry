@@ -327,6 +327,16 @@ describe('a solver that goes quiet: the user can still refund', () => {
     expect(session.state.step).toBe('done');
   });
 
+  it('refuses to lock after the quote has expired, before anything is signed', async () => {
+    const { world, deps } = createWorld();
+    const session = new UserSwapSession(deps());
+    await session.quote(forward);
+    await session.saveRecovery();
+    world.now += 24 * 3600;
+    await expectCode(session.lock(), 'QUOTE_EXPIRED');
+    expect(session.state.step).not.toBe('waitCounterLock');
+  });
+
   it('claim with nothing on chain says there is nothing to claim', async () => {
     const { deps } = createWorld({ autoCounterLock: false });
     const session = new UserSwapSession(deps());

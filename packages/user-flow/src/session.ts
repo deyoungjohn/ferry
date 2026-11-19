@@ -332,6 +332,18 @@ export class UserSwapSession {
   /** Step `lock`: the user's own lock. Refused until the recovery file is saved. */
   async lock(): Promise<string> {
     const { terms } = this.requireSavedOrder();
+    // A lock made against a lapsed quote is not honoured by the solver (the price is stale), and
+    // on Bitcoin Cash nothing stops the wallet from sending it: refuse before anything is signed.
+    const lapsedBySeconds =
+      Math.floor(this.nowMs() / 1000) - Number(terms.quoteExpiry);
+    if (lapsedBySeconds > 0) {
+      const error = new UserFlowError(
+        'QUOTE_EXPIRED',
+        'This quote has expired, so the solver would not honour a lock now. Nothing was locked. Go back and start a new swap.',
+      );
+      this.fail(error);
+      throw error;
+    }
     this.set({ step: 'lock', status: 'running', error: null });
     try {
       const txid =

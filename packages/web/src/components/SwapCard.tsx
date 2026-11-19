@@ -477,20 +477,32 @@ export function SwapCard({
   }
 
   /** What a real swap needs from the form, or the plain reason it cannot start. */
-  function liveSwapInput(): { input: QuoteInput } | { problem: string } {
+  function liveSwapInput():
+    { input: QuoteInput } | { problem: string; connect?: () => void } {
     const far = farTokenFacts(selectedChain.name, selectedFarToken);
     if (!far) return { problem: 'This route is not configured in this build.' };
-    if (!evm.address) return { problem: 'Connect your EVM wallet first.' };
+    if (!evm.address)
+      return {
+        problem: 'Connect your EVM wallet first.',
+        connect: () => walletContext?.evm.connect(),
+      };
     if (!bchAddress)
-      return { problem: 'Connect your Bitcoin Cash wallet first.' };
+      return {
+        problem: 'Connect your Bitcoin Cash wallet first.',
+        connect: () => walletContext?.bch.connect(),
+      };
     // The wallet that signs the lock must be connected now: a remembered address is not enough.
     if (isReverse && walletContext?.bch.status !== 'connected')
       return {
         problem:
           'Reconnect your Bitcoin Cash wallet: it is remembered but not connected, so it cannot sign the lock.',
+        connect: () => walletContext?.bch.connect(),
       };
     if (!isReverse && evm.status !== 'connected')
-      return { problem: 'Reconnect your EVM wallet to sign the lock.' };
+      return {
+        problem: 'Reconnect your EVM wallet to sign the lock.',
+        connect: () => walletContext?.evm.connect(),
+      };
     const bchToken = (
       isReverse ? selectedBchToken : receiveTokenSymbolRaw
     ).replace(/^t/, '');
@@ -526,7 +538,10 @@ export function SwapCard({
     if (solver.isLive() && LIVE_EXECUTION_ENABLED) {
       const prepared = liveSwapInput();
       if ('problem' in prepared) {
-        showToast(prepared.problem, 'error');
+        // A missing wallet opens that wallet's connect dialog (QR for Bitcoin Cash); other
+        // problems are explained in a toast.
+        if (prepared.connect) prepared.connect();
+        else showToast(prepared.problem, 'error');
         return;
       }
       setLivePanelOpen(true);

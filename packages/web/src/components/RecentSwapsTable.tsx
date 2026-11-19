@@ -1,4 +1,5 @@
 import { formatDuration } from '@ferry/core';
+import { bchTxUrl, evmTxUrl } from '../lib/explorer';
 import { useEffect, useMemo, useState } from 'react';
 import { useSolver } from '../lib/solver/useSolver';
 import type { RecentSwap } from '../lib/solver/types';
@@ -162,21 +163,19 @@ export function RecentSwapsTable() {
                     <td className="px-4 py-3 font-mono text-text-muted">
                       {formatDuration(swap.durationSeconds)}
                     </td>
-                    <td className="px-4 py-3 font-mono text-text-muted">
-                      {/* Hashes do not link to any explorer per requirement */}
-                      <span className="rounded bg-surface-2 px-1.5 py-0.5">
-                        {swap.sourceTxHash
-                          ? `${swap.sourceTxHash.slice(0, 10)}…`
-                          : '—'}
-                      </span>
+                    <td className="px-4 py-3">
+                      <ExplorerCell
+                        hash={swap.sourceTxHash}
+                        mock={swap.isMock}
+                        chain={swap.fromChain}
+                      />
                     </td>
-                    <td className="px-4 py-3 font-mono text-text-muted">
-                      {/* Hashes do not link to any explorer per requirement */}
-                      <span className="rounded bg-surface-2 px-1.5 py-0.5">
-                        {swap.targetTxHash
-                          ? `${swap.targetTxHash.slice(0, 10)}…`
-                          : '—'}
-                      </span>
+                    <td className="px-4 py-3">
+                      <ExplorerCell
+                        hash={swap.targetTxHash}
+                        mock={swap.isMock}
+                        chain={swap.toChain}
+                      />
                     </td>
                   </tr>
                 ))
@@ -205,5 +204,45 @@ export function RecentSwapsTable() {
         )}
       </div>
     </section>
+  );
+}
+
+/** A transaction as a link to the block explorer of its chain; a dash when none is recorded. */
+function ExplorerCell({
+  hash,
+  chain,
+  mock = false,
+}: {
+  hash: string;
+  chain: string;
+  mock?: boolean;
+}) {
+  // Demo rows have invented hashes: shown as plain text, never linked.
+  if (mock)
+    return (
+      <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-text-muted">
+        {hash.slice(0, 10)}…
+      </span>
+    );
+  if (!hash) return <span className="text-text-dim">—</span>;
+  const onBch = /bitcoin cash/i.test(chain);
+  const chainId = Number(/\d+/.exec(chain)?.[0] ?? 0);
+  const url = onBch ? bchTxUrl(hash) : evmTxUrl(chainId, hash);
+  const name = onBch
+    ? 'BCH explorer'
+    : chainId === 8453
+      ? 'Basescan'
+      : 'Explorer';
+  if (!url) return <span className="text-text-dim">—</span>;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer noopener"
+      data-testid="recent-tx-link"
+      className="inline-flex items-center gap-1 rounded-pill bg-lime/10 px-2.5 py-1 text-[11px] font-semibold text-lime hover:bg-lime/20"
+    >
+      {name} ↗
+    </a>
   );
 }

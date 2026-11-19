@@ -12,6 +12,8 @@ import { createLiveDependencies } from '../lib/live/ports';
 import { createLocalRecoveryStore } from '../lib/live/recovery-store';
 import { WAIT_OPTIONS } from '../lib/live/run';
 import { latestWallet } from '../lib/live/latest-wallets';
+import { bchTxUrl, evmTxUrl } from '../lib/explorer';
+import { TxLink } from './TxLink';
 
 const POLL_MS = 15_000;
 import { ROUTES } from '../lib/routes';
@@ -59,6 +61,7 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
   const [fileJson, setFileJson] = useState<string | null>(null);
   const sessionRef = useRef<UserSwapSession | null>(null);
   const running = useRef(false);
+  const [chainTxids, setChainTxids] = useState<Record<string, string>>({});
   const walletsRef = useRef(wallets);
   walletsRef.current = wallets;
   const checkingRef = useRef(false);
@@ -120,6 +123,35 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
     // The swap is picked up once per order, and again when the wallets arrive.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId, wallets?.bch.address?.address]);
+
+  // The transactions the solver recorded for this order, for the explorer links.
+  useEffect(() => {
+    const base = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+      ?.split(',')[0]
+      ?.trim();
+    if (!base) return;
+    let cancelled = false;
+    const read = async () => {
+      try {
+        const res = await fetch(
+          `${base.replace(/\/+$/, '')}/v1/orders/${orderId}`,
+        );
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          txids?: Record<string, string>;
+        };
+        if (!cancelled && body.txids) setChainTxids(body.txids);
+      } catch {
+        // the links are a convenience; the page works without them
+      }
+    };
+    void read();
+    const timer = setInterval(read, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [orderId]);
 
   // Until the swap has reached its end (done or refunded), look at the chains every 15 seconds:
   // a failed or stalled step must not leave the page frozen until it is reloaded.
@@ -235,6 +267,47 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
     );
   }
 
+  const forward = state?.direction === 'EVM_TO_BCH';
+  const evmChainId = (() => {
+    try {
+      return fileJson ? parseRecoveryFileJson(fileJson).terms.evmChainId : 8453;
+    } catch {
+      return 8453;
+    }
+  })();
+  const evmUrl = (hash: string) => evmTxUrl(evmChainId, hash);
+  /** Every transaction of a step, with the block explorer page that proves it. */
+  function txsFor(stepId: string) {
+    const t = chainTxids;
+    const mine = state?.txids;
+    const evm = (label: string, hash?: string | null) =>
+      hash ? [{ label, hash, url: evmUrl(hash) }] : [];
+    const bch = (label: string, hash?: string | null) =>
+      hash ? [{ label, hash, url: bchTxUrl(hash) }] : [];
+    const own = forward ? evm : bch; // the person's lock is on their source chain
+    const theirs = forward ? bch : evm; // the solver's lock is on the other chain
+    const claimOn = forward ? bch : evm; // the person claims on the destination chain
+    const solverClaimOn = forward ? evm : bch;
+    if (stepId === 'lock')
+      return own(
+        'Your lock',
+        mine?.userLock ?? (forward ? t.evmLock : t.bchLock),
+      );
+    if (stepId === 'waitCounterLock')
+      return theirs("Solver's lock", forward ? t.bchLock : t.evmLock);
+    if (stepId === 'claim')
+      return claimOn(
+        'Your claim',
+        mine?.claim ?? (forward ? t.bchClaim : t.evmClaim),
+      );
+    if (stepId === 'done')
+      return [
+        ...solverClaimOn("Solver's claim", forward ? t.evmClaim : t.bchClaim),
+        ...(mine?.refund ? own('Your refund', mine.refund) : []),
+      ];
+    return [];
+  }
+
   const current = state ? stepIndex(state.step) : 0;
   const done = state?.step === 'done';
   const refundReady = state?.step === 'refund';
@@ -343,16 +416,9 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
                     {state.waiting}
                   </p>
                 )}
-                {item.id === 'lock' && state?.txids.userLock && (
-                  <p className="mt-0.5 break-all font-mono text-[10px] text-text-dim">
-                    {state.txids.userLock}
-                  </p>
-                )}
-                {item.id === 'claim' && state?.txids.claim && (
-                  <p className="mt-0.5 break-all font-mono text-[10px] text-text-dim">
-                    {state.txids.claim}
-                  </p>
-                )}
+                {txsFor(item.id).map((tx) => (
+                  <TxLink key={tx.label} {...tx} />
+                ))}
               </div>
             </li>
           );
