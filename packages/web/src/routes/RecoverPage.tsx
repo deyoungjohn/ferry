@@ -11,6 +11,7 @@ import {
   type RecoveryFile,
   type RecoveryPlan,
   formatDuration,
+  evmLockId,
   type Hex32,
 } from '@ferry/core';
 import {
@@ -44,6 +45,54 @@ export function RecoverPage() {
   const [actionResult, setActionResult] = useState<string | null>(null);
   const [evmCalldata, setEvmCalldata] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /** The contract's lock id for this file's EVM lock (not the order id). */
+  function evmLockIdOf(file: RecoveryFile): Hex32 {
+    const owner =
+      file.terms.direction === 'EVM_TO_BCH'
+        ? file.terms.userEvmAddress
+        : file.terms.solverEvmAddress;
+    return (file.contracts.evm.lockId ??
+      evmLockId(owner, file.hashLock)) as Hex32;
+  }
+
+  /** The EVM lock as the chain says it is, or null when the chain cannot be read. */
+  async function readEvmLock(
+    file: RecoveryFile,
+  ): Promise<EvmWalletRecoveryPlan | null> {
+    try {
+      const client = createPublicClient({ chain: base, transport: http() });
+      return await inspectEvmWalletRecovery({
+        client: client as unknown as Parameters<
+          typeof inspectEvmWalletRecovery
+        >[0]['client'],
+        htlc: file.contracts.evm.htlcAddress as Address,
+        lockId: evmLockIdOf(file),
+        ...(file.secret ? { secret: file.secret as Hex32 } : {}),
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether an output sits at the covenant now ("locked") or not, or null when it cannot be read. */
+  async function readBchLock(
+    file: RecoveryFile,
+  ): Promise<'locked' | 'none' | null> {
+    try {
+      const chain = createBrowserBchChain({
+        solverUrl: (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+          ?.split(',')[0]
+          ?.trim(),
+      });
+      const utxos = await chain.getUtxos(
+        file.contracts.bch.lockingBytecode.replace(/^0x/i, ''),
+      );
+      return utxos.length > 0 ? 'locked' : 'none';
+    } catch {
+      return null;
+    }
+  }
 
   async function processJson(rawJson: string) {
     setError(null);
@@ -115,6 +164,7 @@ export function RecoverPage() {
     // and, when it can be read, the real state of the EVM lock.
     let bchTipHeight: number | null;
     try {
+      if (isSimulation) throw new Error('simulation');
       bchTipHeight = await readBchTipHeight(
         (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
           ?.split(',')[0]
@@ -123,29 +173,39 @@ export function RecoverPage() {
     } catch {
       bchTipHeight = null;
     }
+    // The state of both locks is read from the chains; a lock is only assumed to exist when its
+    // chain cannot be read (and the page then says so).
+    // A file issued by an offline simulation has nothing on any chain to read.
+    const evmRead = isSimulation ? null : await readEvmLock(parsed);
+    const bchRead = isSimulation ? null : await readBchLock(parsed);
     const recoveryPlan = recoveryActions(parsed, {
       nowSeconds: now,
       // Unknown height: assume the refund height has not been reached, never that it has.
       bchTipHeight: bchTipHeight ?? parsed.terms.bchRefundHeight - 1,
-      evmLock: { state: 'locked' },
-      bchLock: { state: 'locked' },
+      evmLock: { state: evmRead?.status ?? 'locked' },
+      bchLock: { state: bchRead ?? 'locked' },
     });
     setPlan(recoveryPlan);
 
     // Run EVM wallet recovery plan calculation (Requirement 2)
-    const evmRecovery = getEvmWalletRecoveryActions({
-      status: 'locked',
-      deadline: Number(parsed.terms.evmDeadline),
-      nowSeconds: now,
-      hashLock: parsed.terms.hashLock,
-      ...(parsed.secret ? { secret: parsed.secret } : {}),
-      blockTimeSeconds: 2,
-    });
+    const evmRecovery =
+      evmRead ??
+      getEvmWalletRecoveryActions({
+        status: 'locked',
+        deadline: Number(parsed.terms.evmDeadline),
+        nowSeconds: now,
+        hashLock: parsed.terms.hashLock,
+        ...(parsed.secret ? { secret: parsed.secret } : {}),
+        blockTimeSeconds: 2,
+      });
     setEvmPlan(evmRecovery);
 
-    if (bchTipHeight === null) {
+    if (
+      !isSimulation &&
+      (bchTipHeight === null || evmRead === null || bchRead === null)
+    ) {
       setNotice(
-        'Recovery file loaded, but the current Bitcoin Cash height could not be read, so waiting times may be off. Press "Verify On-Chain Status" or try again.',
+        'Recovery file loaded, but a chain could not be read, so what the page shows may be incomplete. Press "Verify On-Chain Status" or try again.',
       );
     } else if (isSimulation) {
       setNotice(
@@ -217,11 +277,7 @@ export function RecoverPage() {
         `${expected === 'claim' ? 'Claim' : 'Refund'} sent. ${url ? `Check it on the explorer: ${url}` : `Transaction: ${hash}`}`,
       );
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : `The ${expected} was not sent. Nothing changed on chain.`,
-      );
+      setError(walletErrorText(err, expected));
     } finally {
       setBusy(false);
     }
@@ -289,6 +345,17 @@ export function RecoverPage() {
     }
   }
 
+  /** What went wrong in one plain line: a cancelled request is not an error screen. */
+  function walletErrorText(err: unknown, action: string): string {
+    const short =
+      (err as { shortMessage?: string } | null)?.shortMessage ??
+      (err instanceof Error ? err.message.split('\n')[0] : '');
+    if (/reject|denied|cancel/i.test(short ?? '')) {
+      return 'You cancelled the request in your wallet. Nothing was sent.';
+    }
+    return `The ${action} was not sent: ${short || 'the wallet did not complete the request'}. Nothing changed on chain.`;
+  }
+
   const forward = recoveryFile?.terms.direction === 'EVM_TO_BCH';
   const handleClaim = () =>
     forward ? recoverOnBch('claim') : sendEvmRecovery('claim');
@@ -329,7 +396,7 @@ export function RecoverPage() {
           typeof inspectEvmWalletRecovery
         >[0]['client'],
         htlc: recoveryFile.contracts.evm.htlcAddress as Address,
-        lockId: recoveryFile.orderId,
+        lockId: evmLockIdOf(recoveryFile),
         ...(recoveryFile.secret
           ? { secret: recoveryFile.secret as Hex32 }
           : {}),
