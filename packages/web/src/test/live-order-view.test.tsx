@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { UserSwapSession } from '@ferry/user-flow';
+import { UserFlowError, UserSwapSession } from '@ferry/user-flow';
 import { LiveOrderView } from '../components/LiveOrderView';
 import { WalletContext } from '../lib/wallet/context';
 import { createLocalRecoveryStore } from '../lib/live/recovery-store';
@@ -173,5 +173,19 @@ describe('the order page', () => {
     fireEvent.click(screen.getByTestId('order-lock-now'));
     expect(connect).toHaveBeenCalled();
     expect(session.lock).not.toHaveBeenCalled();
+  });
+
+  it('offers a way back to the swap page when the quote has expired, instead of a dead button', async () => {
+    const session = fakeSession('lock');
+    session.lock = vi.fn(async () => {
+      throw new UserFlowError(
+        'QUOTE_EXPIRED',
+        'This quote has expired, so the solver would not honour a lock now.',
+      );
+    });
+    vi.spyOn(UserSwapSession, 'resume').mockResolvedValue(session as never);
+    renderPage(true);
+    expect(await screen.findByTestId('order-back-to-swap')).toBeInTheDocument();
+    expect(screen.queryByTestId('order-lock-now')).toBeNull();
   });
 });

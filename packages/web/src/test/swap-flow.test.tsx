@@ -1,3 +1,4 @@
+import { onTestFinished } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
@@ -81,6 +82,16 @@ describe('Swap Flow Integration', () => {
 
   it('creates order and navigates to swap status on submit', async () => {
     const assignMock = vi.fn();
+    // Restored after the test: files share one window, and a replaced location without a hash
+    // broke every later test that reads it (the send-link page tests, intermittently).
+    const originalLocation = window.location;
+    onTestFinished(() => {
+      Object.defineProperty(window, 'location', {
+        value: originalLocation,
+        writable: true,
+        configurable: true,
+      });
+    });
     Object.defineProperty(window, 'location', {
       value: { assign: assignMock },
       writable: true,

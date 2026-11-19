@@ -152,8 +152,13 @@ describe('a wallet that spreads its money over many addresses', () => {
           ),
       },
     };
-    await lockUserOnBch(wide, terms);
+    // The test key cannot unlock a made-up script, so the local check refuses after the wallet is
+    // asked: the request is what this test looks at.
+    await lockUserOnBch(wide, terms).catch(() => undefined);
     expect(requests[0]!.inputPaths).toEqual([[0, 'change', 3]]);
+    // The input is described by the lock script of the address it sits on, not the first one's.
+    const described = JSON.stringify(requests[0]!.relayTransaction);
+    expect(described).toContain(fundedHex);
   });
 });
 

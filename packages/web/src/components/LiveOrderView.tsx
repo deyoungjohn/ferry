@@ -57,6 +57,10 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
     (location.state as { start?: boolean } | null)?.start === true;
   const [state, setState] = useState<SwapState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [nowSeconds, setNowSeconds] = useState(() =>
+    Math.floor(Date.now() / 1000),
+  );
   const [missing, setMissing] = useState(false);
   const [fileJson, setFileJson] = useState<string | null>(null);
   const sessionRef = useRef<UserSwapSession | null>(null);
@@ -123,6 +127,15 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
     // The swap is picked up once per order, and again when the wallets arrive.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId, wallets?.bch.address?.address]);
+
+  // A clock for the quote's expiry: the page notices it lapse without a reload.
+  useEffect(() => {
+    const timer = setInterval(
+      () => setNowSeconds(Math.floor(Date.now() / 1000)),
+      5_000,
+    );
+    return () => clearInterval(timer);
+  }, []);
 
   // The transactions the solver recorded for this order, for the explorer links.
   useEffect(() => {
@@ -197,6 +210,7 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
       if (session.state.step === 'claim') await session.claim();
     } catch (cause) {
       setError(messageOf(cause));
+      setErrorCode(cause instanceof UserFlowError ? cause.code : null);
       if (cause instanceof UserFlowError)
         await session.refresh().catch(() => undefined);
     } finally {
@@ -267,6 +281,18 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
     );
   }
 
+  const quoteLapsed = (() => {
+    try {
+      return fileJson
+        ? Number(parseRecoveryFileJson(fileJson).terms.quoteExpiry) < nowSeconds
+        : false;
+    } catch {
+      return false;
+    }
+  })();
+  // Before the lock, an expired quote means this swap can no longer start: offer a new one.
+  const mustRestart =
+    state?.step === 'lock' && (quoteLapsed || errorCode === 'QUOTE_EXPIRED');
   const forward = state?.direction === 'EVM_TO_BCH';
   const evmChainId = (() => {
     try {
@@ -442,7 +468,7 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
         </p>
       )}
 
-      {error && (
+      {error && !mustRestart && (
         <p
           role="alert"
           className="mt-4 text-sm text-danger"
@@ -452,8 +478,24 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
         </p>
       )}
 
+      {mustRestart && (
+        <p className="mt-4 text-sm text-text" data-testid="order-quote-expired">
+          This quote has expired, so the solver would not honour a lock now.
+          Nothing was locked.
+        </p>
+      )}
+
       <div className="mt-5 flex flex-wrap gap-2">
-        {needsLockStart && sessionRef.current && (
+        {mustRestart && (
+          <Link
+            to={ROUTES.swap}
+            data-testid="order-back-to-swap"
+            className="inline-flex h-10 items-center rounded-pill bg-olive px-5 font-semibold text-text"
+          >
+            Back to swap
+          </Link>
+        )}
+        {needsLockStart && sessionRef.current && !mustRestart && (
           <button
             type="button"
             data-testid="order-lock-now"

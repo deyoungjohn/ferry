@@ -5,6 +5,7 @@ import {
   inspectSignedTransaction,
   type LockUtxo,
 } from '@ferry/htlc-bch';
+import { hexToBin } from '@bitauth/libauth';
 import { encodeFunctionData, parseAbi, parseSignature } from 'viem';
 import { UserFlowError } from './errors.js';
 import type {
@@ -234,6 +235,13 @@ function toLockUtxo(utxo: BchUtxo): LockUtxo {
           },
         }
       : {}),
+    ...(utxo.lockingBytecodeHex
+      ? {
+          lockingBytecode: hexToBin(
+            utxo.lockingBytecodeHex.replace(/^0x/i, ''),
+          ),
+        }
+      : {}),
     ...(utxo.derivationPath
       ? { derivationPath: [utxo.derivationPath[0], utxo.derivationPath[1]] }
       : {}),
@@ -359,7 +367,11 @@ async function gatherFunding(
           const key = `${utxo.txid}:${utxo.vout}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          all.push({ ...utxo, derivationPath: address.derivationPath });
+          all.push({
+            ...utxo,
+            lockingBytecodeHex: address.lockingBytecodeHex,
+            derivationPath: address.derivationPath,
+          });
         }
       }
       if (all.length > 0) return all;

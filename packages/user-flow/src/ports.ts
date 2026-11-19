@@ -71,6 +71,8 @@ export interface BchUtxo {
   readonly token?: { readonly category: string; readonly amount: bigint };
   /** Set when the output also holds an NFT: such an output is never spent by a lock. */
   readonly nft?: { readonly capability?: string; readonly commitment?: string };
+  /** The lock script of the address holding this output (hex), when it is not the primary address. */
+  readonly lockingBytecodeHex?: string;
   /** Where the user's wallet keeps the key for this output, so it can sign it. */
   readonly derivationPath?: readonly ['receive' | 'change', number];
 }
