@@ -65,7 +65,8 @@ function deployedRoutes(): string | undefined {
     for (const item of listDeployedContracts(chainsData)) {
       const chain = (chainsData as unknown as ChainsJson).chains[item.chain];
       for (const token of chain?.mainnet.tokens ?? []) {
-        if (token.symbol)
+        // A token whose address is not verified cannot be enabled; the loader would throw.
+        if (token.symbol && token.verification?.address?.status === 'verified')
           keys.push(`${token.symbol.toLowerCase()}:${item.chain}`);
       }
     }
@@ -76,7 +77,17 @@ function deployedRoutes(): string | undefined {
 }
 
 interface ChainsJson {
-  chains: Record<string, { mainnet: { tokens: Array<{ symbol?: string }> } }>;
+  chains: Record<
+    string,
+    {
+      mainnet: {
+        tokens: Array<{
+          symbol?: string;
+          verification?: { address?: { status?: string } };
+        }>;
+      };
+    }
+  >;
 }
 
 /**
