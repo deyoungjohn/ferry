@@ -54,10 +54,15 @@ export interface EvmLockState {
 
 export interface EvmChainPort {
   getTip(): Promise<{ height: number; finalized: boolean }>;
-  getLock(lockId: string): Promise<EvmLockState>;
-  isFinal(txid: string, lane: 'safe' | 'fast'): Promise<boolean>;
+  /** Every call that reads or acts on one lock or transaction takes the chain id of its order. */
+  getLock(lockId: string, chainId?: number): Promise<EvmLockState>;
+  isFinal(
+    txid: string,
+    lane: 'safe' | 'fast',
+    chainId?: number,
+  ): Promise<boolean>;
   broadcast(txHex: string): Promise<string>;
-  isOnChain(txid: string): Promise<boolean>;
+  isOnChain(txid: string, chainId?: number): Promise<boolean>;
   subscribeLockEvents?(
     callback: (event: {
       type: 'Locked' | 'Claimed' | 'Refunded';
@@ -66,11 +71,15 @@ export interface EvmChainPort {
       secret?: `0x${string}` | undefined;
     }) => void,
   ): () => void;
-  extractSecretFromClaim?(txid: string): Promise<`0x${string}` | null>;
+  extractSecretFromClaim?(
+    txid: string,
+    chainId?: number,
+  ): Promise<`0x${string}` | null>;
   lock?(terms: OrderTerms): Promise<{ txid: string; txHex: string }>;
   claim?(
     lockId: string,
     secret: `0x${string}`,
+    chainId?: number,
   ): Promise<{ txid: string; txHex: string }>;
 }
 

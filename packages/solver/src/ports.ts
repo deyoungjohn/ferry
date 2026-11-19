@@ -70,13 +70,30 @@ export function createEvmPort(options: EvmPortOptions): EvmChainPort {
   const { evmAdapter } = options;
   const evmAdapters = options.evmAdapters ?? new Map<string, EvmChainAdapter>();
   const evmClients = options.evmClients ?? new Map<string, PublicClient>();
+  /** The adapter of the order's chain; Base (the default adapter) only when no chain is given. */
+  const adapterFor = (chainId?: number): EvmChainAdapter => {
+    if (chainId === undefined) return evmAdapter;
+    const found = evmAdapters.get(String(chainId));
+    if (!found) {
+      throw new Error(`No EVM adapter is configured for chain ${chainId}`);
+    }
+    return found;
+  };
+  const clientFor = (chainId?: number): PublicClient => {
+    const adapter = adapterFor(chainId);
+    return (
+      (adapter as unknown as { client?: PublicClient }).client ??
+      evmClients.get(adapter.id) ??
+      (evmAdapter as unknown as { client: PublicClient }).client
+    );
+  };
   return {
     async getTip() {
       const tip = await evmAdapter.getTip();
       return { height: tip.height, finalized: tip.ageSeconds <= 60 };
     },
-    async getLock(lockId: string) {
-      const lock = await evmAdapter.getLock(lockId);
+    async getLock(lockId: string, chainId?: number) {
+      const lock = await adapterFor(chainId).getLock(lockId);
       return {
         status: lock.status === 'absent' ? 'none' : lock.status,
         txid:
@@ -91,29 +108,21 @@ export function createEvmPort(options: EvmPortOptions): EvmChainPort {
           lock.status === 'claimed' && lock.secret ? lock.secret : undefined,
       };
     },
-    async isFinal(txid: string, lane: 'safe' | 'fast') {
-      return evmAdapter.isFinal(
-        { chain: evmAdapter.id, txId: txid as Hex32 },
-        lane,
-      );
+    async isFinal(txid: string, lane: 'safe' | 'fast', chainId?: number) {
+      const adapter = adapterFor(chainId);
+      return adapter.isFinal({ chain: adapter.id, txId: txid as Hex32 }, lane);
     },
     async broadcast(txHex: string) {
       if (txHex.startsWith('0x') && txHex.length > 66) {
-        const publicClient =
-          evmClients.get('base') ??
-          (evmAdapter as unknown as { client: PublicClient }).client;
-        return publicClient.sendRawTransaction({
+        return clientFor().sendRawTransaction({
           serializedTransaction: txHex as `0x${string}`,
         });
       }
       return txHex;
     },
-    async isOnChain(txid: string) {
+    async isOnChain(txid: string, chainId?: number) {
       try {
-        const publicClient =
-          evmClients.get('base') ??
-          (evmAdapter as unknown as { client: PublicClient }).client;
-        const receipt = await publicClient.getTransactionReceipt({
+        const receipt = await clientFor(chainId).getTransactionReceipt({
           hash: txid as `0x${string}`,
         });
         return receipt !== null && receipt.status === 'success';
@@ -121,21 +130,17 @@ export function createEvmPort(options: EvmPortOptions): EvmChainPort {
         return false;
       }
     },
-    async extractSecretFromClaim(txid: string) {
+    async extractSecretFromClaim(txid: string, chainId?: number) {
       try {
-        const publicClient =
-          evmClients.get('base') ??
-          (evmAdapter as unknown as { client: PublicClient }).client;
-        const receipt = await publicClient.getTransactionReceipt({
+        const adapter = adapterFor(chainId);
+        const receipt = await clientFor(chainId).getTransactionReceipt({
           hash: txid as `0x${string}`,
         });
         if (!receipt) return null;
         for (const log of receipt.logs) {
-          if (
-            log.address.toLowerCase() !== evmAdapter.htlcAddress.toLowerCase()
-          )
+          if (log.address.toLowerCase() !== adapter.htlcAddress.toLowerCase())
             continue;
-          const event = decodeHtlcLog(log, evmAdapter.id, evmAdapter.assets);
+          const event = decodeHtlcLog(log, adapter.id, adapter.assets);
           if (event?.type === 'Claimed' && event.secret) {
             return event.secret;
           }
@@ -150,8 +155,8 @@ export function createEvmPort(options: EvmPortOptions): EvmChainPort {
       const ref = await adapter.lock(terms);
       return { txid: ref.txId, txHex: ref.txId };
     },
-    async claim(lockId: string, secret: `0x${string}`) {
-      const ref = await evmAdapter.claim(lockId, secret);
+    async claim(lockId: string, secret: `0x${string}`, chainId?: number) {
+      const ref = await adapterFor(chainId).claim(lockId, secret);
       return { txid: ref.txId, txHex: ref.txId };
     },
   };

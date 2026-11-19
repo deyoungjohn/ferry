@@ -204,7 +204,11 @@ export class SolverEngine {
         'Cannot build the solver EVM claim: the chain port cannot claim',
       );
     }
-    return this.evmPort.claim(lockId, order.secret);
+    return this.evmPort.claim(
+      lockId,
+      order.secret,
+      Number(order.terms.evmChainId),
+    );
   }
 
   async buildSolverEvmLock(
@@ -487,7 +491,10 @@ export class SolverEngine {
         order.terms.userEvmAddress,
         order.terms.hashLock,
       );
-      const lockState = await this.evmPort.getLock(lockId);
+      const lockState = await this.evmPort.getLock(
+        lockId,
+        Number(order.terms.evmChainId),
+      );
       const lockSeen = `${order.id}:${order.status}:${lockState.status}:${lockState.txid ?? ''}`;
       if (lockSeen !== this.lastLockSeen.get(order.id)) {
         this.lastLockSeen.set(order.id, lockSeen);
@@ -512,6 +519,7 @@ export class SolverEngine {
         const isFinal = await this.evmPort.isFinal(
           lockState.txid,
           order.lane ?? 'safe',
+          Number(order.terms.evmChainId),
         );
         if (isFinal) {
           this.applyEvent(order, {
@@ -645,7 +653,10 @@ export class SolverEngine {
         txId: claimResult.txid,
       });
 
-      const onChain = await this.evmPort.isOnChain(claimResult.txid);
+      const onChain = await this.evmPort.isOnChain(
+        claimResult.txid,
+        Number(order.terms.evmChainId),
+      );
       if (onChain) {
         this.applyEvent(order, {
           type: 'SOLVER_CLAIM_FINAL',
@@ -657,7 +668,10 @@ export class SolverEngine {
 
     // Step 6: Advance SOLVER_CLAIM_BROADCAST to final
     if (order.status === 'SOLVER_CLAIM_BROADCAST' && order.solverClaimTxId) {
-      const onChain = await this.evmPort.isOnChain(order.solverClaimTxId);
+      const onChain = await this.evmPort.isOnChain(
+        order.solverClaimTxId,
+        Number(order.terms.evmChainId),
+      );
       if (onChain) {
         this.applyEvent(order, {
           type: 'SOLVER_CLAIM_FINAL',
@@ -770,7 +784,10 @@ export class SolverEngine {
         txId: lockResult.txid,
       });
 
-      const onChain = await this.evmPort.isOnChain(lockResult.txid);
+      const onChain = await this.evmPort.isOnChain(
+        lockResult.txid,
+        Number(order.terms.evmChainId),
+      );
       if (onChain) {
         this.applyEvent(order, {
           type: 'SOLVER_LOCK_SEEN',
@@ -781,7 +798,10 @@ export class SolverEngine {
 
     // Step 3: Advance SOLVER_LOCK_BROADCAST to SOLVER_LOCK_SEEN if on chain
     if (order.status === 'SOLVER_LOCK_BROADCAST' && order.solverLockTxId) {
-      const onChain = await this.evmPort.isOnChain(order.solverLockTxId);
+      const onChain = await this.evmPort.isOnChain(
+        order.solverLockTxId,
+        Number(order.terms.evmChainId),
+      );
       if (onChain) {
         this.applyEvent(order, {
           type: 'SOLVER_LOCK_SEEN',
@@ -799,12 +819,16 @@ export class SolverEngine {
         order.terms.solverEvmAddress,
         order.terms.hashLock,
       );
-      const lockState = await this.evmPort.getLock(lockId);
+      const lockState = await this.evmPort.getLock(
+        lockId,
+        Number(order.terms.evmChainId),
+      );
       if (lockState.status === 'claimed') {
         let secret = lockState.secret ?? order.secret;
         if (!secret && lockState.txid && this.evmPort.extractSecretFromClaim) {
           const extracted = await this.evmPort.extractSecretFromClaim(
             lockState.txid,
+            Number(order.terms.evmChainId),
           );
           if (extracted) secret = extracted;
         }
