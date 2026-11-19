@@ -27,6 +27,7 @@ import { useBchReconnectTimeout } from './reconnect-timeout';
 import { revokeAccountAccess } from './revoke';
 import { wizardSignParams } from './wizard-sign';
 import { addressFromPubkey } from '../bch/address';
+import { scanFundingAddresses } from './funding-scan';
 import {
   clearRememberedBchWallet,
   readRememberedBchWallet,
@@ -44,9 +45,6 @@ import type {
 } from './types';
 
 const queryClient = new QueryClient();
-
-/** How many receive and change addresses are searched for funds (100 each: 200 reads per server). */
-const FUNDING_SCAN_DEPTH = 100;
 
 function useRealEvmWallet(): EvmWallet {
   const {
@@ -226,6 +224,7 @@ function useRealBchWallet(
   );
 
   const signAbort = useRef<AbortController | null>(null);
+  const scanAbort = useRef<AbortController | null>(null);
   const [pendingRequest, setPendingRequest] = useState<string | null>(null);
   const [promptHelp, setPromptHelp] = useState<string | null>(null);
   const [prefixError, setPrefixError] = useState<string | null>(null);
@@ -240,7 +239,10 @@ function useRealBchWallet(
     try {
       const pubkey = wizard.manager.getPubkey(0, 0n);
       if (!pubkey) return null;
-      return addressFromPubkey(pubkey);
+      return {
+        ...addressFromPubkey(pubkey),
+        index: 0,
+      };
     } catch {
       return null;
     }
@@ -306,6 +308,10 @@ function useRealBchWallet(
       await wizard.disconnect();
     },
     cancelPendingRequest: () => {
+      if (scanAbort.current) {
+        scanAbort.current.abort('Cancelled in Ferry');
+        scanAbort.current = null;
+      }
       if (signAbort.current) {
         signAbort.current.abort('Cancelled in Ferry');
         signAbort.current = null;
@@ -333,35 +339,46 @@ function useRealBchWallet(
     },
     listUtxos: async (): Promise<readonly BchUtxo[]> => {
       if (!address) throw new Error('Connect a BCH wallet first');
-      return [];
+      const manager = wizard.manager;
+      if (!manager) return [];
+      const scanResult = await scanFundingAddresses({
+        getPubkey: (childIndex, index) => manager.getPubkey(childIndex, index),
+        startIndex: address.index ?? 0,
+        sessionKey: address.address ?? wizard.walletName ?? undefined,
+      });
+      return scanResult.utxos;
     },
-    // The first FUNDING_SCAN_DEPTH receive and change addresses: a wallet that rotates its address
-    // (Paytaca does after every payment) keeps its money spread over them. Funds only on addresses
-    // beyond that are not seen.
     listFundingAddresses: async () => {
       const manager = wizard.manager;
       if (!manager) return [];
-      const found: {
-        lockingBytecodeHex: string;
-        derivationPath: readonly ['receive' | 'change', number];
-      }[] = [];
-      const branches = [
-        ['receive', 0],
-        ['change', 1],
-      ] as const;
-      for (const [branch, childIndex] of branches) {
-        for (let index = 0; index < FUNDING_SCAN_DEPTH; index++) {
-          const pubkey = manager.getPubkey(childIndex, BigInt(index));
-          if (!pubkey) break;
-          found.push({
-            lockingBytecodeHex: addressFromPubkey(
-              pubkey,
-            ).lockingBytecode.replace(/^0x/, ''),
-            derivationPath: [branch, index],
-          });
+      setPendingRequest("Checking your wallet's addresses…");
+      const controller = new AbortController();
+      scanAbort.current = controller;
+      try {
+        const scanResult = await scanFundingAddresses({
+          getPubkey: (childIndex, index) =>
+            manager.getPubkey(childIndex, index),
+          startIndex: address?.index ?? 0,
+          signal: controller.signal,
+          sessionKey: address?.address ?? wizard.walletName ?? undefined,
+          onProgress: (p) => setPendingRequest(p.message),
+        });
+        if (scanResult.message) {
+          setPromptHelp(scanResult.message);
         }
+        return scanResult.addresses;
+      } catch (cause) {
+        if (controller.signal.aborted) {
+          throw new Error(
+            'Request cancelled. Nothing was sent to the network.',
+            { cause },
+          );
+        }
+        throw cause;
+      } finally {
+        scanAbort.current = null;
+        setPendingRequest(null);
       }
-      return found;
     },
     signTransaction: async (
       request: BchSignTransactionRequest,

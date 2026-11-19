@@ -8,6 +8,7 @@ export interface BchAddressInfo {
   readonly address: string;
   readonly lockingBytecode: `0x${string}`;
   readonly tokenAware: boolean;
+  readonly index?: number;
 }
 
 export interface BchUtxo {
