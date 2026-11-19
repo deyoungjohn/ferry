@@ -89,6 +89,13 @@ export interface BchWallet {
   setAddress(address: BchAddressInfo): void;
   forget?(): void;
   listUtxos(): Promise<readonly BchUtxo[]>;
+  /** The wallet's addresses that may hold funds (receive and change), for finding what it can spend. */
+  listFundingAddresses?(): Promise<
+    readonly {
+      readonly lockingBytecodeHex: string;
+      readonly derivationPath: readonly ['receive' | 'change', number];
+    }[]
+  >;
   signTransaction(
     request: BchSignTransactionRequest,
   ): Promise<BchSignedTransaction>;

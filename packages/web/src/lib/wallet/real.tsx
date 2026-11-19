@@ -332,6 +332,33 @@ function useRealBchWallet(
       if (!address) throw new Error('Connect a BCH wallet first');
       return [];
     },
+    // The first 20 receive and 20 change addresses: a wallet that rotates its address (Paytaca
+    // does after every payment) keeps its money spread over them.
+    listFundingAddresses: async () => {
+      const manager = wizard.manager;
+      if (!manager) return [];
+      const found: {
+        lockingBytecodeHex: string;
+        derivationPath: readonly ['receive' | 'change', number];
+      }[] = [];
+      const branches = [
+        ['receive', 0],
+        ['change', 1],
+      ] as const;
+      for (const [branch, childIndex] of branches) {
+        for (let index = 0; index < 20; index++) {
+          const pubkey = manager.getPubkey(childIndex, BigInt(index));
+          if (!pubkey) break;
+          found.push({
+            lockingBytecodeHex: addressFromPubkey(
+              pubkey,
+            ).lockingBytecode.replace(/^0x/, ''),
+            derivationPath: [branch, index],
+          });
+        }
+      }
+      return found;
+    },
     signTransaction: async (
       request: BchSignTransactionRequest,
     ): Promise<BchSignedTransaction> => {

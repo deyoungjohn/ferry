@@ -39,6 +39,10 @@ export function evmSignerFromWallet(wallet: EvmWallet): EvmSignerPort {
 
 export function bchSignerFromWallet(wallet: BchWallet): BchSignerPort {
   return {
+    listFundingAddresses: () =>
+      wallet.listFundingAddresses
+        ? wallet.listFundingAddresses()
+        : Promise.resolve([]),
     signTransaction: (request) => {
       if (!wallet.signWizardRequest) {
         return Promise.reject(

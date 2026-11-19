@@ -47,9 +47,20 @@ export interface EvmChainPort {
 }
 
 /** The user's Bitcoin Cash wallet (WizardConnect). It signs; it does not have to broadcast. */
+/** An address of the user's wallet that may hold funds, with where the wallet keeps its key. */
+export interface FundingAddress {
+  readonly lockingBytecodeHex: string;
+  readonly derivationPath: readonly ['receive' | 'change', number];
+}
+
 export interface BchSignerPort {
   /** Returns the fully signed transaction as hex. */
   signTransaction(request: WizardConnectSignRequest): Promise<string>;
+  /**
+   * The wallet's addresses that may hold funds. A wallet that rotates addresses keeps its money
+   * on many of them; looking at one address sees only a fraction of the balance.
+   */
+  listFundingAddresses?(): Promise<readonly FundingAddress[]>;
 }
 
 export interface BchUtxo {
@@ -69,6 +80,10 @@ export interface BchChainPort {
   getTipHeight(): Promise<number>;
   /** Unspent outputs locked by this locking bytecode (hex, no `0x` needed). */
   getUtxos(lockingBytecodeHex: string): Promise<readonly BchUtxo[]>;
+  /** The same for many locking bytecodes at once, keyed by the bytecode as given. */
+  getUtxosMany?(
+    lockingBytecodeHexes: readonly string[],
+  ): Promise<ReadonlyMap<string, readonly BchUtxo[]>>;
   /** Returns the transaction id. */
   broadcast(txHex: string): Promise<string>;
 }

@@ -115,6 +115,48 @@ describe('funding outputs that carry more than the stablecoin', () => {
   });
 });
 
+describe('a wallet that spreads its money over many addresses', () => {
+  it("finds the funds on the other addresses and hands the wallet each output's path", async () => {
+    const { context, terms, requests } = await lockContext([]);
+    const fundedHex = 'ab'.repeat(25);
+    const utxo: BchUtxo = {
+      txid: 'cc'.repeat(32),
+      vout: 1,
+      satoshis: 60_000n,
+      token: { category: BCH_CATEGORY, amount: 1_000n },
+    };
+    const wide = {
+      ...context,
+      bchSigner: {
+        ...context.bchSigner,
+        listFundingAddresses: () =>
+          Promise.resolve([
+            {
+              lockingBytecodeHex: 'cd'.repeat(25),
+              derivationPath: ['receive', 0] as const,
+            },
+            {
+              lockingBytecodeHex: fundedHex,
+              derivationPath: ['change', 3] as const,
+            },
+          ]),
+      },
+      bchChain: {
+        ...context.bchChain,
+        getUtxosMany: () =>
+          Promise.resolve(
+            new Map<string, readonly BchUtxo[]>([
+              ['cd'.repeat(25), []],
+              [fundedHex, [utxo]],
+            ]),
+          ),
+      },
+    };
+    await lockUserOnBch(wide, terms);
+    expect(requests[0]!.inputPaths).toEqual([[0, 'change', 3]]);
+  });
+});
+
 describe('a server that reports the category in the other byte order', () => {
   it('stops with a typed error instead of a vague balance error', async () => {
     const reversed = binToHex(hexToBin(BCH_CATEGORY).reverse());

@@ -276,7 +276,7 @@ export async function lockUserOnBch(
   context: BchLockContext,
   terms: OrderTerms,
 ): Promise<string> {
-  const utxos = await context.bchChain.getUtxos(context.userLockingBytecodeHex);
+  const utxos = await gatherFunding(context);
   assertFundingMakesSense(utxos, terms);
   let built: ReturnType<typeof buildLockTransaction>;
   try {
@@ -336,4 +336,34 @@ export function insufficientBchMessage(builderMessage: string): string {
   const available = BigInt(match[2]!);
   const missing = required > available ? required - available : 0n;
   return `Your Bitcoin Cash wallet needs a little BCH to pay the network fee. You hold ${formatBchAmount(available)} and you need ${formatBchAmount(required)} (${formatBchAmount(missing)} more). Nothing was locked.`;
+}
+
+/**
+ * The outputs the lock may spend: from every address the wallet reports (each tagged with where
+ * the wallet keeps its key), or from the one known address when the wallet reports none.
+ */
+async function gatherFunding(
+  context: BchLockContext,
+): Promise<readonly BchUtxo[]> {
+  const { bchSigner, bchChain } = context;
+  if (bchSigner.listFundingAddresses && bchChain.getUtxosMany) {
+    const addresses = await bchSigner.listFundingAddresses();
+    if (addresses.length > 0) {
+      const found = await bchChain.getUtxosMany(
+        addresses.map((a) => a.lockingBytecodeHex),
+      );
+      const all: BchUtxo[] = [];
+      const seen = new Set<string>();
+      for (const address of addresses) {
+        for (const utxo of found.get(address.lockingBytecodeHex) ?? []) {
+          const key = `${utxo.txid}:${utxo.vout}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          all.push({ ...utxo, derivationPath: address.derivationPath });
+        }
+      }
+      if (all.length > 0) return all;
+    }
+  }
+  return bchChain.getUtxos(context.userLockingBytecodeHex);
 }

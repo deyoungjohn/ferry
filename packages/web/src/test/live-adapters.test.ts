@@ -140,6 +140,28 @@ describe('browser Bitcoin Cash chain', () => {
     expect(utxos).toHaveLength(1);
   });
 
+  it('reads many addresses at once, one connection per server, keyed by address', async () => {
+    const a = '11'.repeat(25);
+    const b = '22'.repeat(25);
+    let connects = 0;
+    const chain = createBrowserBchChain({
+      urls: ['wss://a'],
+      createClient: () => ({
+        connect: async () => {
+          connects += 1;
+        },
+        close: () => undefined,
+        listUnspent: async (hash: string) => (hash.length === 64 ? [row] : []),
+        broadcast: async () => 'x',
+        getTipHeight: async () => 900,
+      }),
+    });
+    const many = await chain.getUtxosMany!([a, b]);
+    expect(connects).toBe(1);
+    expect(many.get(a)).toHaveLength(1);
+    expect(many.get(b)).toHaveLength(1);
+  });
+
   it('broadcasts on the next server when the first cannot connect', async () => {
     const log: string[] = [];
     const chain = createBrowserBchChain({
