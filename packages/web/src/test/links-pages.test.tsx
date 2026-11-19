@@ -8,6 +8,7 @@ import { SendLinkPage } from '../routes/SendLinkPage';
 import { SolverProvider } from '../lib/solver/SolverProvider';
 import { MockSolverClient } from '../lib/solver/mock';
 import { saveSendLink } from '../lib/paylink/send-store';
+import { savePayLink } from '../lib/paylink/pay-store';
 
 describe('Pay Links & Send Links Pages (Task B3-03)', () => {
   beforeEach(() => {
@@ -78,7 +79,7 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Pay Link')).toBeInTheDocument();
+    expect(screen.getByText('Pay link')).toBeInTheDocument();
     expect(
       screen.getByRole('heading', { name: /Pay 25\.00 PUSD/i }),
     ).toBeInTheDocument();
@@ -87,6 +88,35 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
 
     // Recipient address is chunked
     expect(screen.getByText(/bchtest: zqg3/i)).toBeInTheDocument();
+  });
+
+  it('shows the link the creator made (amount and note), not the sample', () => {
+    savePayLink({
+      id: 'pl-mine',
+      recipientCashaddr: 'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk',
+      token: 'PUSD',
+      amountOut: 2,
+      note: 'Lunch money',
+      verified: true,
+      status: 'open',
+      createdAt: Math.floor(Date.now() / 1000),
+    });
+    render(
+      <MemoryRouter initialEntries={['/p/pl-mine']}>
+        <SolverProvider client={new MockSolverClient()}>
+          <Routes>
+            <Route path="/p/:id" element={<PayLinkPage />} />
+          </Routes>
+        </SolverProvider>
+      </MemoryRouter>,
+    );
+    expect(
+      screen.getByRole('heading', { name: /Pay 2\.00 PUSD/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('pay-link-note')).toHaveTextContent(
+      'Lunch money',
+    );
+    expect(screen.queryByText(/Dinner split/i)).toBeNull();
   });
 
   it('renders SendLinksPage and creates a new send link', async () => {

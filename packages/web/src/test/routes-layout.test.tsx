@@ -121,7 +121,7 @@ describe('New Routes Layout & Responsive Viewports (FR-13, FR-17, FR-18)', () =>
         screen.getByRole('heading', { level: 1, name: /Pay 25\.00 PUSD/i }),
       ).toBeInTheDocument();
       expect(
-        screen.getByRole('button', { name: /Pay now ›/i }),
+        screen.getByRole('button', { name: /Pay now/i }),
       ).toBeInTheDocument();
     });
 

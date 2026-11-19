@@ -6,6 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { isAddress } from 'viem';
 import { sendLinkUrl, type SendLinkData } from '../lib/paylink/link';
 import { NETWORK_PROFILE } from '../lib/config';
+import { GlassModal } from '../components/GlassModal';
 import { MorphWorkspace } from '../components/links/MorphWorkspace';
 import { LinksTable, type LinkRow } from '../components/links/LinksTable';
 import { useToast } from '../lib/toast/ToastContext';
@@ -83,6 +84,27 @@ export function SendLinksPage({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resumingId, setResumingId] = useState<string | null>(null);
 
+  // The recovery file is never downloaded behind the person's back: a dialog asks them to save it
+  // first, and the lock waits until they have.
+  const [pendingFile, setPendingFile] = useState<{
+    filename: string;
+    json: string;
+    resolve: () => void;
+    reject: (reason: Error) => void;
+  } | null>(null);
+  const [fileSaved, setFileSaved] = useState(false);
+  function askToSaveRecoveryFile(filename: string, json: string) {
+    setFileSaved(false);
+    return new Promise<boolean>((resolve, reject) => {
+      setPendingFile({
+        filename,
+        json,
+        resolve: () => resolve(true),
+        reject,
+      });
+    });
+  }
+
   const wallets = useContext(WalletContext);
   const solverContext = useContext(SolverContext);
 
@@ -114,7 +136,7 @@ export function SendLinksPage({
       store: createLocalRecoveryStore(),
       bchCashAddress: bchAddress,
       bchNetwork: NETWORK_PROFILE.bch.network,
-      downloadFile: downloadJson,
+      downloadFile: askToSaveRecoveryFile,
     };
   }
 
@@ -261,6 +283,48 @@ export function SendLinksPage({
           ← Back to Swap
         </Link>
       </div>
+
+      <GlassModal
+        open={pendingFile !== null}
+        onOpenChange={(open) => {
+          if (!open && pendingFile) {
+            pendingFile.reject(
+              new Error('Cancelled. Nothing was locked and no file was saved.'),
+            );
+            setPendingFile(null);
+          }
+        }}
+        title="Save your recovery file first"
+        description="It is the only way to get your funds back if this site is ever unreachable. Nothing is locked until you continue."
+      >
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            data-testid="save-recovery-file"
+            onClick={() => {
+              if (pendingFile) {
+                downloadJson(pendingFile.filename, pendingFile.json);
+                setFileSaved(true);
+              }
+            }}
+            className="h-10 rounded-pill border border-hairline bg-surface-2 px-5 font-medium text-text"
+          >
+            Download recovery file
+          </button>
+          <button
+            type="button"
+            data-testid="continue-after-save"
+            disabled={!fileSaved}
+            onClick={() => {
+              pendingFile?.resolve();
+              setPendingFile(null);
+            }}
+            className="h-10 rounded-pill bg-olive px-5 font-semibold text-text"
+          >
+            Continue to lock
+          </button>
+        </div>
+      </GlassModal>
 
       <MorphWorkspace
         form={

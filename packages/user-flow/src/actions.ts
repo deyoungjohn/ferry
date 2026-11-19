@@ -284,7 +284,7 @@ export async function lockUserOnBch(
   context: BchLockContext,
   terms: OrderTerms,
 ): Promise<string> {
-  const utxos = await gatherFunding(context);
+  const { utxos, searched } = await gatherFunding(context);
   assertFundingMakesSense(utxos, terms);
   let built: ReturnType<typeof buildLockTransaction>;
   try {
@@ -300,7 +300,7 @@ export async function lockUserOnBch(
     if (error instanceof Error && error.message.startsWith('Insufficient')) {
       throw new UserFlowError(
         'INSUFFICIENT_FUNDS',
-        insufficientBchMessage(error.message),
+        insufficientBchMessage(error.message, searched),
         { cause: error },
       );
     }
@@ -335,7 +335,10 @@ export function formatBchAmount(sats: bigint): string {
 }
 
 /** The lock builder's "required X, available Y" (satoshis) in words a person can act on. */
-export function insufficientBchMessage(builderMessage: string): string {
+export function insufficientBchMessage(
+  builderMessage: string,
+  searched = 0,
+): string {
   const match = /required (\d+), available (\d+)/.exec(builderMessage);
   if (!match) {
     return 'Your Bitcoin Cash wallet needs a little BCH to pay the network fee. Nothing was locked.';
@@ -343,7 +346,7 @@ export function insufficientBchMessage(builderMessage: string): string {
   const required = BigInt(match[1]!);
   const available = BigInt(match[2]!);
   const missing = required > available ? required - available : 0n;
-  return `Your Bitcoin Cash wallet needs a little BCH to pay the network fee. You hold ${formatBchAmount(available)} and you need ${formatBchAmount(required)} (${formatBchAmount(missing)} more). Nothing was locked.`;
+  return `Your Bitcoin Cash wallet needs a little BCH to pay the network fee. You hold ${formatBchAmount(available)} and you need ${formatBchAmount(required)} (${formatBchAmount(missing)} more).${searched > 0 ? ` Searched ${searched} of your wallet's addresses.` : ''} Nothing was locked.`;
 }
 
 /**
@@ -352,8 +355,9 @@ export function insufficientBchMessage(builderMessage: string): string {
  */
 async function gatherFunding(
   context: BchLockContext,
-): Promise<readonly BchUtxo[]> {
+): Promise<{ utxos: readonly BchUtxo[]; searched: number }> {
   const { bchSigner, bchChain } = context;
+  let searched = 0;
   if (bchSigner.listFundingAddresses && bchChain.getUtxosMany) {
     const addresses = await bchSigner.listFundingAddresses();
     if (addresses.length > 0) {
@@ -374,8 +378,12 @@ async function gatherFunding(
           });
         }
       }
-      if (all.length > 0) return all;
+      if (all.length > 0) return { utxos: all, searched: addresses.length };
+      searched = addresses.length;
     }
   }
-  return bchChain.getUtxos(context.userLockingBytecodeHex);
+  return {
+    utxos: await bchChain.getUtxos(context.userLockingBytecodeHex),
+    searched,
+  };
 }

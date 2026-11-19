@@ -132,11 +132,18 @@ export function SwapCard({
   // The destination follows the connected wallet for the direction (an EVM wallet when you receive
   // on an EVM chain, the Bitcoin Cash wallet when you receive Bitcoin Cash). The person can type
   // another address instead. A flip clears a typed address: it belonged to the other chain.
+  // A pay link opens the swap with its recipient and amount in the address bar (?to=&amount=).
+  const linkParams =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search)
+      : new URLSearchParams();
+  const linkRecipient = !initialReverse ? (linkParams.get('to') ?? '') : '';
   const [customRecipient, setCustomRecipient] = useState<string>(
-    initialRecipient ?? '',
+    initialRecipient ?? linkRecipient,
   );
   const [useCustomRecipient, setUseCustomRecipient] = useState<boolean>(
-    initialRecipient !== undefined && initialRecipient !== '',
+    (initialRecipient !== undefined && initialRecipient !== '') ||
+      linkRecipient !== '',
   );
   const walletRecipient = (isReverse ? evm.address : bchAddress) ?? '';
   const usingWalletRecipient = !useCustomRecipient && walletRecipient !== '';
@@ -145,7 +152,10 @@ export function SwapCard({
     : customRecipient;
 
   // Send amount
-  const [sendAmount, setSendAmount] = useState<string>('5.00');
+  const linkAmount = linkParams.get('amount');
+  const [sendAmount, setSendAmount] = useState<string>(
+    linkAmount && /^\d+(\.\d{1,2})?$/.test(linkAmount) ? linkAmount : '5.00',
+  );
   const [lane, setLane] = useState<SwapLane>('fast');
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [bestSolverQuote, setBestSolverQuote] =

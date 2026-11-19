@@ -32,5 +32,12 @@ export interface SendLinkDependencies {
   readonly bchNetwork: 'mainnet' | 'chipnet';
   readonly evmSigner?: EvmSignerPort | undefined;
   readonly evmChain?: EvmChainPort | undefined;
-  readonly downloadFile?: (filename: string, json: string) => boolean;
+  /**
+   * Offers the recovery file. May ask the person first and resolve once they have saved it; if it
+   * rejects, nothing is locked.
+   */
+  readonly downloadFile?: (
+    filename: string,
+    json: string,
+  ) => boolean | Promise<boolean>;
 }

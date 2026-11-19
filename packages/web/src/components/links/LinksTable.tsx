@@ -55,7 +55,7 @@ export function LinksTable({
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="mt-3 w-full text-left text-xs">
+          <table className="mt-3 w-full whitespace-nowrap text-left text-xs">
             <thead className="text-text-dim">
               <tr className="border-b border-hairline">
                 <th scope="col" className="px-5 py-2 font-medium">
@@ -92,12 +92,13 @@ export function LinksTable({
                   <td className="px-3 py-3">
                     <Link
                       to={row.href}
+                      title={row.id}
                       className="font-mono text-lime underline-offset-2 hover:underline"
                     >
-                      {row.id}
+                      {row.id.length > 5 ? `${row.id.slice(0, 5)}…` : row.id}
                     </Link>
                   </td>
-                  <td className="px-3 py-3 font-medium tabular-nums text-text">
+                  <td className="whitespace-nowrap px-3 py-3 font-medium tabular-nums text-text">
                     {row.amount}
                   </td>
                   <td className="px-3 py-3 whitespace-nowrap tabular-nums text-text-muted">
@@ -106,7 +107,7 @@ export function LinksTable({
                   <td className="px-3 py-3 whitespace-nowrap tabular-nums text-text-muted">
                     {row.completedAt ? formatDate(row.completedAt) : '–'}
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="whitespace-nowrap px-3 py-3">
                     <span
                       className={`inline-flex rounded-pill border px-2 py-0.5 text-xs font-medium ${TONE[row.tone]}`}
                     >

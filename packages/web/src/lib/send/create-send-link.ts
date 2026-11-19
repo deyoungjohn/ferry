@@ -139,9 +139,9 @@ export async function createSendLinkLive(
     lockStatus: 'pending_lock',
   });
 
-  // Download recovery file BEFORE lock broadcast
+  // The recovery file is offered BEFORE the lock (the interface asks the person to save it)
   if (deps.downloadFile) {
-    deps.downloadFile(recoveryPayload.filename, recoveryPayload.json);
+    await deps.downloadFile(recoveryPayload.filename, recoveryPayload.json);
   } else {
     triggerRecoveryDownload(recoveryPayload);
   }

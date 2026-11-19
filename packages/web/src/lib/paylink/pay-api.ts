@@ -64,3 +64,50 @@ export async function readPayLinkState(
     return null;
   }
 }
+
+export interface PayLinkDetails {
+  readonly id: string;
+  readonly recipientAddress: string;
+  readonly token: 'PUSD' | 'MUSD';
+  /** In whole units (2 decimals) when the amount is fixed. */
+  readonly amount?: number | undefined;
+  readonly note?: string | undefined;
+  readonly verified: boolean;
+  readonly status: PayLinkData['status'];
+}
+
+/** The link as the solver holds it, so the payer sees what the creator made. Null when not found. */
+export async function readPayLink(
+  solverUrl: string,
+  id: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<PayLinkDetails | null> {
+  try {
+    const res = await fetchFn(
+      `${solverUrl.replace(/\/+$/, '')}/v1/links/${encodeURIComponent(id)}`,
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      id: string;
+      recipientAddress: string;
+      token: 'PUSD' | 'MUSD';
+      amountOut?: string;
+      memo?: string;
+      verified?: boolean;
+      status: PayLinkData['status'];
+    };
+    return {
+      id: body.id,
+      recipientAddress: body.recipientAddress,
+      token: body.token,
+      ...(body.amountOut !== undefined && /^\d+$/.test(body.amountOut)
+        ? { amount: Number(body.amountOut) / 100 }
+        : {}),
+      ...(body.memo ? { note: body.memo } : {}),
+      verified: Boolean(body.verified),
+      status: body.status,
+    };
+  } catch {
+    return null;
+  }
+}
