@@ -69,9 +69,42 @@ export function createBrowserBchChain(
     },
     async getUtxos(lockingBytecodeHex: string): Promise<readonly BchUtxo[]> {
       const scriptHash = scriptHashOf(lockingBytecodeHex);
-      const rows = await withServer((client) =>
-        client.listUnspent(scriptHash, 'include_tokens'),
+      // Ask every server and merge what they say: one that lags behind answers "nothing"
+      // for an output another already shows, and the first answer must not win.
+      const answers = await Promise.allSettled(
+        urls.map(async (url) => {
+          const client = make(url);
+          try {
+            await client.connect();
+            return await client.listUnspent(scriptHash, 'include_tokens');
+          } finally {
+            client.close();
+          }
+        }),
       );
+      const seen = new Set<string>();
+      const rows: Awaited<ReturnType<FulcrumLike['listUnspent']>> = [];
+      for (const answer of answers) {
+        if (answer.status !== 'fulfilled') continue;
+        for (const row of answer.value) {
+          const key = `${row.tx_hash}:${row.tx_pos}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          rows.push(row);
+        }
+      }
+      if (answers.every((answer) => answer.status === 'rejected')) {
+        const failures = answers.map((answer) =>
+          answer.status === 'rejected'
+            ? answer.reason instanceof Error
+              ? answer.reason.message
+              : String(answer.reason)
+            : '',
+        );
+        throw new Error(
+          `No Bitcoin Cash server answered (${failures.join('; ')}).`,
+        );
+      }
       return rows.map((row) => ({
         txid: row.tx_hash,
         vout: row.tx_pos,

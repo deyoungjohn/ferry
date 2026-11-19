@@ -99,7 +99,24 @@ describe('browser Bitcoin Cash chain', () => {
       urls: ['wss://a'],
       createClient: fake({ 'wss://a': 'fail' }, []),
     });
-    expect(await rejection(dead.getUtxos('00'))).toMatch(/Nothing was sent/);
+    expect(await rejection(dead.getUtxos('00'))).toMatch(
+      /No Bitcoin Cash server answered/,
+    );
+  });
+
+  it('merges what every server shows, so one that lags behind does not hide an output', async () => {
+    const chain = createBrowserBchChain({
+      urls: ['wss://lagging', 'wss://current'],
+      createClient: (url: string) => ({
+        connect: async () => undefined,
+        close: () => undefined,
+        listUnspent: async () => (url === 'wss://lagging' ? [] : [row]),
+        broadcast: async () => 'x',
+        getTipHeight: async () => 900,
+      }),
+    });
+    const utxos = await chain.getUtxos(`76a914${'11'.repeat(20)}88ac`);
+    expect(utxos).toHaveLength(1);
   });
 
   it('broadcasts on the next server when the first cannot connect', async () => {
