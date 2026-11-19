@@ -234,10 +234,10 @@ export class QuoteBuilder {
     }
 
     // 4. Rule (a) Peg guard check on primary prices
-    const isPayStable = ['PUSD', 'MUSD', 'USDC', 'USDT'].includes(
+    const isPayStable = ['PUSD', 'MUSD', 'USDC', 'USDT', 'USDG'].includes(
       params.payAsset.toUpperCase(),
     );
-    const isReceiveStable = ['PUSD', 'MUSD', 'USDC', 'USDT'].includes(
+    const isReceiveStable = ['PUSD', 'MUSD', 'USDC', 'USDT', 'USDG'].includes(
       params.receiveAsset.toUpperCase(),
     );
 

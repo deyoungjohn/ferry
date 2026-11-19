@@ -72,6 +72,23 @@ export function getViemChain(
       return isMainnet ? arbitrum : arbitrumSepolia;
     case 'bnb':
       return isMainnet ? bsc : bscTestnet;
+    case 'robinhood': {
+      const robinhoodChain: Chain = {
+        id: isMainnet ? 4663 : 46630,
+        name: 'Robinhood Chain',
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+        rpcUrls: {
+          default: {
+            http: [
+              isMainnet
+                ? 'https://rpc.mainnet.chain.robinhood.com'
+                : 'https://rpc.testnet.chain.robinhood.com',
+            ],
+          },
+        },
+      };
+      return robinhoodChain;
+    }
     default:
       return isMainnet ? base : baseSepolia;
   }

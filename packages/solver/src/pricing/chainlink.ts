@@ -69,7 +69,8 @@ export interface ChainlinkPriceSourceOptions {
 
 function normalizeAsset(asset: string): AssetSymbol {
   const symbol = asset.toUpperCase();
-  if (symbol === 'USDC' || symbol === 'USDT') return symbol;
+  if (symbol === 'USDC' || symbol === 'USDT' || symbol === 'USDG')
+    return symbol as AssetSymbol;
   throw new PriceUnavailableError(`Unsupported EVM stablecoin asset ${asset}`);
 }
 
