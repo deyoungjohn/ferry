@@ -37,4 +37,7 @@ export interface ActivityEntry {
   readonly hashLock?: string | undefined;
   readonly statusLabel: string;
   readonly amountDisplay: string;
+  /** Set for entries from the solver's order list: the swap's page, and how to colour its state. */
+  readonly orderId?: string | undefined;
+  readonly tone?: 'ok' | 'warn' | 'neutral' | undefined;
 }

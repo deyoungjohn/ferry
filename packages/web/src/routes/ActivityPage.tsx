@@ -1,8 +1,17 @@
-import { useState, useMemo, useContext, type FormEvent } from 'react';
+import {
+  useState,
+  useMemo,
+  useContext,
+  useEffect,
+  type FormEvent,
+} from 'react';
 import { Link } from 'react-router';
 import { decodeCashAddress } from '@ferry/core';
 import { WalletContext } from '../lib/wallet/context';
 import { getMockActivity } from '../lib/activity/mock';
+import { loadLiveActivity } from '../lib/activity/live';
+import { LIVE_EXECUTION_ENABLED } from '../lib/config';
+import { ROUTES } from '../lib/routes';
 import type { ActivityEntry } from '../lib/activity/types';
 import { useToast } from '../lib/toast/ToastContext';
 import { Pagination } from '../components/ui/pagination';
@@ -41,10 +50,37 @@ export function ActivityPage() {
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
 
-  // Load activity (BCH-first merge)
+  // Live: the solver's list of this EVM address's swaps. Otherwise the demo data.
+  const solverUrl = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+    ?.split(',')[0]
+    ?.trim();
+  const live = LIVE_EXECUTION_ENABLED && Boolean(solverUrl);
+  const evmAddress = walletContext?.evm.address ?? null;
+  const [liveEntries, setLiveEntries] = useState<readonly ActivityEntry[]>([]);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!live || !solverUrl || !evmAddress) return;
+    let cancelled = false;
+    loadLiveActivity(solverUrl, evmAddress)
+      .then((rows) => {
+        if (!cancelled) {
+          setLiveEntries(rows);
+          setLiveError(null);
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled)
+          setLiveError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [live, solverUrl, evmAddress]);
+
   const loadedEntries = useMemo<ActivityEntry[]>(() => {
+    if (live) return [...liveEntries];
     return getMockActivity(activeAddress);
-  }, [activeAddress]);
+  }, [live, liveEntries, activeAddress]);
   // The window is counted from when the list was loaded.
   const loadedAt = useMemo(
     () => Math.floor(Date.now() / 1000),
@@ -108,7 +144,9 @@ export function ActivityPage() {
             My Activity
           </h1>
           <p className="text-xs text-text-muted">
-            Rebuilt from Bitcoin Cash covenant history and EVM counter-locks.
+            {live
+              ? 'Swaps made with your connected EVM wallet address.'
+              : 'Rebuilt from Bitcoin Cash covenant history and EVM counter-locks.'}
           </p>
         </div>
         <Link
@@ -118,6 +156,24 @@ export function ActivityPage() {
           ← Back to Swap
         </Link>
       </div>
+
+      {live && !evmAddress && (
+        <p
+          data-testid="activity-needs-evm"
+          className="mb-4 rounded-lg border border-warn/30 bg-warn/10 p-3 text-xs text-warn"
+        >
+          Connect your EVM wallet (the pill at the top right) to see the swaps
+          made with it.
+        </p>
+      )}
+      {live && liveError && (
+        <p
+          data-testid="activity-error"
+          className="mb-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger"
+        >
+          Could not load your swaps: {liveError}
+        </p>
+      )}
 
       {/* Address Bar */}
       <div className="mb-6 rounded-card border border-hairline bg-surface-1 p-4 shadow-elev-card">
@@ -242,10 +298,12 @@ export function ActivityPage() {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span
                         className={`inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[11px] font-medium ${
+                          entry.tone === 'ok' ||
                           entry.bch?.state === 'received' ||
                           entry.chain?.state === 'claimed'
                             ? 'bg-ok/10 text-ok border border-ok/20'
-                            : entry.bch?.state === 'refunded' ||
+                            : entry.tone === 'warn' ||
+                                entry.bch?.state === 'refunded' ||
                                 entry.chain?.state === 'refunded'
                               ? 'bg-warn/10 text-warn border border-warn/20'
                               : 'bg-surface-3 text-text-muted border border-hairline'
@@ -256,6 +314,14 @@ export function ActivityPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5">
+                        {entry.orderId && (
+                          <Link
+                            to={ROUTES.swapOrder(entry.orderId)}
+                            className="inline-flex items-center rounded border border-hairline bg-surface-2 px-2 py-0.5 text-[10px] font-mono text-text-muted transition-colors hover:text-text"
+                          >
+                            Open swap {entry.orderId.slice(0, 10)}…
+                          </Link>
+                        )}
                         {entry.bch?.txs.map((tx) => (
                           <button
                             key={tx.hash}
