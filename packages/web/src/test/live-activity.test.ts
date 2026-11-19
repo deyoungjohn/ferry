@@ -15,7 +15,7 @@ describe('loadLiveActivity', () => {
                 direction: 'EVM_TO_BCH',
                 status: 'DONE',
                 createdAt: 1_795_000_000,
-                evmAmount: '1000000',
+                evmAmount: '1239999',
                 bchToken: 'PUSD',
                 bchTokenAmount: '99',
               },
@@ -25,7 +25,7 @@ describe('loadLiveActivity', () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      amountDisplay: '1.000000 USDC → 0.99 PUSD',
+      amountDisplay: '1.23 USDC → 0.99 PUSD',
       statusLabel: 'Completed',
       tone: 'ok',
       direction: 'COUNTER_TO_BCH',

@@ -21,12 +21,16 @@ const LABEL: Record<string, string> = {
   SOLVER_REFUNDED: 'Refunded',
 };
 
+/** An amount in base units as a decimal with exactly 2 places, rounded down: never more. */
 function decimal(raw: string, decimals: number): string {
   if (!/^\d+$/.test(raw)) return '?';
-  const padded = raw.padStart(decimals + 1, '0');
-  const whole = padded.slice(0, -decimals) || '0';
-  const fraction = padded.slice(-decimals);
-  return `${whole}.${fraction}`;
+  const units = BigInt(raw);
+  const cents =
+    decimals >= 2
+      ? units / 10n ** BigInt(decimals - 2)
+      : units * 10n ** BigInt(2 - decimals);
+  const text = cents.toString().padStart(3, '0');
+  return `${text.slice(0, -2)}.${text.slice(-2)}`;
 }
 
 /** Your swaps as the solver lists them for an EVM address, shaped as activity rows. */
