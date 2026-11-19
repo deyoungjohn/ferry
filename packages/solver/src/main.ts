@@ -203,6 +203,15 @@ export async function startSolver(
     solverBchWif: config.solverBchWif,
     bchNetwork: config.network === 'mainnet' ? 'mainnet' : 'chipnet',
     executionReady: config.executionReady,
+    onOrderError: (orderId, status, error) =>
+      logger.error(
+        {
+          orderId,
+          status,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Engine could not move the order',
+      ),
   });
 
   // 8. Initialize Price Source (Composite from BCH & EVM facts)

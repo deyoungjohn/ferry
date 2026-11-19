@@ -100,6 +100,8 @@ export class SolverEngine {
   private readonly dsproofWindowMs: number;
   private readonly pollIntervalMs: number;
   private passInFlight = false;
+  private readonly onOrderError?: EngineConfig['onOrderError'];
+  private readonly lastErrors = new Map<string, string>();
   private readonly bchExecutor: ActionExecutor;
   private readonly evmExecutor: ActionExecutor;
 
@@ -118,6 +120,7 @@ export class SolverEngine {
     this.executionReady = config.executionReady ?? true;
     this.dsproofWindowMs = config.dsproofWindowMs ?? 5000;
     this.pollIntervalMs = config.pollIntervalMs ?? 5000;
+    this.onOrderError = config.onOrderError;
     this.solverBchWif = config.solverBchWif;
     this.bchNetwork = config.bchNetwork ?? 'chipnet';
     this.bchExecutor = bchExecutor ?? new ActionExecutor(this.db, this.bchPort);
@@ -361,6 +364,12 @@ export class SolverEngine {
         if (!failed) {
           failed = true;
           firstError = err;
+        }
+        // Report each distinct failure once per order, so a 5 s retry does not flood the log.
+        const message = err instanceof Error ? err.message : String(err);
+        if (this.lastErrors.get(orderRecord.id) !== message) {
+          this.lastErrors.set(orderRecord.id, message);
+          this.onOrderError?.(orderRecord.id, orderRecord.status, err);
         }
       }
     }
