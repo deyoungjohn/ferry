@@ -26,6 +26,9 @@ export function toSeconds(ts: number | null | undefined): number {
   return Math.floor(ts);
 }
 
+/** 2026-11-19 04:00 UTC: the first swaps after this moment count towards the median time. */
+const MEDIAN_COUNTS_FROM = 1795060800;
+
 /** Amounts are stored in the terms as decimal strings, with a trailing "n" for a bigint ("1000000n"). */
 function termsBigInt(value: unknown): bigint {
   if (typeof value === 'bigint') return value;
@@ -35,6 +38,15 @@ function termsBigInt(value: unknown): bigint {
     return /^\d+$/.test(cleaned) ? BigInt(cleaned) : 0n;
   }
   return 0n;
+}
+
+/** A recorded transaction id, or undefined when it is missing or the all-zero placeholder. */
+function realTxId(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  const bare = value.replace(/^0x/, '');
+  return /^[0-9a-fA-F]{64}$/.test(bare) && !/^0+$/.test(bare)
+    ? bare
+    : undefined;
 }
 
 export class SolverDatabase {
@@ -739,10 +751,14 @@ export class SolverDatabase {
         // ignore
       }
 
-      // Every settled swap counts, whatever its lane: most run on the safe lane.
-      fastDurations.push(
-        Math.max(0, toSeconds(row.updated_at) - toSeconds(row.created_at)),
-      );
+      // Every settled swap counts, whatever its lane: most run on the safe lane. Swaps that began
+      // before MEDIAN_COUNTS_FROM ran on engine builds with known faults and are left out of the
+      // median (they still count as completed swaps and in the volume).
+      if (toSeconds(row.created_at) >= MEDIAN_COUNTS_FROM) {
+        fastDurations.push(
+          Math.max(0, toSeconds(row.updated_at) - toSeconds(row.created_at)),
+        );
+      }
     }
 
     fastDurations.sort((a, b) => a - b);
@@ -780,6 +796,8 @@ export class SolverDatabase {
     durationSeconds: number;
     baseTxId: string;
     bchTxId: string;
+    sourceTxId?: string | undefined;
+    claimTxId?: string | undefined;
   }> {
     const stmt = this.db.prepare(`
       SELECT * FROM orders 
@@ -801,6 +819,8 @@ export class SolverDatabase {
       durationSeconds: number;
       baseTxId: string;
       bchTxId: string;
+      sourceTxId?: string | undefined;
+      claimTxId?: string | undefined;
     }> = [];
 
     for (const r of rows) {
@@ -842,6 +862,8 @@ export class SolverDatabase {
           durationSeconds,
           baseTxId,
           bchTxId: bchTxId.startsWith('0x') ? bchTxId.slice(2) : bchTxId,
+          sourceTxId: realTxId(order.userLockTxId),
+          claimTxId: realTxId(order.userClaimTxId),
         });
       } catch {
         // ignore malformed

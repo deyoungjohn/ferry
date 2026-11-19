@@ -1,3 +1,4 @@
+import { formatDuration } from '@ferry/core';
 import { useEffect, useMemo, useState } from 'react';
 import { useSolver } from '../lib/solver/useSolver';
 import type { RecentSwap } from '../lib/solver/types';
@@ -159,18 +160,22 @@ export function RecentSwapsTable() {
                       </span>
                     </td>
                     <td className="px-4 py-3 font-mono text-text-muted">
-                      {swap.durationSeconds}s
+                      {formatDuration(swap.durationSeconds)}
                     </td>
                     <td className="px-4 py-3 font-mono text-text-muted">
                       {/* Hashes do not link to any explorer per requirement */}
                       <span className="rounded bg-surface-2 px-1.5 py-0.5">
-                        {swap.sourceTxHash.slice(0, 10)}…
+                        {swap.sourceTxHash
+                          ? `${swap.sourceTxHash.slice(0, 10)}…`
+                          : '—'}
                       </span>
                     </td>
                     <td className="px-4 py-3 font-mono text-text-muted">
                       {/* Hashes do not link to any explorer per requirement */}
                       <span className="rounded bg-surface-2 px-1.5 py-0.5">
-                        {swap.targetTxHash.slice(0, 10)}…
+                        {swap.targetTxHash
+                          ? `${swap.targetTxHash.slice(0, 10)}…`
+                          : '—'}
                       </span>
                     </td>
                   </tr>

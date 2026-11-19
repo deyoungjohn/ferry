@@ -89,6 +89,7 @@ import type { SolverEngine } from '../engine/runner.js';
 import { createLinkId, verifyPayLinksSignature } from '../paylink/link.js';
 import {
   LiquidityManager,
+  exposureInAssetUnits,
   type InventoryAssetView,
 } from '../pricing/liquidity.js';
 import { InventoryReader } from '../pricing/inventory-reader.js';
@@ -1528,21 +1529,23 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const now = Math.floor(Date.now() / 1000);
     const openExposure = db.getOpenExposureUsdMicros();
 
-    let pusdInventory: bigint;
-    let musdInventory: bigint;
+    // A failed read reports nothing for these routes; it must not look like an empty wallet.
+    let pusdInventory = 0n;
+    let musdInventory = 0n;
+    let bchRead: boolean;
     try {
       const bch = await inventoryReader.getBchInventory();
       pusdInventory = bch.pusd;
       musdInventory = bch.musd;
+      bchRead = true;
     } catch {
-      pusdInventory = 0n;
-      musdInventory = 0n;
+      bchRead = false;
     }
 
     const pusdData = liquidityManager.getLiquidityData(
       'PUSD',
       pusdInventory,
-      openExposure,
+      exposureInAssetUnits('PUSD', openExposure),
       2,
       now,
       'base-usdc-to-bch-pusd',
@@ -1551,13 +1554,13 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const musdData = liquidityManager.getLiquidityData(
       'MUSD',
       musdInventory,
-      openExposure,
+      exposureInAssetUnits('MUSD', openExposure),
       2,
       now,
       'base-usdc-to-bch-musd',
     );
 
-    const routesList = [pusdData, musdData];
+    const routesList = bchRead ? [pusdData, musdData] : [];
 
     const routesCtx = options.routesContext ?? buildActiveRoutes(config);
     for (const chainFact of routesCtx.chainConfig.facts) {
@@ -1784,6 +1787,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       evmAmount: s.counterAmount.toString(),
       settledAt: s.settledAt,
       durationSeconds: Math.max(0, s.durationSeconds),
+      ...(s.sourceTxId ? { sourceTxId: s.sourceTxId } : {}),
+      ...(s.claimTxId ? { claimTxId: s.claimTxId } : {}),
     }));
 
     const response = {

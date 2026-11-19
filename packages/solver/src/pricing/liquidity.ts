@@ -61,6 +61,22 @@ export function calculateSkewBps(
   return Math.max(-skewMaxBps, Math.min(skewMaxBps, rawSkew));
 }
 
+/**
+ * Open exposure is kept in USD micros; callers convert it with this before passing it to the manager, which works in asset units.
+ * Open exposure is kept in USD micros (1,000,000 = $1). Inventory and reservations are in the
+ * asset's own units: PUSD and MUSD have 2 decimals (100 = $1), USDC has 6. Subtracting micros from
+ * PUSD atoms made one open $1 order look like $10,000 of exposure and showed "0 available".
+ */
+export function exposureInAssetUnits(
+  asset: string,
+  exposureUsdMicros: bigint,
+): bigint {
+  const symbol = asset.toUpperCase().replace(/^T/, '');
+  return symbol === 'PUSD' || symbol === 'MUSD'
+    ? exposureUsdMicros / 10_000n
+    : exposureUsdMicros;
+}
+
 export class LiquidityManager {
   private readonly reservations = new Map<string, QuoteReservation>();
 

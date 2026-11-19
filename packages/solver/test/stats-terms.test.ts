@@ -27,6 +27,9 @@ describe('amounts in stored terms', () => {
       lockId: '0x' + 'd1'.repeat(32),
       hashLock: '0x' + 'd1'.repeat(32),
       lane: 'safe',
+      // far enough ahead to count towards the median whatever the date
+      createdAt: 4_000_000_000 - 120,
+      updatedAt: 4_000_000_000,
     });
     db.saveOrder({
       ...base,
@@ -47,5 +50,29 @@ describe('amounts in stored terms', () => {
     expect(recent[0]?.bchTokenAmount).toBe(99n);
 
     expect(db.getOpenExposureUsdMicros()).toBe(1_000_000n);
+
+    // Swaps that began before the cut-off do not count towards the median.
+    db.saveOrder({
+      ...base,
+      id: '0x' + 'd3'.repeat(32),
+      status: 'DONE',
+      lockId: '0x' + 'd3'.repeat(32),
+      hashLock: '0x' + 'd3'.repeat(32),
+      lane: 'safe',
+      createdAt: 1_700_000_000,
+      updatedAt: 1_700_003_566,
+    });
+    expect(db.getStatsSummary(40, 0n).medianFastSeconds).toBe(120);
+    expect(db.getStatsSummary(40, 0n).completedSwaps).toBe(2);
+  });
+});
+
+describe('liquidity units', () => {
+  it('open exposure in USD micros is converted to PUSD atoms before it is subtracted', async () => {
+    const { exposureInAssetUnits } =
+      await import('../src/pricing/liquidity.js');
+    expect(exposureInAssetUnits('PUSD', 1_000_000n)).toBe(100n);
+    expect(exposureInAssetUnits('tMUSD', 5_000_000n)).toBe(500n);
+    expect(exposureInAssetUnits('USDC', 1_000_000n)).toBe(1_000_000n);
   });
 });

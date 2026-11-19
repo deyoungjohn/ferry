@@ -34,7 +34,7 @@ describe('Swap Flow Integration', () => {
     render(
       <MemoryRouter>
         <SolverProvider client={new MockSolverClient()}>
-          <SwapCard />
+          <SwapCard initialReverse />
         </SolverProvider>
       </MemoryRouter>,
     );
@@ -60,7 +60,10 @@ describe('Swap Flow Integration', () => {
     render(
       <MemoryRouter>
         <SolverProvider client={new MockSolverClient()}>
-          <SwapCard initialRecipient="0x1111222233334444555566667777888899990000" />
+          <SwapCard
+            initialReverse
+            initialRecipient="0x1111222233334444555566667777888899990000"
+          />
         </SolverProvider>
       </MemoryRouter>,
     );
@@ -90,7 +93,10 @@ describe('Swap Flow Integration', () => {
     render(
       <MemoryRouter>
         <SolverProvider client={client}>
-          <SwapCard initialRecipient="0x1111222233334444555566667777888899990000" />
+          <SwapCard
+            initialReverse
+            initialRecipient="0x1111222233334444555566667777888899990000"
+          />
         </SolverProvider>
       </MemoryRouter>,
     );
@@ -107,6 +113,22 @@ describe('Swap Flow Integration', () => {
       expect(assignMock).toHaveBeenCalledWith(
         expect.stringMatching(/\/swap\/.+/),
       );
+    });
+  });
+});
+
+describe('swap card defaults', () => {
+  it('starts as USDC to PUSD with 5.00 to send', async () => {
+    render(
+      <MemoryRouter>
+        <SolverProvider client={new MockSolverClient()}>
+          <SwapCard />
+        </SolverProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByLabelText(/You send/i)).toHaveValue('5.00');
+    await waitFor(() => {
+      expect(screen.getByText(/1 USDC ≈/i)).toBeInTheDocument();
     });
   });
 });

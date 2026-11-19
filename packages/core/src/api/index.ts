@@ -482,6 +482,15 @@ export const RecentOrderItemSchema = z.strictObject({
   evmAmount: z.string().regex(/^\d+$/),
   settledAt: unixTimestampSeconds,
   durationSeconds: nonNegInt,
+  /** The person's own lock transaction and claim transaction, when the solver recorded them. */
+  sourceTxId: z
+    .string()
+    .regex(/^(0x)?[0-9a-fA-F]{64}$/)
+    .optional(),
+  claimTxId: z
+    .string()
+    .regex(/^(0x)?[0-9a-fA-F]{64}$/)
+    .optional(),
 });
 
 export const RecentOrdersResponseSchema = z.strictObject({

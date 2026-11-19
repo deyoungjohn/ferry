@@ -30,7 +30,7 @@ function renderCard(connected: { evm: boolean; bch: boolean }) {
     <WalletContext.Provider value={wallets(connected)}>
       <MemoryRouter>
         <SolverProvider client={new MockSolverClient()}>
-          <SwapCard />
+          <SwapCard initialReverse />
         </SolverProvider>
       </MemoryRouter>
     </WalletContext.Provider>,

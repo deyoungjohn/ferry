@@ -31,6 +31,7 @@ import {
   MAX_SWAP_USD_MICROS,
   MIN_SWAP_USD_MICROS,
   QUOTE_TTL_S,
+  exposureInAssetUnits,
 } from './liquidity.js';
 
 export interface BuiltQuote {
@@ -417,7 +418,10 @@ export class QuoteBuilder {
       amount: receiveAmount,
       amountMicros: tokenAmountToUsdMicros(receiveAmount, outDecimals),
       currentInventory: params.currentInventory,
-      openExposure: params.openExposure,
+      openExposure: exposureInAssetUnits(
+        params.receiveAsset,
+        params.openExposure,
+      ),
       nowSeconds: params.nowSeconds,
       ttlSeconds: this.quoteTtlSeconds,
       dryRun: params.dryRun,

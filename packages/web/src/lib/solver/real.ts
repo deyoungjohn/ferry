@@ -317,6 +317,8 @@ export class RealSolverClient implements SolverClient {
           evmChainId: number;
           settledAt: number;
           durationSeconds: number;
+          sourceTxId?: string;
+          claimTxId?: string;
         }>;
       };
       const orders = Array.isArray(data.orders) ? data.orders : [];
@@ -334,8 +336,8 @@ export class RealSolverClient implements SolverClient {
           toAmount: forward ? bch : evm,
           toChain: forward ? 'Bitcoin Cash' : `Chain ${o.evmChainId}`,
           durationSeconds: o.durationSeconds,
-          sourceTxHash: '',
-          targetTxHash: '',
+          sourceTxHash: o.sourceTxId ?? '',
+          targetTxHash: o.claimTxId ?? '',
           isMock: false,
         };
       });

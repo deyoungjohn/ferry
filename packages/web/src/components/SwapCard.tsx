@@ -30,8 +30,7 @@ import { useOptionalNavigate } from '../lib/useOptionalNavigate';
 import { ROUTES } from '../lib/routes';
 import { buildCoreQuoteRequest, farTokenFacts } from '../lib/solver/core-quote';
 import { LiveSwapPanel } from './LiveSwapPanel';
-import { ResumeSwaps } from './ResumeSwaps';
-import { MySwaps } from './MySwaps';
+import { UnfinishedSwaps } from './UnfinishedSwaps';
 import { createLiveDependencies } from '../lib/live/ports';
 import type { QuoteInput } from '@ferry/user-flow';
 import { readBchTipHeight } from '../lib/solver/tip';
@@ -88,7 +87,7 @@ const CHAIN_BADGES: Record<string, string> = {
 };
 
 export function SwapCard({
-  initialReverse = true, // Judge path first: leads with PUSD -> USDC (§13, §19)
+  initialReverse = false, // Leads with USDC -> PUSD
   initialRecipient,
   initialFailureState,
 }: SwapCardProps = {}) {
@@ -144,7 +143,7 @@ export function SwapCard({
     : customRecipient;
 
   // Send amount
-  const [sendAmount, setSendAmount] = useState<string>('20.00');
+  const [sendAmount, setSendAmount] = useState<string>('5.00');
   const [lane, setLane] = useState<SwapLane>('fast');
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [bestSolverQuote, setBestSolverQuote] =
@@ -720,6 +719,22 @@ export function SwapCard({
             </div>
           )}
 
+          {solver.isLive() &&
+            LIVE_EXECUTION_ENABLED &&
+            walletContext?.bch.address && (
+              <UnfinishedSwaps
+                solverUrl={solverUrls[0] ?? ''}
+                evmAddress={walletContext.evm.address ?? null}
+                createDeps={() =>
+                  createLiveDependencies({
+                    wallets: { evm: walletContext.evm, bch: walletContext.bch },
+                    solverUrl: solverUrls[0] ?? '',
+                    chainId: walletContext.evm.chainId ?? 8453,
+                  })
+                }
+              />
+            )}
+
           <div
             role="radiogroup"
             aria-label="Execution lane"
@@ -1252,30 +1267,6 @@ export function SwapCard({
             being switched on; until then this button does not move money.
           </p>
         )}
-
-        {solver.isLive() &&
-          LIVE_EXECUTION_ENABLED &&
-          walletContext?.bch.address && (
-            <ResumeSwaps
-              createDeps={() =>
-                createLiveDependencies({
-                  wallets: { evm: walletContext.evm, bch: walletContext.bch },
-                  solverUrl: solverUrls[0] ?? '',
-                  chainId: walletContext.evm.chainId ?? 8453,
-                })
-              }
-            />
-          )}
-
-        {solver.isLive() &&
-          LIVE_EXECUTION_ENABLED &&
-          solverUrls[0] &&
-          walletContext?.evm.address && (
-            <MySwaps
-              solverUrl={solverUrls[0]}
-              evmAddress={walletContext.evm.address}
-            />
-          )}
 
         {liveSwap && 'input' in liveSwap && walletContext && (
           <LiveSwapPanel
