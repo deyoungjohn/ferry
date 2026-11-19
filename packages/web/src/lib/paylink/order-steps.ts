@@ -7,18 +7,56 @@ import type {
 /** The transaction ids the solver recorded for an order (see GET /v1/orders/:id). */
 export type OrderTxids = Readonly<Record<string, string | undefined>>;
 
+/** What the server keeps for an order: its state, transactions and the time of each state. */
+export interface OrderSnapshot {
+  readonly state: string;
+  readonly txids: OrderTxids;
+  readonly createdAt?: number | undefined;
+  readonly updatedAt?: number | undefined;
+  readonly timeline?:
+    ReadonlyArray<{ readonly status: string; readonly at: number }> | undefined;
+}
+
+/** The time the order first reached any of these states. */
+function timeOf(
+  snapshot: OrderSnapshot | null | undefined,
+  statuses: readonly string[],
+): number | undefined {
+  return snapshot?.timeline?.find((entry) => statuses.includes(entry.status))
+    ?.at;
+}
+
+const T = {
+  userLock: ['USER_LOCK_SEEN', 'USER_LOCK_FINAL'],
+  solverLock: ['SOLVER_LOCK_BROADCAST', 'SOLVER_LOCK_SEEN'],
+  claimed: ['SECRET_KNOWN', 'DONE'],
+  done: ['DONE'],
+} as const;
+
 export async function readOrderTxids(
   solverUrl: string,
   orderId: string,
   fetchFn: typeof fetch = fetch,
-): Promise<{ state: string; txids: OrderTxids } | null> {
+): Promise<OrderSnapshot | null> {
   try {
     const res = await fetchFn(
       `${solverUrl.replace(/\/+$/, '')}/v1/orders/${encodeURIComponent(orderId)}`,
     );
     if (!res.ok) return null;
-    const body = (await res.json()) as { state?: string; txids?: OrderTxids };
-    return { state: body.state ?? '', txids: body.txids ?? {} };
+    const body = (await res.json()) as {
+      state?: string;
+      txids?: OrderTxids;
+      createdAt?: number;
+      updatedAt?: number;
+      timeline?: OrderSnapshot['timeline'];
+    };
+    return {
+      state: body.state ?? '',
+      txids: body.txids ?? {},
+      createdAt: body.createdAt,
+      updatedAt: body.updatedAt,
+      timeline: body.timeline,
+    };
   } catch {
     return null;
   }
@@ -39,27 +77,35 @@ const evm = (chainId: number, label: string, hash?: string): ProcessTx[] =>
 /**
  * A pay link: created, the payer's funds locked, the solver's PUSD locked, the owner paid.
  * (The payer locks on the EVM chain, the solver locks on Bitcoin Cash, the claim pays the owner.)
+ * A step is done only when the server's record shows it, so the page never ticks ahead of its data.
  */
 export function payLinkSteps(
   token: string,
-  txids: OrderTxids | null,
+  snapshot: OrderSnapshot | null,
   paid: boolean,
+  createdAt?: number,
   chainId = 8453,
 ): ProcessStep[] {
-  const t = txids ?? {};
+  const t = snapshot?.txids ?? {};
   const states = pick([
     true,
     Boolean(t.evmLock),
     Boolean(t.bchLock),
-    paid || Boolean(t.bchClaim),
+    paid || snapshot?.state === 'DONE' || Boolean(t.bchClaim),
   ]);
   return [
-    { id: 'created', label: 'Pay link created', state: states[0]! },
+    {
+      id: 'created',
+      label: 'Pay link created',
+      state: states[0]!,
+      at: createdAt,
+    },
     {
       id: 'locked',
       label: "The payer's funds are locked",
       state: states[1]!,
       note: 'Waiting for the payment to be locked on the payer’s chain',
+      at: timeOf(snapshot, T.userLock),
       txs: evm(chainId, "Payer's lock", t.evmLock),
     },
     {
@@ -67,6 +113,7 @@ export function payLinkSteps(
       label: `The solver locks ${token} on Bitcoin Cash`,
       state: states[2]!,
       note: `Waiting for the solver’s ${token} lock on Bitcoin Cash`,
+      at: timeOf(snapshot, T.solverLock),
       txs: bch("Solver's lock", t.bchLock),
     },
     {
@@ -74,6 +121,7 @@ export function payLinkSteps(
       label: `The owner is paid in ${token}`,
       state: states[3]!,
       note: 'Waiting for the claim that pays the owner',
+      at: timeOf(snapshot, T.claimed),
       txs: [
         ...bch('Payment to the owner', t.bchClaim),
         ...evm(chainId, "Solver's claim", t.evmClaim),
@@ -84,16 +132,17 @@ export function payLinkSteps(
 
 /**
  * A send link: created, the sender's funds locked on Bitcoin Cash, the solver's lock on the
- * destination chain, claimed by the receiver.
+ * destination chain, claimed by the receiver, done.
  */
 export function sendLinkSteps(
   chainName: string,
-  txids: OrderTxids | null,
+  snapshot: OrderSnapshot | null,
   claimed: boolean,
   done = false,
+  createdAt?: number,
   chainId = 8453,
 ): ProcessStep[] {
-  const t = txids ?? {};
+  const t = snapshot?.txids ?? {};
   const states = pick([
     true,
     Boolean(t.bchLock),
@@ -102,12 +151,18 @@ export function sendLinkSteps(
     done || Boolean(t.bchClaim),
   ]);
   return [
-    { id: 'created', label: 'Send link created', state: states[0]! },
+    {
+      id: 'created',
+      label: 'Send link created',
+      state: states[0]!,
+      at: createdAt ?? snapshot?.createdAt,
+    },
     {
       id: 'locked',
       label: "The sender's funds are locked on Bitcoin Cash",
       state: states[1]!,
       note: 'Waiting for the lock on Bitcoin Cash',
+      at: timeOf(snapshot, T.userLock),
       txs: bch("Sender's lock", t.bchLock),
     },
     {
@@ -115,6 +170,7 @@ export function sendLinkSteps(
       label: `The solver locks the funds on ${chainName}`,
       state: states[2]!,
       note: `Waiting for the solver’s lock on ${chainName}`,
+      at: timeOf(snapshot, T.solverLock),
       txs: evm(chainId, "Solver's lock", t.evmLock),
     },
     {
@@ -122,12 +178,14 @@ export function sendLinkSteps(
       label: 'The receiver claims',
       state: states[3]!,
       note: 'Waiting for the receiver to open the link and claim',
+      at: timeOf(snapshot, T.claimed),
       txs: evm(chainId, "Receiver's claim", t.evmClaim),
     },
     {
       id: 'done',
       label: 'Done',
       state: states[4]!,
+      at: timeOf(snapshot, T.done),
       txs: bch("Solver's claim", t.bchClaim),
     },
   ];

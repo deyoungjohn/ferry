@@ -170,6 +170,15 @@ export function SendLinksPage({
     }
 
     if (isLive) {
+      // The Bitcoin Cash wallet signs the lock: if it is not connected, open its connection.
+      if (
+        !propDependencies &&
+        wallets?.bch.status !== undefined &&
+        wallets.bch.status !== 'connected'
+      ) {
+        wallets?.bch.connect();
+        return;
+      }
       setIsSubmitting(true);
       try {
         const deps = resolveDependencies();
@@ -504,8 +513,9 @@ export function SendLinksPage({
 
               {/* Inform that anyone with the whole link (including fragment) can claim */}
               <div className="mb-4 rounded-well border border-hairline bg-surface-2 p-2.5 text-[11px] text-text-muted">
-                Anyone with the whole link, including the part after #, can
-                claim.
+                Only the wallet you entered can receive these funds: they always
+                go to that address. Anyone with the whole link can start the
+                claim, but cannot change where the money goes.
               </div>
 
               <div className="my-4 flex flex-1 items-center justify-center rounded-xl border border-hairline bg-surface-2 p-4">

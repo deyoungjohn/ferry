@@ -1,11 +1,12 @@
 import { useEffect, useState, useContext } from 'react';
 import { ROUTES } from '../lib/routes';
 import { useParams, useNavigate, Link } from 'react-router';
+import { readSnapshot, writeSnapshot } from '../lib/paylink/snapshot-cache';
 import { ProcessSteps } from '../components/links/ProcessSteps';
 import {
   sendLinkSteps,
   readOrderTxids,
-  type OrderTxids,
+  type OrderSnapshot,
 } from '../lib/paylink/order-steps';
 import { getModeCopy } from '../lib/copy';
 import { SolverContext } from '../lib/solver/context';
@@ -72,7 +73,11 @@ export function SendLinkPage({
   const solverContext = useContext(SolverContext);
   const wallets = useContext(WalletContext);
   const copy = getModeCopy('send-link');
-  const [load, setLoad] = useState<Load>({ state: 'loading' });
+  const [load, setLoad] = useState<Load>(() => {
+    // Paint from the last answer kept in this browser, then let the live one correct it.
+    const kept = id ? readSnapshot<SendLinkView>(`sendview.${id}`) : null;
+    return kept ? { state: 'ready', link: kept } : { state: 'loading' };
+  });
   const [claiming, setClaiming] = useState(false);
   const [claimedLocally, setClaimedLocally] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,12 +95,18 @@ export function SendLinkPage({
 
   useEffect(() => {
     let active = true;
-    setLoad({ state: 'loading' });
     const read = solver?.getSendLink?.(id ?? '') ?? Promise.resolve(null);
     read.then(
       (link: SendLinkView | null) => {
+        if (link && id) writeSnapshot(`sendview.${id}`, link);
         if (active)
-          setLoad(link ? { state: 'ready', link } : { state: 'missing' });
+          setLoad((current) =>
+            link
+              ? { state: 'ready', link }
+              : current.state === 'ready'
+                ? current
+                : { state: 'missing' },
+          );
       },
       () => {
         if (active) setLoad({ state: 'missing' });
@@ -123,7 +134,14 @@ export function SendLinkPage({
   const isClaimed = waitState === 'claimed';
   const isExpired = waitState === 'expired: the sender gets their funds back';
 
-  const claimable = isReadyToClaim && !claiming;
+  // The funds go to the address entered when the link was made, whoever sends the claim. A
+  // different wallet is told so, and cannot start the claim from here.
+  const connectedEvm = wallets?.evm.address?.toLowerCase() ?? null;
+  const wrongWallet =
+    link !== null &&
+    connectedEvm !== null &&
+    connectedEvm !== link.recipientEvmAddress.toLowerCase();
+  const claimable = isReadyToClaim && !claiming && !wrongWallet;
 
   async function handleClaim() {
     if (isLive) {
@@ -199,18 +217,20 @@ export function SendLinkPage({
   const solverUrl = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
     ?.split(',')[0]
     ?.trim();
-  const [orderTxids, setOrderTxids] = useState<OrderTxids | null>(null);
-  const [orderState, setOrderState] = useState('');
+  const [snapshot, setSnapshot] = useState<OrderSnapshot | null>(() =>
+    id ? readSnapshot<OrderSnapshot>(`send.${id}`) : null,
+  );
   const linkReady = load.state === 'ready' ? load.link : null;
-  const finished = orderState === 'DONE' || linkReady?.status === 'refunded';
+  const finished =
+    snapshot?.state === 'DONE' || linkReady?.status === 'refunded';
   useEffect(() => {
     if (!solverUrl || !id || !isLive) return;
     let active = true;
     const tick = async () => {
       const read = await readOrderTxids(solverUrl, id);
       if (!active || !read) return;
-      setOrderTxids(read.txids);
-      setOrderState(read.state);
+      writeSnapshot(`send.${id}`, read);
+      setSnapshot(read);
     };
     void tick();
     const timer = setInterval(() => {
@@ -225,14 +245,14 @@ export function SendLinkPage({
     isLive && linkReady
       ? sendLinkSteps(
           linkReady.chain,
-          orderTxids,
+          snapshot,
           linkReady.status === 'claimed' || claimedLocally,
-          orderState === 'DONE',
+          snapshot?.state === 'DONE',
         )
       : null;
 
   return (
-    <div className="mx-auto max-w-md px-4 py-8 sm:px-6">
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <div className="mb-4">
         <Link
           to={ROUTES.sendLink}
@@ -242,144 +262,163 @@ export function SendLinkPage({
         </Link>
       </div>
 
-      <div className="card-ring relative rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card">
-        {load.state === 'loading' && (
-          <p className="text-xs text-text-muted" role="status">
-            Loading this link…
-          </p>
-        )}
-
-        {load.state === 'missing' && (
-          <div data-testid="send-link-missing" className="text-xs">
-            <h1 className="text-base font-semibold text-text">
-              This link was not found
-            </h1>
-            <p className="mt-2 text-text-muted">
-              It may have been mistyped, or it was made on another device. Ask
-              the sender for the link again.
+      <div
+        className={
+          steps ? 'grid items-start gap-6 lg:grid-cols-2' : 'mx-auto max-w-md'
+        }
+      >
+        <div className="card-ring relative rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card">
+          {load.state === 'loading' && (
+            <p className="text-xs text-text-muted" role="status">
+              Loading this link…
             </p>
-          </div>
-        )}
+          )}
 
-        {link && (
-          <>
-            <div className="mb-4 border-b border-hairline pb-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-lime">
-                  Send Link
-                </span>
-                {waitState && (
-                  <span
-                    data-testid="send-link-status"
-                    className="rounded-pill bg-surface-2 px-2.5 py-0.5 text-[11px] font-medium text-text border border-hairline"
-                  >
-                    {waitState}
+          {load.state === 'missing' && (
+            <div data-testid="send-link-missing" className="text-xs">
+              <h1 className="text-base font-semibold text-text">
+                This link was not found
+              </h1>
+              <p className="mt-2 text-text-muted">
+                It may have been mistyped, or it was made on another device. Ask
+                the sender for the link again.
+              </p>
+            </div>
+          )}
+
+          {link && (
+            <>
+              <div className="mb-4 border-b border-hairline pb-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-lime">
+                    Send Link
                   </span>
+                  {waitState && (
+                    <span
+                      data-testid="send-link-status"
+                      className="rounded-pill bg-surface-2 px-2.5 py-0.5 text-[11px] font-medium text-text border border-hairline"
+                    >
+                      {waitState}
+                    </span>
+                  )}
+                </div>
+                <h1 className="mt-1 text-xl font-semibold text-text">
+                  {link.amount !== null
+                    ? `Receive ${link.amount.toFixed(2)} ${link.token}`
+                    : `Receive ${link.token}`}
+                </h1>
+                <p className="mt-1 text-xs text-text-muted">
+                  Sent from Bitcoin Cash through Ferry atomic swap.
+                </p>
+              </div>
+
+              {link.note && (
+                <figure
+                  data-testid="send-link-note"
+                  className="mb-4 rounded-well border border-lime/30 bg-lime/5 p-3"
+                >
+                  <figcaption className="text-[11px] font-semibold uppercase tracking-wider text-lime">
+                    Note from the sender
+                  </figcaption>
+                  {/* Plain text: React escapes it, so markup in a note is shown, never run. */}
+                  <blockquote className="mt-1 text-sm text-text break-words">
+                    {link.note}
+                  </blockquote>
+                </figure>
+              )}
+
+              <div className="space-y-3 mb-5 text-xs">
+                <div className="rounded-well border border-hairline bg-surface-2 p-3">
+                  <span className="text-text-dim block mb-1">
+                    {copy.receiveLabel}
+                  </span>
+                  <div className="text-xl font-semibold text-text">
+                    {link.amount !== null ? link.amount.toFixed(2) : '—'}{' '}
+                    {link.token}
+                  </div>
+                  <span className="text-[11px] text-text-dim block mt-0.5">
+                    On {link.chain}
+                  </span>
+                </div>
+
+                {wrongWallet && (
+                  <p
+                    data-testid="send-link-wrong-wallet"
+                    className="rounded-well border border-warn/30 bg-warn/10 p-3 text-warn"
+                  >
+                    This link pays {link!.recipientEvmAddress} only. Connect
+                    that wallet to claim. The funds go to that address even if
+                    someone else sends the claim.
+                  </p>
+                )}
+                <div className="rounded-well border border-hairline bg-surface-2 p-3">
+                  <span className="text-text-dim block mb-1">
+                    Enforced Recipient Address
+                  </span>
+                  <span className="font-mono text-text break-all text-[11px]">
+                    {link.recipientEvmAddress}
+                  </span>
+                </div>
+
+                {link.expiresAt !== null && (
+                  <div className="rounded-well border border-hairline bg-surface-2 p-3">
+                    <span className="text-text-dim block mb-1">
+                      Claim before
+                    </span>
+                    <span className="text-text">
+                      {formatDeadline(link.expiresAt)}
+                    </span>
+                  </div>
                 )}
               </div>
-              <h1 className="mt-1 text-xl font-semibold text-text">
-                {link.amount !== null
-                  ? `Receive ${link.amount.toFixed(2)} ${link.token}`
-                  : `Receive ${link.token}`}
-              </h1>
-              <p className="mt-1 text-xs text-text-muted">
-                Sent from Bitcoin Cash through Ferry atomic swap.
-              </p>
-            </div>
 
-            {link.note && (
-              <figure
-                data-testid="send-link-note"
-                className="mb-4 rounded-well border border-lime/30 bg-lime/5 p-3"
-              >
-                <figcaption className="text-[11px] font-semibold uppercase tracking-wider text-lime">
-                  Note from the sender
-                </figcaption>
-                {/* Plain text: React escapes it, so markup in a note is shown, never run. */}
-                <blockquote className="mt-1 text-sm text-text break-words">
-                  {link.note}
-                </blockquote>
-              </figure>
-            )}
-
-            <div className="space-y-3 mb-5 text-xs">
-              <div className="rounded-well border border-hairline bg-surface-2 p-3">
-                <span className="text-text-dim block mb-1">
-                  {copy.receiveLabel}
-                </span>
-                <div className="text-xl font-semibold text-text">
-                  {link.amount !== null ? link.amount.toFixed(2) : '—'}{' '}
-                  {link.token}
-                </div>
-                <span className="text-[11px] text-text-dim block mt-0.5">
-                  On {link.chain}
-                </span>
-              </div>
-
-              <div className="rounded-well border border-hairline bg-surface-2 p-3">
-                <span className="text-text-dim block mb-1">
-                  Enforced Recipient Address
-                </span>
-                <span className="font-mono text-text break-all text-[11px]">
-                  {link.recipientEvmAddress}
-                </span>
-              </div>
-
-              {link.expiresAt !== null && (
-                <div className="rounded-well border border-hairline bg-surface-2 p-3">
-                  <span className="text-text-dim block mb-1">Claim before</span>
-                  <span className="text-text">
-                    {formatDeadline(link.expiresAt)}
-                  </span>
-                </div>
+              {error && (
+                <p className="mb-3 text-danger text-xs" role="alert">
+                  {error}
+                </p>
               )}
-            </div>
 
-            {error && (
-              <p className="mb-3 text-danger text-xs" role="alert">
-                {error}
+              <button
+                type="button"
+                data-testid="send-link-submit-button"
+                disabled={claiming || !claimable}
+                onClick={handleClaim}
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-pill bg-olive text-text font-semibold hover:bg-olive/90 transition-colors cursor-pointer shadow-elev-pill disabled:opacity-40"
+              >
+                <span>
+                  {claiming
+                    ? 'Processing claim…'
+                    : isPendingLock
+                      ? "the sender's funds are being locked"
+                      : isReadyToClaim
+                        ? copy.actionLabel
+                        : isClaimed
+                          ? 'Claimed'
+                          : isExpired
+                            ? 'expired: the sender gets their funds back'
+                            : 'This link is no longer open'}
+                </span>
+              </button>
+
+              <p className="mt-3 text-center text-[11px] text-text-dim">
+                Direct atomic claim. If unclaimed within the time window, funds
+                return safely to the sender.
               </p>
-            )}
+            </>
+          )}
+        </div>
 
-            <button
-              type="button"
-              disabled={claiming || !claimable}
-              onClick={handleClaim}
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-pill bg-olive text-text font-semibold hover:bg-olive/90 transition-colors cursor-pointer shadow-elev-pill disabled:opacity-40"
-            >
-              <span>
-                {claiming
-                  ? 'Processing claim…'
-                  : isPendingLock
-                    ? "the sender's funds are being locked"
-                    : isReadyToClaim
-                      ? copy.actionLabel
-                      : isClaimed
-                        ? 'Claimed'
-                        : isExpired
-                          ? 'expired: the sender gets their funds back'
-                          : 'This link is no longer open'}
-              </span>
-            </button>
-
-            <p className="mt-3 text-center text-[11px] text-text-dim">
-              Direct atomic claim. If unclaimed within the time window, funds
-              return safely to the sender.
-            </p>
-          </>
+        {steps && (
+          <section
+            className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card"
+            aria-label="Progress"
+            data-testid="send-link-progress"
+          >
+            <h2 className="mb-3 text-sm font-semibold text-text">Progress</h2>
+            <ProcessSteps steps={steps} />
+          </section>
         )}
       </div>
-
-      {steps && (
-        <section
-          className="mt-5"
-          aria-label="Progress"
-          data-testid="send-link-progress"
-        >
-          <h2 className="mb-3 text-sm font-semibold text-text">Progress</h2>
-          <ProcessSteps steps={steps} />
-        </section>
-      )}
     </div>
   );
 }

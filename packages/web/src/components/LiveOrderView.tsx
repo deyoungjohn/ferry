@@ -408,7 +408,11 @@ export function LiveOrderView({
 
       <ol className="mt-6 space-y-3" data-testid="order-steps">
         {STEPS.map((item, index) => {
-          const reached = state ? index < current || done : false;
+          // The price and the saved file exist before the swap has been read back: they are done
+          // as soon as the recovery file is found in this browser, not when the session catches up.
+          const reached = state
+            ? index < current || done
+            : fileJson !== null && index < 2;
           const active = state ? index === current && !done : false;
           return (
             <li

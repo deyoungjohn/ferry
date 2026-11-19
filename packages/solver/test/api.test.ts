@@ -626,6 +626,11 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
         orderId,
         paidAt: now + 30,
       });
+      // One answer carries the swap's state and its timeline, kept in the database.
+      expect(done.json().order.timeline).toEqual([
+        { status: 'SOLVER_LOCK_SEEN', at: now },
+        { status: 'DONE', at: now + 30 },
+      ]);
     });
 
     it('GET /v1/pegs returns peg snapshot with unix seconds timestamps', async () => {

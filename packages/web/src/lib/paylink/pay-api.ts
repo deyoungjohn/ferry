@@ -1,4 +1,5 @@
 import type { PayLinkData } from './link';
+import type { OrderSnapshot } from './order-steps';
 
 interface SolverPayLink {
   readonly id: string;
@@ -77,6 +78,9 @@ export interface PayLinkDetails {
   /** The swap paying this link, once there is one. */
   readonly orderId?: string | undefined;
   readonly paidAt?: number | undefined;
+  readonly createdAt?: number | undefined;
+  /** The swap paying the link, as the server holds it (state, transactions, timeline). */
+  readonly order?: OrderSnapshot | undefined;
 }
 
 /** The link as the solver holds it, so the payer sees what the creator made. Null when not found. */
@@ -100,6 +104,8 @@ export async function readPayLink(
       status: PayLinkData['status'];
       orderId?: string;
       paidAt?: number;
+      createdAt?: number;
+      order?: OrderSnapshot;
     };
     return {
       id: body.id,
@@ -113,6 +119,8 @@ export async function readPayLink(
       status: body.status,
       ...(body.orderId ? { orderId: body.orderId } : {}),
       ...(body.paidAt ? { paidAt: body.paidAt } : {}),
+      ...(body.createdAt ? { createdAt: body.createdAt } : {}),
+      ...(body.order ? { order: body.order } : {}),
     };
   } catch {
     return null;

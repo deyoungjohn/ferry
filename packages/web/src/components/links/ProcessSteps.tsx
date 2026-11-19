@@ -12,6 +12,8 @@ export interface ProcessStep {
   readonly state: 'done' | 'active' | 'todo';
   /** What the step is waiting for, shown under the active step. */
   readonly note?: string | undefined;
+  /** When the step happened (Unix seconds), from the server's record. */
+  readonly at?: number | undefined;
   /** The transactions of this step, each a link to the block explorer. */
   readonly txs?: readonly ProcessTx[] | undefined;
 }
@@ -69,6 +71,11 @@ export function ProcessSteps({
             >
               {step.label}
             </p>
+            {step.at ? (
+              <p className="mt-0.5 text-xs tabular-nums text-text-dim">
+                {formatStepTime(step.at)}
+              </p>
+            ) : null}
             {step.state === 'active' && step.note && (
               <p className="mt-0.5 text-xs text-text-muted">{step.note}</p>
             )}
@@ -80,4 +87,11 @@ export function ProcessSteps({
       ))}
     </ol>
   );
+}
+
+function formatStepTime(seconds: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  }).format(new Date(seconds * 1000));
 }

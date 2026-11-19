@@ -58,6 +58,28 @@ export class SolverDatabase {
     this.db.pragma('synchronous = NORMAL');
     this.db.pragma('foreign_keys = ON');
     this.initTables();
+    this.initEventTable();
+  }
+
+  /** Every change of an order's state with its time: the timeline pages show, kept for good. */
+  private initEventTable(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS order_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        at INTEGER NOT NULL CHECK (at < 100000000000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events(order_id, id);
+    `);
+  }
+
+  listOrderEvents(orderId: string): Array<{ status: string; at: number }> {
+    return this.db
+      .prepare(
+        'SELECT status, at FROM order_events WHERE order_id = ? ORDER BY id ASC',
+      )
+      .all(orderId) as Array<{ status: string; at: number }>;
   }
 
   private initTables(): void {
@@ -436,6 +458,9 @@ export class SolverDatabase {
   saveOrder(order: OrderRecord): void {
     assertSecondsTimestamp(order.createdAt, 'order.createdAt');
     assertSecondsTimestamp(order.updatedAt, 'order.updatedAt');
+    const before = this.db
+      .prepare('SELECT status FROM orders WHERE id = ?')
+      .get(order.id) as { status: string } | undefined;
 
     const stmt = this.db.prepare(`
       INSERT INTO orders (
@@ -489,6 +514,13 @@ export class SolverDatabase {
       created_at: order.createdAt,
       updated_at: order.updatedAt,
     });
+    if (before?.status !== order.status) {
+      this.db
+        .prepare(
+          'INSERT INTO order_events (order_id, status, at) VALUES (?, ?, ?)',
+        )
+        .run(order.id, order.status, order.updatedAt);
+    }
   }
 
   getOrder(id: string): OrderRecord | null {

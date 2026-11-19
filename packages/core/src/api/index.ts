@@ -358,6 +358,14 @@ export const OrderStatusTxidsSchema = z.strictObject({
 
 export type OrderStatusTxids = z.infer<typeof OrderStatusTxidsSchema>;
 
+/** Every state an order has been in, with the time it got there. */
+export const OrderTimelineSchema = z.array(
+  z.strictObject({
+    status: z.string().min(1).max(64),
+    at: unixTimestampSeconds,
+  }),
+);
+
 export const OrderStatusResponseSchema = z.strictObject({
   orderId: hex32Schema,
   state: z.string().min(1).max(64),
@@ -367,6 +375,8 @@ export const OrderStatusResponseSchema = z.strictObject({
   counterDeadline: unixTimestampSeconds,
   bchRefundHeight: positiveUint,
   updatedAt: unixTimestampSeconds,
+  createdAt: unixTimestampSeconds.optional(),
+  timeline: OrderTimelineSchema.optional(),
 });
 
 export type OrderStatusResponse = z.infer<typeof OrderStatusResponseSchema>;
@@ -575,6 +585,16 @@ export const PayLinkJsonSchema = z.strictObject({
   paidAt: unixTimestampSeconds.optional(),
   /** The swap that pays (or is paying) this link, once there is one. */
   orderId: hex32Schema.optional(),
+  /** That swap as the server holds it, so a page can paint everything from one answer. */
+  order: z
+    .strictObject({
+      state: z.string().min(1).max(64),
+      txids: z.record(z.string(), z.string()),
+      createdAt: unixTimestampSeconds,
+      updatedAt: unixTimestampSeconds,
+      timeline: OrderTimelineSchema,
+    })
+    .optional(),
   verified: z.boolean().optional(),
 });
 

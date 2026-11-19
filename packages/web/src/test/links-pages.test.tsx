@@ -9,6 +9,7 @@ import { SolverProvider } from '../lib/solver/SolverProvider';
 import { MockSolverClient } from '../lib/solver/mock';
 import { saveSendLink } from '../lib/paylink/send-store';
 import { savePayLink } from '../lib/paylink/pay-store';
+import { WalletContext } from '../lib/wallet/context';
 
 describe('Pay Links & Send Links Pages (Task B3-03)', () => {
   beforeEach(() => {
@@ -189,6 +190,36 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
       </MemoryRouter>,
     );
   }
+
+  it('a wallet that is not the enforced recipient is told so and cannot start the claim', async () => {
+    window.localStorage.clear();
+    saveSendLink(sampleLink);
+    render(
+      <MemoryRouter initialEntries={['/s/sl-sample-01']}>
+        <WalletContext.Provider
+          value={
+            {
+              evm: {
+                status: 'connected',
+                address: '0x9999999999999999999999999999999999999999',
+              },
+              bch: { status: 'disconnected', address: null },
+            } as never
+          }
+        >
+          <SolverProvider client={new MockSolverClient()}>
+            <Routes>
+              <Route path="/s/:id" element={<SendLinkPage />} />
+            </Routes>
+          </SolverProvider>
+        </WalletContext.Provider>
+      </MemoryRouter>,
+    );
+    expect(
+      await screen.findByTestId('send-link-wrong-wallet'),
+    ).toHaveTextContent('0x1111222233334444555566667777888899990000');
+    expect(screen.getByTestId('send-link-submit-button')).toBeDisabled();
+  });
 
   it('renders SendLinkPage with enforced recipient, the claim deadline and the sender note', async () => {
     window.localStorage.clear();

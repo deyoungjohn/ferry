@@ -241,7 +241,7 @@ describe('Send Links Live Execution and Receiver Claim (Task B3-14)', () => {
       // 5. Verify security statement on screen
       expect(
         screen.getByText(
-          /Anyone with the whole link, including the part after #, can claim/i,
+          /Only the wallet you entered can receive these funds/i,
         ),
       ).toBeInTheDocument();
 

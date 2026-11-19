@@ -178,6 +178,25 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     return next;
   };
 
+  /** The transaction ids of an order, named by chain and role (the same names as /v1/orders/:id). */
+  const orderTxidMap = (order: OrderRecord): Record<string, string> => {
+    const hex = (v: string) => (v.startsWith('0x') ? v : `0x${v}`);
+    const forward =
+      order.direction === 'EVM_TO_BCH' || order.direction === 'COUNTER_TO_BCH';
+    const out: Record<string, string> = {};
+    if (order.userLockTxId)
+      out[forward ? 'evmLock' : 'bchLock'] = hex(order.userLockTxId);
+    if (order.solverLockTxId)
+      out[forward ? 'bchLock' : 'evmLock'] = hex(order.solverLockTxId);
+    if (order.userClaimTxId)
+      out[forward ? 'bchClaim' : 'evmClaim'] = hex(order.userClaimTxId);
+    if (order.solverClaimTxId)
+      out[forward ? 'evmClaim' : 'bchClaim'] = hex(order.solverClaimTxId);
+    if (order.solverRefundTxId)
+      out[forward ? 'bchRefund' : 'evmRefund'] = hex(order.solverRefundTxId);
+    return out;
+  };
+
   const getAdapter = (chainOrId?: string | number): EvmChainAdapter => {
     if (chainOrId !== undefined && options.evmAdapters) {
       const key = String(chainOrId).toLowerCase();
@@ -991,6 +1010,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       counterDeadline: terms.evmDeadline,
       bchRefundHeight: terms.bchRefundHeight,
       updatedAt: order.updatedAt,
+      createdAt: order.createdAt,
+      timeline: db.listOrderEvents(order.id),
     };
 
     OrderStatusResponseSchema.parse(response);
@@ -2409,6 +2430,20 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       expiresAt: link.expiresAt,
       ...(link.status === 'paid' ? { paidAt: link.updatedAt } : {}),
       ...(link.orderId ? { orderId: link.orderId } : {}),
+      ...(() => {
+        const linked = link.orderId ? db.getOrder(link.orderId) : null;
+        return linked
+          ? {
+              order: {
+                state: linked.status,
+                txids: orderTxidMap(linked),
+                createdAt: linked.createdAt,
+                updatedAt: linked.updatedAt,
+                timeline: db.listOrderEvents(linked.id),
+              },
+            }
+          : {};
+      })(),
       verified: link.verified,
     };
 

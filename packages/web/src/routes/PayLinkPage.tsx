@@ -14,12 +14,9 @@ import { pusdIconUrl } from '../components/swap-block/token-badges';
 import { Select } from '../components/ui/select';
 import { LIVE_EXECUTION_ENABLED } from '../lib/config';
 import { listPayLinks } from '../lib/paylink/pay-store';
+import { readSnapshot, writeSnapshot } from '../lib/paylink/snapshot-cache';
 import { readPayLink, type PayLinkDetails } from '../lib/paylink/pay-api';
-import {
-  payLinkSteps,
-  readOrderTxids,
-  type OrderTxids,
-} from '../lib/paylink/order-steps';
+import { payLinkSteps } from '../lib/paylink/order-steps';
 import { ProcessSteps } from '../components/links/ProcessSteps';
 import { SaveRecoveryDialog } from '../components/links/SaveRecoveryDialog';
 import { LiveOrderView } from '../components/LiveOrderView';
@@ -57,7 +54,9 @@ export function PayLinkPage() {
   const live = LIVE_EXECUTION_ENABLED && Boolean(solverUrl);
   const [details, setDetails] = useState<PayLinkDetails | null | 'loading'>(
     () => {
-      if (live) return 'loading';
+      // Live: paint from the last answer kept in this browser (if any) while the live one loads.
+      if (live)
+        return (id && readSnapshot<PayLinkDetails>(`pay.${id}`)) || 'loading';
       const local = listPayLinks().find((link) => link.id === id);
       return local
         ? {
@@ -72,32 +71,20 @@ export function PayLinkPage() {
         : DEMO_LINK;
     },
   );
-  useEffect(() => {
-    if (!live || !solverUrl || !id) return;
-    let active = true;
-    void readPayLink(solverUrl, id).then((found) => {
-      if (active) setDetails(found);
-    });
-    return () => {
-      active = false;
-    };
-  }, [live, solverUrl, id]);
   const ready = details !== 'loading' && details !== null ? details : null;
 
-  // Once a swap pays the link, the page follows it: the QR code gives way to the steps.
-  const [orderTxids, setOrderTxids] = useState<OrderTxids | null>(null);
-  const orderId = ready?.orderId;
+  // The server's answer carries the link and the swap behind it (state, transactions, times): one
+  // request, asked again every few seconds until the link is paid. If it disagrees with what was
+  // painted from the browser's copy, the page follows it.
   const paid = ready?.status === 'paid';
   useEffect(() => {
     if (!live || !solverUrl || !id) return;
     let active = true;
     const tick = async () => {
       const link = await readPayLink(solverUrl, id);
-      if (active && link) setDetails(link);
-      if (link?.orderId) {
-        const read = await readOrderTxids(solverUrl, link.orderId);
-        if (active && read) setOrderTxids(read.txids);
-      }
+      if (!active) return;
+      if (link) writeSnapshot(`pay.${id}`, link);
+      setDetails(link);
     };
     const timer = setInterval(() => {
       if (!paid) void tick();
@@ -108,6 +95,7 @@ export function PayLinkPage() {
       clearInterval(timer);
     };
   }, [live, solverUrl, id, paid]);
+  const orderId = ready?.orderId;
   const showSteps =
     Boolean(orderId) ||
     ready?.status === 'paid' ||
@@ -324,9 +312,15 @@ export function PayLinkPage() {
       </div>
 
       {details === 'loading' && (
-        <p className="text-center text-sm text-text-muted">
-          Loading the pay link…
-        </p>
+        <div
+          className="animate-pulse rounded-card border border-hairline bg-surface-1 p-6"
+          data-testid="pay-link-loading"
+          aria-busy="true"
+        >
+          <div className="h-4 w-20 rounded bg-surface-2" />
+          <div className="mt-3 h-6 w-48 rounded bg-surface-2" />
+          <div className="mt-6 h-40 rounded-well bg-surface-2" />
+        </div>
       )}
       {details === null && (
         <div
@@ -357,9 +351,11 @@ export function PayLinkPage() {
               )}
             </div>
             <h1 className="mt-1 text-xl font-semibold text-text print:text-black">
-              {ready.amount !== undefined
-                ? `Pay ${youPayText} ${selectedPayerToken}`
-                : `Pay any amount in ${selectedPayerToken}`}
+              {showSteps
+                ? `Payment of ${(ready.amount ?? 0).toFixed(2)} ${token}`
+                : ready.amount !== undefined
+                  ? `Pay ${youPayText} ${selectedPayerToken}`
+                  : `Pay any amount in ${selectedPayerToken}`}
             </h1>
             {note && (
               <p
@@ -384,7 +380,14 @@ export function PayLinkPage() {
               }}
             />
           ) : showSteps ? (
-            <ProcessSteps steps={payLinkSteps(token, orderTxids, paid)} />
+            <ProcessSteps
+              steps={payLinkSteps(
+                token,
+                ready?.order ?? null,
+                paid,
+                ready?.createdAt,
+              )}
+            />
           ) : (
             <div className="grid gap-4 md:grid-cols-[auto_1fr] md:items-stretch">
               {/* QR code, for scan and print */}
@@ -443,12 +446,12 @@ export function PayLinkPage() {
                         </span>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 text-xl font-semibold text-text print:text-black">
+                      <div className="flex flex-col items-start gap-3 text-xl font-semibold text-text print:text-black">
                         {pusdIconUrl(token) && (
                           <img
                             src={pusdIconUrl(token)!}
                             alt=""
-                            className="size-6 rounded-full"
+                            className="size-16 rounded-full"
                           />
                         )}
                         <span>
