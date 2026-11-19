@@ -438,15 +438,30 @@ export function SwapCard({
   // Calculate route liquidity display
   const availableLiquidity = useMemo(() => {
     if (!liquidity) return null;
-    const targetAsset = isReverse ? 'USDC' : selectedBchToken.replace(/^t/, '');
-    const found = liquidity.routes.find(
-      (r) => r.asset.toUpperCase() === targetAsset.toUpperCase(),
-    );
+    // Into an EVM chain, the solver's stock of that token on that chain; into Bitcoin Cash, its
+    // PUSD or MUSD.
+    const found = isReverse
+      ? liquidity.routes.find((r) =>
+          r.route.endsWith(
+            `-to-${selectedChain.chainKey ?? ''}-${selectedFarToken.toLowerCase()}`,
+          ),
+        )
+      : liquidity.routes.find(
+          (r) =>
+            r.asset.toUpperCase() ===
+            selectedBchToken.replace(/^t/, '').toUpperCase(),
+        );
     if (!found) return null;
     const units = BigInt(found.available);
     const scaled = Number(units) / 10 ** found.decimals;
     return scaled.toLocaleString('en-US', { maximumFractionDigits: 0 });
-  }, [liquidity, isReverse, selectedBchToken]);
+  }, [
+    liquidity,
+    isReverse,
+    selectedBchToken,
+    selectedChain.chainKey,
+    selectedFarToken,
+  ]);
 
   const sendTokenSymbol = isReverse ? selectedBchToken : selectedFarToken;
   const receiveTokenSymbol = isReverse ? selectedFarToken : selectedBchToken;

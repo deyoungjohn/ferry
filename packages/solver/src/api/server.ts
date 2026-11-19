@@ -1679,48 +1679,53 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       );
       if (!isEnabled) continue;
 
-      const usdcAsset = chainFact.assets.find(
-        (a) => a.verified && a.symbol.toUpperCase() === 'USDC',
+      // Every enabled stablecoin of the chain (USDC, USDT, USDG), each from its own inventory.
+      const enabledSymbols = new Set(
+        routesCtx.enabledRoutes
+          .filter((r) => r.chain.toLowerCase() === chainKey)
+          .map((r) => r.asset.toUpperCase()),
       );
-      if (!usdcAsset) continue;
+      for (const asset of chainFact.assets) {
+        const symbol = asset.symbol.toUpperCase();
+        if (!asset.verified || !enabledSymbols.has(symbol)) continue;
+        try {
+          const inventory = await inventoryReader.getAssetInventory({
+            asset: symbol,
+            chain: chainKey,
+            tokenAddress: asset.address ?? undefined,
+          });
 
-      try {
-        const usdcInventory = await inventoryReader.getAssetInventory({
-          asset: 'USDC',
-          chain: chainKey,
-          tokenAddress: usdcAsset.address ?? undefined,
-        });
-
-        routesList.push(
-          liquidityManager.getLiquidityData(
-            'USDC',
-            usdcInventory,
-            openExposure,
-            usdcAsset.decimals ?? 6,
-            now,
-            `bch-pusd-to-${chainKey}-usdc`,
-          ),
-        );
-
-        const hasMusd = routesCtx.enabledRoutes.some(
-          (r) =>
-            r.chain.toLowerCase() === chainKey &&
-            (r as { bchToken?: string }).bchToken === 'MUSD',
-        );
-        if (hasMusd) {
           routesList.push(
             liquidityManager.getLiquidityData(
-              'USDC',
-              usdcInventory,
+              symbol,
+              inventory,
               openExposure,
-              usdcAsset.decimals ?? 6,
+              asset.decimals ?? 6,
               now,
-              `bch-musd-to-${chainKey}-usdc`,
+              `bch-pusd-to-${chainKey}-${symbol.toLowerCase()}`,
             ),
           );
+
+          const hasMusd = routesCtx.enabledRoutes.some(
+            (r) =>
+              r.chain.toLowerCase() === chainKey &&
+              (r as { bchToken?: string }).bchToken === 'MUSD',
+          );
+          if (hasMusd) {
+            routesList.push(
+              liquidityManager.getLiquidityData(
+                symbol,
+                inventory,
+                openExposure,
+                asset.decimals ?? 6,
+                now,
+                `bch-musd-to-${chainKey}-${symbol.toLowerCase()}`,
+              ),
+            );
+          }
+        } catch {
+          // Failing reads report nothing for that entry rather than zero
         }
-      } catch {
-        // Failing reads report nothing for that entry rather than zero
       }
     }
 
