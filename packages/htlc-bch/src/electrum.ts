@@ -21,6 +21,17 @@ export interface ElectrumHistoryItem {
   fee?: number;
 }
 
+export interface ElectrumFirstUse {
+  block_hash: string;
+  block_height: number;
+  tx_hash: string;
+}
+
+export interface ElectrumBalance {
+  confirmed: number;
+  unconfirmed: number;
+}
+
 export interface ElectrumHeader {
   height: number;
   hex: string;
@@ -132,33 +143,46 @@ export class FulcrumClient {
               ? raw.toString('utf8')
               : String(raw);
         try {
-          const msg = JSON.parse(text) as {
-            id?: number;
-            result?: unknown;
-            error?: unknown;
-            method?: string;
-            params?: Array<{ height?: number }>;
-          };
-          if (msg.id !== undefined && this.pendingRequests.has(msg.id)) {
-            const pending = this.pendingRequests.get(msg.id)!;
-            this.pendingRequests.delete(msg.id);
-            clearTimeout(pending.timer);
-            if (msg.error !== undefined && msg.error !== null) {
-              const message =
-                typeof msg.error === 'string'
-                  ? msg.error
-                  : ((msg.error as { message?: string }).message ??
-                    JSON.stringify(msg.error));
-              pending.reject(new Error(message));
-            } else {
-              pending.resolve(msg.result);
+          const rawPayload = JSON.parse(text) as unknown;
+          const messages = Array.isArray(rawPayload)
+            ? (rawPayload as Array<{
+                id?: number;
+                result?: unknown;
+                error?: unknown;
+                method?: string;
+                params?: Array<{ height?: number }>;
+              }>)
+            : [
+                rawPayload as {
+                  id?: number;
+                  result?: unknown;
+                  error?: unknown;
+                  method?: string;
+                  params?: Array<{ height?: number }>;
+                },
+              ];
+          for (const msg of messages) {
+            if (msg.id !== undefined && this.pendingRequests.has(msg.id)) {
+              const pending = this.pendingRequests.get(msg.id)!;
+              this.pendingRequests.delete(msg.id);
+              clearTimeout(pending.timer);
+              if (msg.error !== undefined && msg.error !== null) {
+                const message =
+                  typeof msg.error === 'string'
+                    ? msg.error
+                    : ((msg.error as { message?: string }).message ??
+                      JSON.stringify(msg.error));
+                pending.reject(new Error(message));
+              } else {
+                pending.resolve(msg.result);
+              }
             }
-          }
-          if (
-            msg.method === 'blockchain.headers.subscribe' &&
-            msg.params?.[0]?.height !== undefined
-          ) {
-            this.tipHeight = msg.params[0].height;
+            if (
+              msg.method === 'blockchain.headers.subscribe' &&
+              msg.params?.[0]?.height !== undefined
+            ) {
+              this.tipHeight = msg.params[0].height;
+            }
           }
         } catch {
           // Ignore malformed push frames
@@ -208,6 +232,19 @@ export class FulcrumClient {
       'blockchain.scripthash.get_history',
       [scriptHash],
     );
+  }
+
+  async getFirstUse(scriptHash: string): Promise<ElectrumFirstUse | null> {
+    return this.request<ElectrumFirstUse | null>(
+      'blockchain.scripthash.get_first_use',
+      [scriptHash],
+    );
+  }
+
+  async getBalance(scriptHash: string): Promise<ElectrumBalance> {
+    return this.request<ElectrumBalance>('blockchain.scripthash.get_balance', [
+      scriptHash,
+    ]);
   }
 
   async listUnspent(

@@ -42,6 +42,14 @@ describe('FulcrumClient (mock WebSocket server)', () => {
           return ['Fulcrum 2.1.4', '1.4'];
         case 'blockchain.scripthash.get_history':
           return [{ tx_hash: 'aa'.repeat(32), height: 329336 }];
+        case 'blockchain.scripthash.get_first_use':
+          return {
+            block_hash: 'ee'.repeat(32),
+            block_height: 300000,
+            tx_hash: 'ff'.repeat(32),
+          };
+        case 'blockchain.scripthash.get_balance':
+          return { confirmed: 50000, unconfirmed: 0 };
         case 'blockchain.scripthash.listunspent':
           expect(params[1]).toBe('include_tokens');
           return [
@@ -68,11 +76,49 @@ describe('FulcrumClient (mock WebSocket server)', () => {
     await client.connect();
     expect(await client.serverVersion()).toEqual(['Fulcrum 2.1.4', '1.4']);
     expect(await client.getHistory('00'.repeat(32))).toHaveLength(1);
+    expect(await client.getFirstUse('00'.repeat(32))).toEqual({
+      block_hash: 'ee'.repeat(32),
+      block_height: 300000,
+      tx_hash: 'ff'.repeat(32),
+    });
+    expect(await client.getBalance('00'.repeat(32))).toEqual({
+      confirmed: 50000,
+      unconfirmed: 0,
+    });
     expect(await client.listUnspent('00'.repeat(32))).toHaveLength(1);
     expect(await client.getTransaction('aa'.repeat(32))).toBe('0200000000');
     expect(await client.getTipHeight()).toBe(329336);
     expect(client.lastKnownTipHeight()).toBe(329336);
     expect(await client.broadcast('0200000000')).toBe('dd'.repeat(32));
+    client.close();
+  });
+
+  it('handles JSON-RPC batch responses from servers', async () => {
+    wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) =>
+      wss!.once('listening', () => resolve()),
+    );
+    wss.on('connection', (socket) => {
+      socket.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString()) as {
+          id: number;
+          method: string;
+        };
+        // Reply with array wrapping response
+        socket.send(
+          JSON.stringify([
+            { id: msg.id, result: { confirmed: 12345, unconfirmed: 0 } },
+          ]),
+        );
+      });
+    });
+    const addr = wss.address() as { port: number };
+    const client = new FulcrumClient(`ws://127.0.0.1:${addr.port}`, {
+      timeoutMs: 2000,
+    });
+    await client.connect();
+    const balance = await client.getBalance('11'.repeat(32));
+    expect(balance.confirmed).toBe(12345);
     client.close();
   });
 
