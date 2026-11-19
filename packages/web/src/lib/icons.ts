@@ -32,6 +32,7 @@ const TOKEN_FILES: Record<string, string> = {
   usdt: 'usdt.svg',
   pusd: 'pusd.svg',
   musd: 'musd.png',
+  usdg: 'usdg.svg',
 };
 
 /** The artwork of a chain, by name ("Base") or id (8453). */
