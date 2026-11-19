@@ -55,6 +55,13 @@ export function ChainDot({
   );
 }
 
+/** The PUSD artwork (also for the test token tPUSD); other tokens have none yet and show initials. */
+export function pusdIconUrl(symbol: string): string | null {
+  return symbol.replace(/^t/, '').toUpperCase() === 'PUSD'
+    ? `${import.meta.env.BASE_URL}brand/pusd.svg`
+    : null;
+}
+
 export function TokenDot({
   token,
   chain,
@@ -69,9 +76,19 @@ export function TokenDot({
       className="relative inline-flex shrink-0"
       style={{ width: size, height: size }}
     >
-      <span className="absolute inset-0 inline-flex items-center justify-center rounded-full border border-border bg-background text-[11px] font-semibold text-foreground">
-        {token.symbol.slice(0, 2)}
-      </span>
+      {pusdIconUrl(token.symbol) ? (
+        <img
+          src={pusdIconUrl(token.symbol)!}
+          alt=""
+          width={size}
+          height={size}
+          className="absolute inset-0 size-full rounded-full"
+        />
+      ) : (
+        <span className="absolute inset-0 inline-flex items-center justify-center rounded-full border border-border bg-background text-[11px] font-semibold text-foreground">
+          {token.symbol.slice(0, 2)}
+        </span>
+      )}
       <span
         style={{
           width: size * 0.42,

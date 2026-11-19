@@ -1,7 +1,7 @@
 import { useState, useContext, useEffect, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
-import { decodeCashAddress } from '@ferry/core';
+import { decodeCashAddress, MIN_TRANSACTION_USD } from '@ferry/core';
 import { WalletContext } from '../lib/wallet/context';
 import {
   chunkCashaddr,
@@ -110,6 +110,10 @@ export function PayLinksPage() {
     const amountNum = isFixed ? parseFloat(fixedAmount) : undefined;
     if (isFixed && (!amountNum || amountNum <= 0)) {
       setError('Please enter a valid amount');
+      return;
+    }
+    if (isFixed && amountNum !== undefined && amountNum < MIN_TRANSACTION_USD) {
+      setError('The minimum is $' + MIN_TRANSACTION_USD.toFixed(2) + '.');
       return;
     }
 
@@ -283,7 +287,6 @@ export function PayLinksPage() {
                     <input
                       type="number"
                       step="any"
-                      min="1"
                       aria-label="Fixed Amount"
                       value={fixedAmount}
                       inputMode="decimal"

@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useRef } from 'react';
 import { ROUTES } from '../lib/routes';
 import { useParams, useNavigate, Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
@@ -10,6 +10,7 @@ import { chunkCashaddr } from '../lib/paylink/link';
 import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse } from '../lib/solver/types';
 import { useToast } from '../lib/toast/ToastContext';
+import { pusdIconUrl } from '../components/swap-block/token-badges';
 import { Select } from '../components/ui/select';
 import { LIVE_EXECUTION_ENABLED } from '../lib/config';
 import { listPayLinks } from '../lib/paylink/pay-store';
@@ -20,6 +21,14 @@ import {
   type OrderTxids,
 } from '../lib/paylink/order-steps';
 import { ProcessSteps } from '../components/links/ProcessSteps';
+import { SaveRecoveryDialog } from '../components/links/SaveRecoveryDialog';
+import { LiveOrderView } from '../components/LiveOrderView';
+import { createPayerDependencies } from '../lib/live/ports';
+import { amountInForExactOut } from '../lib/live/exact-out';
+import { prepareSwap } from '../lib/live/run';
+import { latestWallet } from '../lib/live/latest-wallets';
+import { farTokenFacts } from '../lib/solver/core-quote';
+import type { UserSwapDependencies } from '@ferry/user-flow';
 
 const DEMO_LINK: PayLinkDetails = {
   id: 'demo',
@@ -132,10 +141,23 @@ export function PayLinkPage() {
 
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+  // The payment runs on this page: the swap is built here, the person signs in their wallet, and
+  // the page follows it step by step (no trip to the swap page).
+  const [run, setRun] = useState<{
+    orderId: string;
+    deps: UserSwapDependencies;
+  } | null>(null);
+  const [fileToSave, setFileToSave] = useState<{
+    filename: string;
+    json: string;
+    resolve: () => void;
+    reject: (reason: Error) => void;
+  } | null>(null);
+  const walletsRef = useRef(walletContext);
+  walletsRef.current = walletContext;
   const youPayText =
-    requestedAmount > 0
-      ? (quote ? quote.fromAmount : requestedAmount * 1.004).toFixed(2)
-      : '0.00';
+    requestedAmount > 0 ? (quote ? quote.fromAmount.toFixed(2) : '…') : '0.00';
 
   // Exact-output quote: recipient receives exact amount
   useEffect(() => {
@@ -144,21 +166,39 @@ export function PayLinkPage() {
       return;
     }
     let active = true;
-    solver
-      .getQuote({
-        fromToken: selectedPayerToken,
-        toToken: token,
-        fromChain: selectedChain.name,
-        toChain: NETWORK_PROFILE.bch.name,
-        fromAmount: requestedAmount * 1.004 + 0.05, // exact out calculation
-        lane: 'fast',
-      })
-      .then((res) => {
-        if (active) setQuote(res);
-      })
-      .catch(() => {
+    const request = (fromAmount: number) => ({
+      fromToken: selectedPayerToken,
+      toToken: token,
+      fromChain: selectedChain.name,
+      toChain: NETWORK_PROFILE.bch.name,
+      fromAmount,
+      lane: 'fast' as const,
+    });
+    // How much to send for the recipient to get exactly the requested amount: price a send a little
+    // above par, scale it by what it would buy, and price that again (the solver's fee has a fixed
+    // part, so one correction is needed). The price shown is the solver's, not a guess.
+    (async () => {
+      try {
+        const first = await solver.getQuote(request(requestedAmount * 1.02));
+        if (!active) return;
+        if (!first.toAmount || first.toAmount <= 0) {
+          setQuote(first);
+          return;
+        }
+        const guess = (first.fromAmount * requestedAmount) / first.toAmount;
+        const second = await solver.getQuote(request(guess));
+        if (!active) return;
+        const needed =
+          second.toAmount && second.toAmount > 0
+            ? Math.ceil(
+                ((second.fromAmount * requestedAmount) / second.toAmount) * 100,
+              ) / 100
+            : guess;
+        setQuote({ ...second, fromAmount: needed });
+      } catch {
         if (active) setQuote(null);
-      });
+      }
+    })();
 
     return () => {
       active = false;
@@ -175,17 +215,46 @@ export function PayLinkPage() {
   async function handlePay() {
     setPaying(true);
     try {
-      if (live) {
-        // The payer's swap pays the link's recipient directly: the swap page opens with the
-        // destination and the amount to send already filled in.
-        const params = new URLSearchParams({
-          to: recipientCashaddr,
-          amount: (quote?.fromAmount ?? requestedAmount * 1.004 + 0.05).toFixed(
-            2,
-          ),
-          token,
+      if (live && solverUrl) {
+        setPayError(null);
+        if (evm.status !== 'connected') {
+          walletContext?.evm.connect();
+          setPaying(false);
+          return;
+        }
+        const far = farTokenFacts(selectedChain.name, selectedPayerToken);
+        if (!far) throw new Error('This chain is not set up for payments yet.');
+        const deps = createPayerDependencies({
+          evm: latestWallet(() => walletsRef.current?.evm) as NonNullable<
+            typeof walletContext
+          >['evm'],
+          solverUrl,
+          chainId: far.chainId,
+          recipientCashAddress: recipientCashaddr,
         });
-        void navigate(`${ROUTES.swap}?${params.toString()}`);
+        const base = {
+          direction: 'EVM_TO_BCH' as const,
+          token,
+          chainId: far.chainId,
+          evmToken: far.address,
+          evmTokenDecimals: far.decimals,
+          bchTokenDecimals: 2,
+          lane: 'fast' as const,
+          fastOptIn: true,
+        };
+        const { amountIn } = await amountInForExactOut(
+          deps,
+          base,
+          BigInt(Math.round(requestedAmount * 100)),
+        );
+        const prepared = await prepareSwap(deps, { ...base, amountIn });
+        await new Promise<void>((resolve, reject) => {
+          setFileToSave({ ...prepared.recovery, resolve, reject });
+        });
+        const startedOrder = prepared.session.state.orderId;
+        if (!startedOrder)
+          throw new Error('The payment could not be prepared.');
+        setRun({ orderId: startedOrder, deps });
         return;
       }
       const orderId = `paylink-${id ?? 'order'}`;
@@ -193,7 +262,8 @@ export function PayLinkPage() {
         await solver.createOrder(quote.signedQuote, evm.address ?? undefined);
       }
       void navigate(ROUTES.swapOrder(orderId));
-    } catch {
+    } catch (cause) {
+      setPayError(cause instanceof Error ? cause.message : String(cause));
       setPaying(false);
     }
   }
@@ -301,7 +371,19 @@ export function PayLinkPage() {
             )}
           </div>
 
-          {showSteps ? (
+          {run ? (
+            <LiveOrderView
+              orderId={run.orderId}
+              dependencies={run.deps}
+              start
+              embedded
+              labels={{
+                lock: 'Your payment is locked',
+                waitCounterLock: `The solver locks ${token} on Bitcoin Cash`,
+                claim: `The owner is paid in ${token}`,
+              }}
+            />
+          ) : showSteps ? (
             <ProcessSteps steps={payLinkSteps(token, orderTxids, paid)} />
           ) : (
             <div className="grid gap-4 md:grid-cols-[auto_1fr] md:items-stretch">
@@ -361,8 +443,17 @@ export function PayLinkPage() {
                         </span>
                       </div>
                     ) : (
-                      <div className="text-xl font-semibold text-text print:text-black">
-                        {requestedAmount.toFixed(2)} {token}
+                      <div className="flex items-center gap-2 text-xl font-semibold text-text print:text-black">
+                        {pusdIconUrl(token) && (
+                          <img
+                            src={pusdIconUrl(token)!}
+                            alt=""
+                            className="size-6 rounded-full"
+                          />
+                        )}
+                        <span>
+                          {requestedAmount.toFixed(2)} {token}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -395,7 +486,7 @@ export function PayLinkPage() {
           )}
 
           {/* The action: centered, as wide as its words need (hidden in print) */}
-          {!showSteps && (
+          {!showSteps && !run && (
             <div className="mt-5 flex justify-center print:hidden">
               <button
                 type="button"
@@ -415,6 +506,30 @@ export function PayLinkPage() {
             </div>
           )}
 
+          {payError && (
+            <p
+              className="mt-3 text-center text-sm text-danger"
+              role="alert"
+              data-testid="pay-error"
+            >
+              {payError}
+            </p>
+          )}
+          <SaveRecoveryDialog
+            file={fileToSave}
+            onContinue={() => {
+              fileToSave?.resolve();
+              setFileToSave(null);
+            }}
+            onCancel={() => {
+              fileToSave?.reject(
+                new Error(
+                  'Cancelled. Nothing was locked and no file was saved.',
+                ),
+              );
+              setFileToSave(null);
+            }}
+          />
           <p className="mt-3 text-center text-xs text-text-dim print:text-black/50">
             Atomic swap through Ferry. Funds never touch a custodian or bridge.
           </p>

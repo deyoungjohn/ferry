@@ -84,6 +84,7 @@ import type { BchQuorumClient } from '../bch/quorum-client.js';
 import type { BchQuorumStatus } from '../bch/types.js';
 import { redactConfigForDisplay, type SolverConfig } from '../config.js';
 import type { SolverDatabase } from '../db/database.js';
+import { MIN_TRANSACTION_USD_MICROS } from '@ferry/core';
 import type { OrderRecord, PayLinkRecord } from '../db/types.js';
 import type { SolverEngine } from '../engine/runner.js';
 import { createLinkId, verifyPayLinksSignature } from '../paylink/link.js';
@@ -2228,6 +2229,18 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const body = parseResult.data;
 
+    // A pay link is for at least one dollar (PUSD and MUSD have 2 decimals: 100 = $1.00).
+    if (
+      body.amountOut !== undefined &&
+      BigInt(body.amountOut) * 10_000n < MIN_TRANSACTION_USD_MICROS
+    ) {
+      return sendApiError(
+        reply,
+        'VALIDATION_ERROR',
+        'A pay link must be for at least $1.00',
+      );
+    }
+
     if (
       !config.quotingEnabled ||
       !engine.isQuotingEnabled() ||
@@ -2548,7 +2561,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         openExposure: db.getOpenExposureUsdMicros(),
         nowSeconds: now,
         quotingEnabled: config.quotingEnabled,
-        minSwapUsdMicros: 0n,
+        minSwapUsdMicros: MIN_TRANSACTION_USD_MICROS,
         maxSwapUsdMicros: config.maxSwapUsdMicros,
         termsTemplate: {
           version: 1,
@@ -2788,6 +2801,15 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
 
     const request = parseResult.data;
+
+    // A send link is for at least one dollar (the token is a Bitcoin Cash stablecoin, 2 decimals).
+    if (BigInt(request.amountIn) * 10_000n < MIN_TRANSACTION_USD_MICROS) {
+      return reply.status(422).send({
+        reason: 'ROUTE_DISABLED',
+        asset: request.token,
+        message: 'A send link must be for at least $1.00',
+      });
+    }
 
     if (request.viewTag !== undefined && db.hasSendLinkTag(request.viewTag)) {
       return sendApiError(

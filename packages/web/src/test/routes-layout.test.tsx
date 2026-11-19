@@ -104,7 +104,7 @@ describe('New Routes Layout & Responsive Viewports (FR-13, FR-17, FR-18)', () =>
       window.innerHeight = 844;
     });
 
-    it('renders PayLinkPage with payment card and CTA', () => {
+    it('renders PayLinkPage with payment card and CTA', async () => {
       render(
         <MemoryRouter initialEntries={['/p/pl-test-01']}>
           <MockWalletProvider>
@@ -118,7 +118,7 @@ describe('New Routes Layout & Responsive Viewports (FR-13, FR-17, FR-18)', () =>
       );
 
       expect(
-        screen.getByRole('heading', {
+        await screen.findByRole('heading', {
           level: 1,
           name: /^Pay 2[0-9]\.\d\d USDC/i,
         }),

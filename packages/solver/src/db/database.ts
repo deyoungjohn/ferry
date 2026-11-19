@@ -954,7 +954,7 @@ export class SolverDatabase {
         const amount = termsBigInt(terms.bchTokenAmount);
         if (recipient !== link.recipientLockingBytecode.toLowerCase()) continue;
         if (token !== link.token) continue;
-        if (link.amountOut !== undefined && amount !== link.amountOut) continue;
+        if (link.amountOut !== undefined && amount < link.amountOut) continue;
         return order;
       } catch {
         // unreadable terms: not a match

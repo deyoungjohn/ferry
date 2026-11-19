@@ -560,6 +560,21 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(bad.statusCode).toBe(400);
     });
 
+    it('refuses a pay link below one dollar, whatever the setting', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/links',
+        payload: {
+          token: 'PUSD',
+          recipientAddress:
+            'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk',
+          amountOut: '99',
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.stringify(res.json())).toContain('at least');
+    });
+
     it('a pay link follows the swap that pays it: reserved while it runs, paid when it is done', async () => {
       const created = await app.inject({
         method: 'POST',

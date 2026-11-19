@@ -426,7 +426,7 @@ export async function runContractSuite(
     body: {
       token: 'PUSD',
       recipientAddress: ownerCashaddr,
-      amountOut: '25',
+      amountOut: '2500',
       memo: 'Contract test invoice',
     },
     expectedStatuses: [200, 201],

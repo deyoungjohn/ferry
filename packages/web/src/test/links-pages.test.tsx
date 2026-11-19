@@ -68,6 +68,24 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
     expect(rows[0]!.textContent).toContain('–');
   });
 
+  it('refuses a pay link below one dollar', async () => {
+    render(
+      <MemoryRouter>
+        <PayLinksPage />
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByLabelText(/Receiving Bitcoin Cash Address/i), {
+      target: { value: 'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk' },
+    });
+    fireEvent.change(screen.getByLabelText(/Fixed Amount/i), {
+      target: { value: '0.5' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Generate Pay Link/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The minimum is $1.00',
+    );
+  });
+
   it('renders PayLinkPage with exact-output quote and correct labels', async () => {
     render(
       <MemoryRouter initialEntries={['/p/pl-test-01']}>
@@ -81,7 +99,7 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
 
     expect(screen.getByText('Pay link')).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: /^Pay 2[0-9]\.\d\d USDC/i }),
+      await screen.findByRole('heading', { name: /^Pay 2[0-9]\.\d\d USDC/i }),
     ).toBeInTheDocument();
     expect(screen.getByText('They receive')).toBeInTheDocument();
     expect(screen.getByText('You pay')).toBeInTheDocument();
@@ -90,7 +108,7 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
     expect(screen.getByText(/bchtest: zqg3/i)).toBeInTheDocument();
   });
 
-  it('shows the link the creator made (amount and note), not the sample', () => {
+  it('shows the link the creator made (amount and note), not the sample', async () => {
     savePayLink({
       id: 'pl-mine',
       recipientCashaddr: 'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk',
@@ -111,7 +129,7 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
       </MemoryRouter>,
     );
     expect(
-      screen.getByRole('heading', { name: /^Pay 2\.\d\d USDC/i }),
+      await screen.findByRole('heading', { name: /^Pay 2\.\d\d USDC/i }),
     ).toBeInTheDocument();
     expect(screen.getByTestId('pay-link-note')).toHaveTextContent(
       'Lunch money',

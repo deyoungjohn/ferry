@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename);
 const webRoot = path.resolve(__dirname, '../..');
 
 describe('Print and Mobile Polish (Task B3-09)', () => {
-  it('renders pay link page with clean print and share elements (title, QR code, and chunked address)', () => {
+  it('renders pay link page with clean print and share elements (title, QR code, and chunked address)', async () => {
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
 
     render(
@@ -30,7 +30,7 @@ describe('Print and Mobile Polish (Task B3-09)', () => {
 
     // Title
     expect(
-      screen.getByRole('heading', {
+      await screen.findByRole('heading', {
         level: 1,
         name: /^Pay 2[0-9]\.\d\d USDC/i,
       }),

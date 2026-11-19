@@ -1,4 +1,5 @@
 import { formatUnits } from 'viem';
+import { MIN_TRANSACTION_USD_MICROS } from '@ferry/core';
 import {
   quoteOut,
   type Direction,
@@ -147,8 +148,13 @@ export class QuoteBuilder {
 
     const amountInMicros = tokenAmountToUsdMicros(params.amountIn, inDecimals);
 
-    const minSwap = params.minSwapUsdMicros ?? MIN_SWAP_USD_MICROS;
-    if (minSwap > 0n && amountInMicros < minSwap) {
+    // The floor is fixed in code: a setting or a caller may raise the minimum, never lower it.
+    const requestedMin = params.minSwapUsdMicros ?? MIN_SWAP_USD_MICROS;
+    const minSwap =
+      requestedMin > MIN_TRANSACTION_USD_MICROS
+        ? requestedMin
+        : MIN_TRANSACTION_USD_MICROS;
+    if (amountInMicros < minSwap) {
       const amtFormatted = (Number(amountInMicros) / 1e6).toFixed(2);
       const minFormatted = (Number(minSwap) / 1e6).toFixed(2);
       return {

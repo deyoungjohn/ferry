@@ -81,3 +81,33 @@ export function createLiveDependencies(options: {
     bchCashAddress: address,
   };
 }
+
+/**
+ * Dependencies for someone paying a pay link: only the EVM wallet signs. The Bitcoin Cash side
+ * pays the link's recipient, and its claim needs no wallet and no signature, so the payer needs
+ * no Bitcoin Cash wallet at all.
+ */
+export function createPayerDependencies(options: {
+  readonly evm: EvmWallet;
+  readonly solverUrl: string;
+  readonly chainId: number;
+  /** The link's recipient: where the Bitcoin Cash payment goes. */
+  readonly recipientCashAddress: string;
+}): UserSwapDependencies {
+  const { evm, solverUrl, chainId, recipientCashAddress } = options;
+  return {
+    solver: new SolverClient({ baseUrl: solverUrl }),
+    evmSigner: evmSignerFromWallet(evm),
+    evmChain: createBrowserEvmChain(chainId),
+    bchSigner: {
+      signTransaction: () =>
+        Promise.reject(
+          new Error('A payment to a pay link needs no Bitcoin Cash signature.'),
+        ),
+    },
+    bchChain: createBrowserBchChain({ solverUrl }),
+    store: createLocalRecoveryStore(),
+    bchNetwork: 'mainnet',
+    bchCashAddress: recipientCashAddress,
+  };
+}

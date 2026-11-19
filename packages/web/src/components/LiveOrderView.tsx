@@ -42,6 +42,12 @@ export interface LiveOrderViewProps {
   readonly orderId: string;
   /** Replaced in tests; production builds it from the connected wallets and the configured solver. */
   readonly dependencies?: UserSwapDependencies | undefined;
+  /** Lock and carry on by itself (as when "Start swap" was pressed). */
+  readonly start?: boolean | undefined;
+  /** Inside another page: no title of its own. */
+  readonly embedded?: boolean | undefined;
+  /** Other words for the steps (a payment to a pay link says "the owner is paid"). */
+  readonly labels?: Readonly<Record<string, string>> | undefined;
 }
 
 /**
@@ -50,11 +56,17 @@ export interface LiveOrderViewProps {
  * return later lands exactly where the swap is. A swap that was just started locks, waits and
  * claims by itself; one that was only opened waits and claims, and asks before it locks.
  */
-export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
+export function LiveOrderView({
+  orderId,
+  dependencies,
+  start,
+  embedded = false,
+  labels,
+}: LiveOrderViewProps) {
   const wallets = useContext(WalletContext);
   const location = useLocation();
   const startedByUser =
-    (location.state as { start?: boolean } | null)?.start === true;
+    start ?? (location.state as { start?: boolean } | null)?.start === true;
   const [state, setState] = useState<SwapState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -349,12 +361,14 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
 
   return (
     <div
-      className="mx-auto max-w-lg px-4 py-8 sm:px-6"
+      className={embedded ? '' : 'mx-auto max-w-lg px-4 py-8 sm:px-6'}
       data-testid="live-order"
     >
-      <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text">
-        Your swap
-      </h1>
+      {!embedded && (
+        <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text">
+          Your swap
+        </h1>
+      )}
       <p className="mt-1 break-all font-mono text-[11px] text-text-dim">
         {orderId}
       </p>
@@ -440,7 +454,7 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
                         : 'text-text-dim'
                   }
                 >
-                  {item.label}
+                  {labels?.[item.id] ?? item.label}
                 </p>
                 {active && state?.waiting && (
                   <p className="mt-0.5 text-xs text-text-muted">

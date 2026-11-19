@@ -151,3 +151,10 @@ export function tryReserveLiquidity(
     reservation,
   };
 }
+
+/**
+ * The smallest value of any swap, pay link or send link: one US dollar. Fixed in code, not a
+ * setting: a smaller transaction cannot cover its own network costs.
+ */
+export const MIN_TRANSACTION_USD = 1;
+export const MIN_TRANSACTION_USD_MICROS = 1_000_000n;

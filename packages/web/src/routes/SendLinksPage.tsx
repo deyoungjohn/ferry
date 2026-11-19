@@ -1,3 +1,4 @@
+import { MIN_TRANSACTION_USD } from '@ferry/core';
 import { useState, useContext, type FormEvent } from 'react';
 import { SEND_LINK_NOTE_MAX_LENGTH } from '@ferry/core/api';
 import { SolverClient } from '@ferry/solver-client';
@@ -153,6 +154,10 @@ export function SendLinksPage({
     const numAmount = parseFloat(amount);
     if (!numAmount || numAmount <= 0) {
       setError('Please enter a valid amount');
+      return;
+    }
+    if (numAmount < MIN_TRANSACTION_USD) {
+      setError('The minimum is $' + MIN_TRANSACTION_USD.toFixed(2) + '.');
       return;
     }
 
