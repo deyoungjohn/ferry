@@ -203,6 +203,7 @@ export async function startSolver(
     solverBchWif: config.solverBchWif,
     bchNetwork: config.network === 'mainnet' ? 'mainnet' : 'chipnet',
     executionReady: config.executionReady,
+    onEngineEvent: (info, message) => logger.info(info, message),
     onOrderError: (orderId, status, error) =>
       logger.error(
         {

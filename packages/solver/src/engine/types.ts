@@ -83,6 +83,9 @@ export interface EngineConfig {
   executionReady?: boolean | undefined;
   dsproofWindowMs?: number | undefined; // default 5000 ms
   pollIntervalMs?: number | undefined;
+  /** Called on every state change of an order, and with a summary of each pass. */
+  onEngineEvent?:
+    ((info: Record<string, unknown>, message: string) => void) | undefined;
   /** Called when stepping an order fails; the daemon logs it (never swallowed silently). */
   onOrderError?:
     ((orderId: string, status: string, error: unknown) => void) | undefined;

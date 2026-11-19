@@ -101,6 +101,8 @@ export class SolverEngine {
   private readonly pollIntervalMs: number;
   private passInFlight = false;
   private readonly onOrderError?: EngineConfig['onOrderError'];
+  private readonly onEngineEvent?: EngineConfig['onEngineEvent'];
+  private lastSummary = '';
   private readonly lastErrors = new Map<string, string>();
   private readonly bchExecutor: ActionExecutor;
   private readonly evmExecutor: ActionExecutor;
@@ -121,6 +123,7 @@ export class SolverEngine {
     this.dsproofWindowMs = config.dsproofWindowMs ?? 5000;
     this.pollIntervalMs = config.pollIntervalMs ?? 5000;
     this.onOrderError = config.onOrderError;
+    this.onEngineEvent = config.onEngineEvent;
     this.solverBchWif = config.solverBchWif;
     this.bchNetwork = config.bchNetwork ?? 'chipnet';
     this.bchExecutor = bchExecutor ?? new ActionExecutor(this.db, this.bchPort);
@@ -314,6 +317,15 @@ export class SolverEngine {
     event: SolverEvent,
   ): OrderStatus {
     const res = transition(solverOrder, event);
+    this.onEngineEvent?.(
+      {
+        orderId: solverOrder.id,
+        from: solverOrder.status,
+        to: res.nextStatus,
+        event: event.type,
+      },
+      'Order moved',
+    );
     solverOrder.status = res.nextStatus;
     if (res.mutations) {
       Object.assign(solverOrder, res.mutations);
@@ -354,6 +366,16 @@ export class SolverEngine {
 
   async reconcileOrders(): Promise<void> {
     const nonTerminalOrders = this.db.listNonTerminalOrders();
+    const summary = nonTerminalOrders
+      .map((o) => `${o.id.slice(0, 12)}:${o.status}`)
+      .join(' ');
+    if (summary !== this.lastSummary) {
+      this.lastSummary = summary;
+      this.onEngineEvent?.(
+        { open: summary || 'none' },
+        'Engine pass: open orders',
+      );
+    }
     let firstError: unknown;
     let failed = false;
     for (const orderRecord of nonTerminalOrders) {
