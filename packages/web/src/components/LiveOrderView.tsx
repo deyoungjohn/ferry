@@ -98,7 +98,12 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
         sessionRef.current = session;
         session.subscribe((next) => active && setState(next));
         setState(session.state);
-        await carryOn(session, startedByUser);
+        const signerWallet =
+          session.state.direction === 'EVM_TO_BCH'
+            ? wallets?.evm
+            : wallets?.bch;
+        const canSign = !wallets || signerWallet?.status === 'connected';
+        await carryOn(session, startedByUser && canSign);
       } catch (cause) {
         if (active) setError(messageOf(cause));
       }
@@ -229,6 +234,13 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
   const refundReady = state?.step === 'refund';
   const needsLockStart = state?.step === 'lock' && !running.current;
   const waitingForWallets = !dependencies && !wallets?.bch.address;
+  // The wallet that signs the lock must be connected now (a remembered address is not enough).
+  const signer =
+    state?.direction === 'EVM_TO_BCH' ? wallets?.evm : wallets?.bch;
+  const signerMissing =
+    Boolean(wallets) &&
+    state?.step === 'lock' &&
+    signer?.status !== 'connected';
 
   return (
     <div
@@ -251,6 +263,18 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
           then lock). If the second request does not appear, open your wallet
           from the browser toolbar or extensions menu: some wallets, OKX
           included, do not pop up again by themselves.
+        </p>
+      )}
+
+      {signerMissing && (
+        <p
+          className="mt-4 rounded-lg border border-warn/30 bg-warn/10 p-3 text-xs text-warn"
+          data-testid="order-needs-signer"
+        >
+          Connect your{' '}
+          {state?.direction === 'EVM_TO_BCH' ? 'EVM' : 'Bitcoin Cash'} wallet
+          (the pill at the top right) to lock your funds. Nothing has been
+          locked.
         </p>
       )}
 
@@ -356,6 +380,7 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
           <button
             type="button"
             data-testid="order-lock-now"
+            disabled={signerMissing}
             onClick={() => void carryOn(sessionRef.current!, true)}
             className="h-10 rounded-pill bg-olive px-5 font-semibold text-text"
           >

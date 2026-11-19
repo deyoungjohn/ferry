@@ -483,6 +483,14 @@ export function SwapCard({
     if (!evm.address) return { problem: 'Connect your EVM wallet first.' };
     if (!bchAddress)
       return { problem: 'Connect your Bitcoin Cash wallet first.' };
+    // The wallet that signs the lock must be connected now: a remembered address is not enough.
+    if (isReverse && walletContext?.bch.status !== 'connected')
+      return {
+        problem:
+          'Reconnect your Bitcoin Cash wallet: it is remembered but not connected, so it cannot sign the lock.',
+      };
+    if (!isReverse && evm.status !== 'connected')
+      return { problem: 'Reconnect your EVM wallet to sign the lock.' };
     const bchToken = (
       isReverse ? selectedBchToken : receiveTokenSymbolRaw
     ).replace(/^t/, '');

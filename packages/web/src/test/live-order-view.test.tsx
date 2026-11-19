@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserSwapSession } from '@ferry/user-flow';
 import { LiveOrderView } from '../components/LiveOrderView';
+import { WalletContext } from '../lib/wallet/context';
 import { createLocalRecoveryStore } from '../lib/live/recovery-store';
 
 const ORDER = `0x${'ab'.repeat(32)}` as const;
@@ -145,5 +146,25 @@ describe('the order page', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('does not offer to lock when the wallet that signs is only remembered, not connected', async () => {
+    const session = fakeSession('lock');
+    session.state = { ...session.state, direction: 'BCH_TO_EVM' } as never;
+    vi.spyOn(UserSwapSession, 'resume').mockResolvedValue(session as never);
+    const wallets = {
+      evm: { status: 'connected', address: '0x1' },
+      bch: { status: 'offline', address: { address: 'bitcoincash:q' } },
+    };
+    render(
+      <MemoryRouter>
+        <WalletContext.Provider value={wallets as never}>
+          <LiveOrderView orderId={ORDER} dependencies={{} as never} />
+        </WalletContext.Provider>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId('order-needs-signer')).toBeInTheDocument();
+    expect(screen.getByTestId('order-lock-now')).toBeDisabled();
+    expect(session.lock).not.toHaveBeenCalled();
   });
 });
