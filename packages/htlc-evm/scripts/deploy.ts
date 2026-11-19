@@ -14,6 +14,7 @@ import {
 import type { Address, Hex, PublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { loadChainConfig } from '@ferry/chain-config';
+import { envFileCandidates, findSetting } from './env-file.js';
 import type { ChainId, Network } from '@ferry/chain-config';
 
 export const FERRY_HTLC_SALT = keccak256(stringToHex('ferry-htlc.v1'));
@@ -252,11 +253,13 @@ function parseCliArgs(argv: string[]): {
   chain?: ChainId | undefined;
   network: Network;
   broadcast: boolean;
+  envFile?: string | undefined;
 } {
   let rpcUrl: string | undefined;
   let chain: ChainId | undefined;
   let network: Network = 'mainnet';
   let broadcast = false;
+  let envFile: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -266,12 +269,14 @@ function parseCliArgs(argv: string[]): {
       chain = argv[++i] as ChainId;
     } else if (arg === '--network' && argv[i + 1]) {
       network = argv[++i] as Network;
+    } else if (arg === '--env-file' && argv[i + 1]) {
+      envFile = argv[++i];
     } else if (arg === '--broadcast') {
       broadcast = true;
     }
   }
 
-  return { rpcUrl, chain, network, broadcast };
+  return { rpcUrl, chain, network, broadcast, envFile };
 }
 
 async function main(): Promise<void> {
@@ -296,7 +301,22 @@ async function main(): Promise<void> {
     factory = getAddress(chainEntry.create2Factory.address);
   }
 
-  const rawKey = process.env['DEPLOYER_EVM_PRIVATE_KEY'];
+  // The key comes from the environment, else from an env file (--env-file, ENV_FILE, the
+  // repository's .env.mainnet.local or .env.local, ~/ferry-solver.env). Only its source is printed.
+  const repoRoot = resolve(fileURLToPath(import.meta.url), '../../../..');
+  const found = findSetting(
+    'DEPLOYER_EVM_PRIVATE_KEY',
+    envFileCandidates(repoRoot, args.envFile),
+  );
+  const rawKey = found?.value;
+  if (args.broadcast) {
+    console.error(
+      found
+        ? `Deployer key read from ${found.source}.`
+        : 'No DEPLOYER_EVM_PRIVATE_KEY in the environment or in any env file (looked in: ' +
+            `${envFileCandidates(repoRoot, args.envFile).join(', ')}).`,
+    );
+  }
   const privateKey =
     rawKey && rawKey.length > 0
       ? ((rawKey.startsWith('0x') ? rawKey : `0x${rawKey}`) as Hex)
