@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { TxLink } from '../TxLink';
 
 export interface ProcessTx {
@@ -25,65 +26,66 @@ export function ProcessSteps({
   readonly steps: readonly ProcessStep[];
 }) {
   return (
-    <ol className="space-y-3" data-testid="process-steps">
+    <ol className="flex flex-1 flex-col" data-testid="process-steps">
       {steps.map((step, index) => (
-        <li
-          key={step.id}
-          data-testid={`process-step-${step.id}`}
-          data-state={step.state}
-          className={`relative flex items-start gap-3 rounded-lg border p-3 transition-colors ${
-            step.state === 'active'
-              ? 'border-lime/40 bg-surface-2'
-              : step.state === 'done'
-                ? 'border-hairline bg-surface-1/50'
-                : 'border-hairline bg-surface-1'
-          }`}
-        >
-          {index < steps.length - 1 && (
+        <Fragment key={step.id}>
+          <li
+            data-testid={`process-step-${step.id}`}
+            data-state={step.state}
+            className={`relative flex items-start gap-3 rounded-lg border p-3 transition-colors ${
+              step.state === 'active'
+                ? 'border-lime/40 bg-surface-2'
+                : step.state === 'done'
+                  ? 'border-hairline bg-surface-1/50'
+                  : 'border-hairline bg-surface-1'
+            }`}
+          >
             <span
               aria-hidden="true"
-              className={`absolute top-full left-[22px] h-3 w-px ${
+              className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-full text-xs ${
+                step.state === 'done'
+                  ? 'bg-lime text-lime-ink'
+                  : step.state === 'active'
+                    ? 'border border-lime text-lime'
+                    : 'border border-hairline text-text-dim'
+              }`}
+            >
+              {step.state === 'done' ? '✓' : index + 1}
+            </span>
+            <div className="min-w-0">
+              <p
+                className={
+                  step.state === 'active'
+                    ? 'font-medium text-text'
+                    : step.state === 'done'
+                      ? 'text-text-muted'
+                      : 'text-text-dim'
+                }
+              >
+                {step.label}
+              </p>
+              {step.at ? (
+                <p className="mt-0.5 text-xs tabular-nums text-text-dim">
+                  {formatStepTime(step.at)}
+                </p>
+              ) : null}
+              {step.state === 'active' && step.note && (
+                <p className="mt-0.5 text-xs text-text-muted">{step.note}</p>
+              )}
+              {step.txs?.map((tx) => (
+                <TxLink key={tx.label} {...tx} />
+              ))}
+            </div>
+          </li>
+          {index < steps.length - 1 && (
+            <li
+              aria-hidden="true"
+              className={`ml-[22px] min-h-3 w-px flex-1 ${
                 step.state === 'done' ? 'bg-lime' : 'bg-hairline'
               }`}
             />
           )}
-          <span
-            aria-hidden="true"
-            className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-full text-xs ${
-              step.state === 'done'
-                ? 'bg-lime text-lime-ink'
-                : step.state === 'active'
-                  ? 'border border-lime text-lime'
-                  : 'border border-hairline text-text-dim'
-            }`}
-          >
-            {step.state === 'done' ? '✓' : index + 1}
-          </span>
-          <div className="min-w-0">
-            <p
-              className={
-                step.state === 'active'
-                  ? 'font-medium text-text'
-                  : step.state === 'done'
-                    ? 'text-text-muted'
-                    : 'text-text-dim'
-              }
-            >
-              {step.label}
-            </p>
-            {step.at ? (
-              <p className="mt-0.5 text-xs tabular-nums text-text-dim">
-                {formatStepTime(step.at)}
-              </p>
-            ) : null}
-            {step.state === 'active' && step.note && (
-              <p className="mt-0.5 text-xs text-text-muted">{step.note}</p>
-            )}
-            {step.txs?.map((tx) => (
-              <TxLink key={tx.label} {...tx} />
-            ))}
-          </div>
-        </li>
+        </Fragment>
       ))}
     </ol>
   );

@@ -42,7 +42,7 @@ describe('claiming a send link', () => {
       (e: unknown) => e,
     );
     expect(String((error as { message?: unknown } | null)?.message)).toContain(
-      `This link pays ${RECIPIENT} only`,
+      'The connected wallet is not the intended recipient.',
     );
     expect(relayed).toBe(false);
   });

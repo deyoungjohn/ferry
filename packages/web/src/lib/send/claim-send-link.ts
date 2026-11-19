@@ -47,9 +47,7 @@ export async function claimSendLinkLive(
   if (deps.evmSigner && input.recipientEvmAddress) {
     const signer = (await deps.evmSigner.getAddress()).toLowerCase();
     if (signer !== input.recipientEvmAddress.toLowerCase()) {
-      throw new Error(
-        `This link pays ${input.recipientEvmAddress} only. Connect that wallet to claim.`,
-      );
+      throw new Error('The connected wallet is not the intended recipient.');
     }
     if (lockId) {
       const chainForSig =

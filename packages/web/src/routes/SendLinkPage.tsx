@@ -12,6 +12,7 @@ import { getModeCopy } from '../lib/copy';
 import { SolverContext } from '../lib/solver/context';
 import type { SendLinkView } from '../lib/solver/types';
 import { extractSecretFromHash } from '../lib/send/secret';
+import { loadSendLink } from '../lib/paylink/send-store';
 import {
   claimSendLinkLive,
   type ClaimSendLinkDependencies,
@@ -84,11 +85,17 @@ export function SendLinkPage({
 
   const isLive = propIsLive ?? import.meta.env?.VITE_LIVE_EXECUTION === '1';
 
+  // The secret rides in the link's fragment. The sender's own browser also keeps it, so a link of
+  // theirs opens ready to claim even when the fragment was lost on the way.
   const [secret] = useState<Hex32 | null>(() => {
-    if (initialSecret) return extractSecretFromHash(initialSecret);
-    return typeof window !== 'undefined'
-      ? extractSecretFromHash(window.location.hash)
-      : null;
+    const fromLink = initialSecret
+      ? extractSecretFromHash(initialSecret)
+      : typeof window !== 'undefined'
+        ? extractSecretFromHash(window.location.hash)
+        : null;
+    if (fromLink) return fromLink;
+    const kept = id ? loadSendLink(id)?.secret : undefined;
+    return kept ? extractSecretFromHash(kept) : null;
   });
 
   const solver = solverContext;
@@ -156,7 +163,7 @@ export function SendLinkPage({
 
         if (!activeSecret) {
           throw new Error(
-            'Claim secret is missing from the link fragment (#...).',
+            'This link is incomplete. Open the full link the sender shared: it ends with a long code after #.',
           );
         }
 
@@ -411,7 +418,7 @@ export function SendLinkPage({
 
         {steps && (
           <section
-            className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card"
+            className="flex flex-col rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card"
             aria-label="Progress"
             data-testid="send-link-progress"
           >

@@ -544,7 +544,11 @@ export function SendLinksPage({
                       {copied ? 'Copied' : 'Copy'}
                     </button>
                     <Link
-                      to={`/send/${activeCreated.id}`}
+                      to={
+                        activeCreated.secret
+                          ? `/send/${activeCreated.id}#${activeCreated.secret.replace(/^0x/i, '')}`
+                          : `/send/${activeCreated.id}`
+                      }
                       data-testid="open-send-link"
                       className="shrink-0 rounded-pill bg-surface-3 px-3 py-1 font-semibold text-text transition-colors hover:text-lime"
                     >
