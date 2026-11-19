@@ -85,7 +85,7 @@ export function NavBar() {
                 className="hidden items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 py-1.5 text-[11px] text-text-muted transition-colors hover:text-text sm:inline-flex"
               >
                 <span
-                  className="size-1.5 rounded-full bg-ok shadow-[0_0_10px_var(--ok)]"
+                  className="size-1.5 rounded-full bg-ok"
                   aria-hidden="true"
                 />
                 {NETWORK_LABEL}

@@ -145,7 +145,7 @@ function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
           className="mb-4 flex items-center justify-between rounded-lg border border-warn/30 bg-warn/10 px-3.5 py-1.5 text-xs text-warn"
         >
           <div className="flex items-center gap-2">
-            <span className="size-2 rounded-full bg-warn shadow-[0_0_8px_var(--warn)]" />
+            <span className="size-2 rounded-full bg-warn" />
             <span className="font-semibold">Simulated Order</span>
           </div>
           <span>Simulated state machine · No explorer links</span>
@@ -157,7 +157,7 @@ function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-hairline pb-4 mb-5">
           <div>
-            <span className="text-xs uppercase tracking-wider font-semibold text-lime">
+            <span className="text-xs font-semibold text-lime">
               {order.lane === 'fast'
                 ? 'Fast Lane (≤ $25)'
                 : 'Safe Lane (1-conf)'}
@@ -240,7 +240,7 @@ function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
               <span className="text-xs text-text-muted block mb-1">
                 {copy.sendLabel}
               </span>
-              <div className="text-xl font-bold text-text">
+              <div className="text-xl font-semibold text-text">
                 {order.fromAmount.toFixed(2)} {order.fromToken}
               </div>
               <span className="text-xs text-text-dim block mt-0.5">
@@ -252,7 +252,7 @@ function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
               <span className="text-xs text-text-muted block mb-1">
                 {copy.receiveLabel}
               </span>
-              <div className="text-xl font-bold text-lime">
+              <div className="text-xl font-semibold text-lime">
                 {order.toAmount.toFixed(2)} {order.toToken}
               </div>
               <span className="text-xs text-text-dim block mt-0.5">
@@ -275,7 +275,7 @@ function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
         >
           <div className="flex items-start justify-between gap-3">
             <div>
-              <span className="text-xs font-semibold uppercase tracking-wider block text-text-dim mb-1">
+              <span className="text-xs font-semibold block text-text-dim mb-1">
                 Current Status
               </span>
               <p className="text-sm font-medium">{order.waitDescription}</p>
@@ -306,7 +306,7 @@ function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
         <div className="space-y-6">
           {/* USER STEPS SECTION */}
           <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
+            <h2 className="text-xs font-semibold text-text-muted mb-3 flex items-center gap-2">
               <span className="size-2 rounded-full bg-lime" />
               Your Steps (User)
             </h2>
@@ -319,7 +319,7 @@ function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
                     userLockConfirmed
                       ? 'border-ok bg-ok'
                       : order.status === 'USER_LOCK_SEEN'
-                        ? 'border-lime bg-lime animate-pulse'
+                        ? 'border-lime bg-lime'
                         : 'border-surface-4 bg-surface-2'
                   }`}
                 />
@@ -357,7 +357,7 @@ function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
                     userClaimConfirmed
                       ? 'border-ok bg-ok'
                       : solverLockConfirmed
-                        ? 'border-lime bg-lime animate-pulse'
+                        ? 'border-lime bg-lime'
                         : 'border-surface-4 bg-surface-2'
                   }`}
                 />
@@ -390,7 +390,7 @@ function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
 
           {/* SOLVER STEPS SECTION */}
           <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
+            <h2 className="text-xs font-semibold text-text-muted mb-3 flex items-center gap-2">
               <span className="size-2 rounded-full bg-surface-4" />
               Solver Steps (Counterparty)
             </h2>
@@ -403,7 +403,7 @@ function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
                     solverLockConfirmed
                       ? 'border-ok bg-ok'
                       : userLockConfirmed
-                        ? 'border-lime bg-lime animate-pulse'
+                        ? 'border-lime bg-lime'
                         : 'border-surface-4 bg-surface-2'
                   }`}
                 />
@@ -457,7 +457,7 @@ function MockSwapStatus({ orderId }: { orderId: string | undefined }) {
         {/* Transactions Section */}
         {(order.transactions?.length ?? 0) > 0 && (
           <div className="mt-8 border-t border-hairline pt-6">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-text-muted mb-3">
+            <h2 className="text-xs font-semibold text-text-muted mb-3">
               On-Chain Transactions
             </h2>
 

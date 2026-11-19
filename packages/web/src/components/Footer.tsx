@@ -78,7 +78,7 @@ export function Footer() {
         {!internal && (
           <p
             aria-hidden="true"
-            className="flex select-none items-end justify-center text-[clamp(72px,19vw,260px)] leading-[0.8] font-extrabold tracking-[-0.04em] text-lime [font-variant-caps:all-small-caps]"
+            className="flex select-none items-end justify-center text-[clamp(72px,19vw,260px)] leading-[0.8] font-semibold tracking-[-0.04em] text-lime [font-variant-caps:all-small-caps]"
           >
             {SITE.bigWord}
             <span className="mb-[0.06em] ml-[0.04em] inline-block size-[0.14em] rounded-full bg-lime" />

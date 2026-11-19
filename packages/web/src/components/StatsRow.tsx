@@ -58,17 +58,17 @@ export function StatsRow() {
             </div>
             <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-3 w-full border-t border-hairline pt-4">
               <div>
-                <p className="text-2xl font-bold text-text">0</p>
+                <p className="text-2xl font-semibold text-text">0</p>
                 <p className="mt-1 text-xs text-text-muted">Completed swaps</p>
               </div>
               <div className="sm:border-x sm:border-hairline sm:px-4">
-                <p className="text-2xl font-bold text-text">$0.00</p>
+                <p className="text-2xl font-semibold text-text">$0.00</p>
                 <p className="mt-1 text-xs text-text-muted">
                   Total settled volume
                 </p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-text">—</p>
+                <p className="text-2xl font-semibold text-text">—</p>
                 <p className="mt-1 text-xs text-text-muted">Median time</p>
               </div>
             </div>
@@ -76,13 +76,13 @@ export function StatsRow() {
         ) : (
           <div className="grid grid-cols-1 gap-6 text-center sm:grid-cols-3">
             <div>
-              <p className="text-3xl font-bold text-text">
+              <p className="text-3xl font-semibold text-text">
                 {stats.completedSwaps}
               </p>
               <p className="mt-1 text-xs text-text-muted">Completed swaps</p>
             </div>
             <div className="sm:border-x sm:border-hairline sm:px-4">
-              <p className="text-3xl font-bold text-text">
+              <p className="text-3xl font-semibold text-text">
                 ${stats.totalVolumeUsd.toFixed(2)}
               </p>
               <p className="mt-1 text-xs text-text-muted">
@@ -90,7 +90,7 @@ export function StatsRow() {
               </p>
             </div>
             <div>
-              <p className="text-3xl font-bold text-lime">
+              <p className="text-3xl font-semibold text-lime">
                 {formatMedian(stats.medianSecondsFast)}
               </p>
               <p className="mt-1 text-xs text-text-muted">Median time</p>

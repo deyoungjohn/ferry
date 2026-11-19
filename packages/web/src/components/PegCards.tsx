@@ -95,7 +95,7 @@ export function PegCards() {
                   {peg.change24hPercent.toFixed(2)}%
                 </span>
               </div>
-              <p className="mt-1 font-mono text-2xl font-bold text-text">
+              <p className="mt-1 font-mono text-2xl font-semibold text-text">
                 ${peg.priceUsd.toFixed(2)}
               </p>
               <div className="mt-1 flex items-center gap-2 text-[11px] text-text-dim">
@@ -105,7 +105,7 @@ export function PegCards() {
                     <span>·</span>
                     <span
                       data-testid="peg-source-tag"
-                      className="font-mono text-[10px] text-text-muted"
+                      className="font-mono text-xs text-text-muted"
                     >
                       {peg.source}
                     </span>
@@ -115,9 +115,7 @@ export function PegCards() {
             </div>
             <div className="flex flex-col items-end">
               <Sparkline points={peg.sparkline} />
-              <span className="mt-2 text-[10px] text-text-dim">
-                24h History
-              </span>
+              <span className="mt-2 text-xs text-text-dim">24h History</span>
             </div>
           </div>
         ))}

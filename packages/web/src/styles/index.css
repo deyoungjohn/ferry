@@ -69,61 +69,8 @@
     overflow-x: clip;
   }
 
-  .ferry-page::before {
-    content: '';
-    position: absolute;
-    z-index: -1;
-    top: -14rem;
-    left: 38%;
-    width: min(68rem, 120vw);
-    height: 54rem;
-    transform: translateX(-20%);
-    background: radial-gradient(
-      ellipse at center,
-      color-mix(in srgb, var(--lime) 14%, transparent) 0%,
-      color-mix(in srgb, var(--lime) 4%, transparent) 38%,
-      transparent 68%
-    );
-    pointer-events: none;
-  }
-
   .swap-stage {
     position: relative;
-  }
-
-  .swap-stage::before {
-    content: '';
-    position: absolute;
-    z-index: -1;
-    inset: 8% 4% -12% -4%;
-    background: radial-gradient(
-      ellipse at 60% 55%,
-      color-mix(in srgb, var(--lime) 10%, transparent) 0%,
-      transparent 62%
-    );
-    filter: blur(28px);
-    pointer-events: none;
-  }
-
-  .horizon-arc {
-    position: absolute;
-    z-index: -1;
-    right: 2%;
-    bottom: -4.5rem;
-    left: 2%;
-    height: 11rem;
-    border-top: 1px solid color-mix(in srgb, var(--lime) 34%, transparent);
-    border-radius: 50% 50% 0 0 / 100% 100% 0 0;
-    background: radial-gradient(
-      ellipse at 50% 0%,
-      color-mix(in srgb, var(--lime) 10%, transparent) 0%,
-      transparent 64%
-    );
-    pointer-events: none;
-  }
-
-  .text-glow {
-    text-shadow: 0 0 42px color-mix(in srgb, var(--lime) 22%, transparent);
   }
 
   .card-ring {

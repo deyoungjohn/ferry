@@ -57,7 +57,7 @@ export function HelpPage() {
           return (
             <article
               key={section.id}
-              className="rounded-card border border-hairline bg-surface-1/80 p-5 backdrop-blur-md transition-all sm:p-6"
+              className="rounded-card border border-hairline bg-surface-1/80 p-5 backdrop-blur-md transition-colors sm:p-6"
             >
               <button
                 type="button"
@@ -76,7 +76,7 @@ export function HelpPage() {
                 </div>
                 <span
                   aria-hidden="true"
-                  className={`mt-1 flex size-6 shrink-0 items-center justify-center rounded-full border border-hairline bg-surface-2 text-xs font-bold text-text-muted transition-transform duration-200 ${
+                  className={`mt-1 flex size-6 shrink-0 items-center justify-center rounded-full border border-hairline bg-surface-2 text-xs font-semibold text-text-muted transition-transform duration-200 ${
                     isExpanded ? 'rotate-180 text-lime' : ''
                   }`}
                 >

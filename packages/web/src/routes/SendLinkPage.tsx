@@ -235,7 +235,7 @@ export function SendLinkPage({
                   </span>
                 )}
               </div>
-              <h1 className="mt-1 text-xl font-bold text-text">
+              <h1 className="mt-1 text-xl font-semibold text-text">
                 {link.amount !== null
                   ? `Receive ${link.amount.toFixed(2)} ${link.token}`
                   : `Receive ${link.token}`}

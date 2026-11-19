@@ -134,3 +134,12 @@ export function ExternalLinkIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function AlertIcon(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M12 4l9 16H3L12 4z" />
+      <path d="M12 10v4M12 17h.01" />
+    </svg>
+  );
+}

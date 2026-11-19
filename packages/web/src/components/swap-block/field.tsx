@@ -37,7 +37,7 @@ export function Field({
     <div className="relative rounded-2xl border border-border/50 bg-background/40 p-3.5">
       <label
         htmlFor={id}
-        className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+        className="mb-2 block text-[11px] font-medium text-muted-foreground"
       >
         {side === 'from' ? t('youPay') : t('youGet')}
       </label>
@@ -108,7 +108,7 @@ export function Field({
             <button
               type="button"
               onClick={() => onAmount?.(String(token.balance))}
-              className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              className="rounded px-1.5 py-0.5 text-xs font-semibold text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             >
               {t('max')}
             </button>

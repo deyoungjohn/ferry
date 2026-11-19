@@ -22,12 +22,12 @@ export function LandingPage() {
     <div className="pb-16">
       <section className="mx-auto flex max-w-3xl flex-col items-center px-4 pt-16 pb-10 text-center sm:px-6 sm:pt-24">
         <div className="mb-5 inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 py-1 text-[11px] text-text-muted">
-          <span className="size-1.5 rounded-full bg-lime shadow-[0_0_8px_var(--lime)]" />
+          <span className="size-1.5 rounded-full bg-lime" />
           Built for BCH BLAZE 2026
         </div>
         <h1 className="max-w-2xl text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-text sm:text-6xl">
           Move dollars onto Bitcoin Cash{' '}
-          <span className="font-accent inline-block whitespace-nowrap italic text-lime text-glow">
+          <span className="font-accent inline-block whitespace-nowrap text-lime">
             without a bridge
           </span>
         </h1>

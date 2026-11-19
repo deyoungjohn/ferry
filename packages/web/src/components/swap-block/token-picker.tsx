@@ -171,7 +171,7 @@ export function TokenPicker({
             <div className="flex-1 overflow-y-auto px-3 pb-4 pt-3">
               {!q && chainFilter === 'all' && popular.length > 0 ? (
                 <>
-                  <p className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <p className="px-1 pb-2 text-[11px] font-semibold text-muted-foreground">
                     {t('popular')}
                   </p>
                   <div className="[scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex items-center gap-1.5 overflow-x-auto pb-3">
@@ -194,7 +194,7 @@ export function TokenPicker({
                 </>
               ) : null}
 
-              <p className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="px-1 pb-1.5 text-[11px] font-semibold text-muted-foreground">
                 {q ? t('results') : t('tokens')}
               </p>
               <ul className="flex flex-col gap-0.5">

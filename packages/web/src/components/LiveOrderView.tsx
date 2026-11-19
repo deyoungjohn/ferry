@@ -347,13 +347,12 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
 
       {signerMissing && (
         <p
-          className="mt-4 rounded-lg border border-warn/30 bg-warn/10 p-3 text-xs text-warn"
+          className="mt-4 text-xs text-text-muted"
           data-testid="order-needs-signer"
         >
-          Connect your{' '}
-          {state?.direction === 'EVM_TO_BCH' ? 'EVM' : 'Bitcoin Cash'} wallet
-          (the pill at the top right) to lock your funds. Nothing has been
-          locked.
+          Your {state?.direction === 'EVM_TO_BCH' ? 'EVM' : 'Bitcoin Cash'}{' '}
+          wallet is not connected. Start Swap opens the connection. Nothing has
+          been locked.
         </p>
       )}
 
@@ -376,10 +375,12 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
               key={item.id}
               data-testid={`order-step-${item.id}`}
               data-state={reached ? 'done' : active ? 'active' : 'todo'}
-              className={`relative flex items-start gap-3 rounded-lg border p-3 ${
+              className={`relative flex items-start gap-3 rounded-lg border p-3 transition-colors ${
                 active
-                  ? 'border-lime/40 bg-lime/5'
-                  : 'border-hairline bg-surface-1'
+                  ? 'border-lime/40 bg-surface-2'
+                  : reached
+                    ? 'border-hairline bg-surface-1/50'
+                    : 'border-hairline bg-surface-1'
               }`}
             >
               {index < STEPS.length - 1 && (
@@ -406,7 +407,11 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
               <div className="min-w-0">
                 <p
                   className={
-                    reached || active ? 'text-text' : 'text-text-muted'
+                    active
+                      ? 'font-medium text-text'
+                      : reached
+                        ? 'text-text-muted'
+                        : 'text-text-dim'
                   }
                 >
                   {item.label}
@@ -452,11 +457,16 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
           <button
             type="button"
             data-testid="order-lock-now"
-            disabled={signerMissing}
-            onClick={() => void carryOn(sessionRef.current!, true)}
+            // With the signing wallet not connected, the button opens that wallet's connection
+            // (the QR dialog for Bitcoin Cash); once connected, the same button locks.
+            onClick={() =>
+              signerMissing
+                ? signer?.connect()
+                : void carryOn(sessionRef.current!, true)
+            }
             className="h-10 rounded-pill bg-olive px-5 font-semibold text-text"
           >
-            Start swap: lock my funds
+            Start Swap
           </button>
         )}
         {refundReady && (

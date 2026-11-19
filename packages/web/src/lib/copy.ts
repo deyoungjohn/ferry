@@ -16,7 +16,7 @@ export const MODE_COPY: Record<SwapMode, ModeCopy> = {
     title: 'Swap',
     sendLabel: 'You send',
     receiveLabel: 'You receive',
-    actionLabel: 'Ferry it ›',
+    actionLabel: 'Ferry it',
     statusTitle: 'Swap Status',
     completedMessage: 'Swap completed successfully.',
   },

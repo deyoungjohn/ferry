@@ -152,9 +152,14 @@ describe('the order page', () => {
     const session = fakeSession('lock');
     session.state = { ...session.state, direction: 'BCH_TO_EVM' } as never;
     vi.spyOn(UserSwapSession, 'resume').mockResolvedValue(session as never);
+    const connect = vi.fn();
     const wallets = {
       evm: { status: 'connected', address: '0x1' },
-      bch: { status: 'offline', address: { address: 'bitcoincash:q' } },
+      bch: {
+        status: 'offline',
+        address: { address: 'bitcoincash:q' },
+        connect,
+      },
     };
     render(
       <MemoryRouter>
@@ -164,7 +169,9 @@ describe('the order page', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByTestId('order-needs-signer')).toBeInTheDocument();
-    expect(screen.getByTestId('order-lock-now')).toBeDisabled();
+    // The button opens the wallet's connection; it does not lock.
+    fireEvent.click(screen.getByTestId('order-lock-now'));
+    expect(connect).toHaveBeenCalled();
     expect(session.lock).not.toHaveBeenCalled();
   });
 });

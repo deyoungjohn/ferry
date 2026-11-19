@@ -15,6 +15,7 @@ import {
   type VerifiedSolverQuote,
 } from '@ferry/solver-client';
 import { getModeCopy, FAILURE_COPY } from '../lib/copy';
+import { AlertIcon } from './icons';
 import { LIVE_EXECUTION_ENABLED, NETWORK_PROFILE } from '../lib/config';
 import { useSolver } from '../lib/solver/useSolver';
 import { WalletContext } from '../lib/wallet/context';
@@ -703,7 +704,7 @@ export function SwapCard({
   ]);
 
   return (
-    <div className="swap-stage mx-auto w-full max-w-md px-4 pt-1 pb-4">
+    <div className="mx-auto w-full max-w-md px-4 pt-1 pb-4">
       {/* Solver status disclaimer banner */}
       {!solver.isLive() && (
         <div
@@ -711,7 +712,7 @@ export function SwapCard({
           className="mb-2 flex items-center justify-between rounded-lg border border-warn/30 bg-warn/10 px-3 py-1 text-xs"
         >
           <div className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-warn shadow-[0_0_8px_var(--warn)]" />
+            <span className="size-2 rounded-full bg-warn" />
             <span className="font-medium text-text">{solver.getLabel()}</span>
           </div>
           {!NETWORK_PROFILE.isMainnet && (
@@ -850,7 +851,7 @@ export function SwapCard({
                 ? `Destination EVM Address (${selectedChain.name})`
                 : 'Destination Bitcoin Cash Address'}
             </label>
-            <span className="text-[10px] text-text-dim">
+            <span className="text-xs text-text-dim">
               {isReverse ? 'Paste any EVM address' : 'CashAddr format'}
             </span>
           </div>
@@ -914,7 +915,7 @@ export function SwapCard({
               data-testid="address-validation-error"
               className="mt-1.5 text-[11px] font-medium text-danger flex items-center gap-1"
             >
-              <span>⚠️</span>
+              <AlertIcon className="size-3.5 shrink-0" />
               <span>
                 {isReverse
                   ? `Invalid EVM address format for ${selectedChain.name}. Must start with 0x followed by 40 hex characters.`
@@ -1204,7 +1205,7 @@ export function SwapCard({
             <button
               type="button"
               onClick={() => setIsReadOnly(false)}
-              className="ml-2 text-[10px] text-text underline hover:text-lime cursor-pointer shrink-0"
+              className="ml-2 text-xs text-text underline hover:text-lime cursor-pointer shrink-0"
             >
               Exit read-only
             </button>
@@ -1218,7 +1219,10 @@ export function SwapCard({
             className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn"
             role="alert"
           >
-            <p className="font-medium">⚠️ Reference price deviation</p>
+            <p className="flex items-center gap-1.5 font-medium">
+              <AlertIcon className="size-3.5 shrink-0" />
+              Reference price deviation
+            </p>
             <p className="mt-0.5 text-[11px] text-text-muted">{priceWarning}</p>
           </div>
         )}
@@ -1280,7 +1284,7 @@ export function SwapCard({
             </div>
 
             {/* Transparent pricing claim wording */}
-            <div className="pt-1 border-t border-hairline/50 text-center text-[10px] text-text-dim">
+            <div className="pt-1 border-t border-hairline/50 text-center text-xs text-text-dim">
               <span>{CHECKABLE_QUOTE_WORDING}</span>
             </div>
           </div>
@@ -1346,7 +1350,6 @@ export function SwapCard({
       </div>
 
       {/* Thin arc horizon underneath */}
-      <div className="horizon-arc" aria-hidden="true" />
     </div>
   );
 }

@@ -76,7 +76,7 @@ export class ErrorBoundary extends Component<
               <AlertCircleIcon className="size-6" />
             </div>
 
-            <h1 className="text-xl font-bold tracking-tight text-text sm:text-2xl">
+            <h1 className="text-xl font-semibold tracking-tight text-text sm:text-2xl">
               Something went wrong
             </h1>
 

@@ -29,7 +29,7 @@ export function NetworkBlockedPage() {
         <AlertTriangleIcon className="size-8" />
       </div>
 
-      <h1 className="text-2xl font-bold tracking-tight text-text sm:text-3xl">
+      <h1 className="text-2xl font-semibold tracking-tight text-text sm:text-3xl">
         {NETWORK_LABEL} Configuration Incomplete
       </h1>
 

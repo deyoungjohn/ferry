@@ -93,7 +93,7 @@ export function PayLinksPage() {
       {/* Header */}
       <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-text">
+          <h1 className="text-2xl font-semibold tracking-tight text-text">
             Pay Links
           </h1>
           <p className="text-xs text-text-muted">

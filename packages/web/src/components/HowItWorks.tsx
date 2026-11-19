@@ -32,7 +32,7 @@ export function HowItWorks() {
               className="relative flex flex-col rounded-card border border-hairline bg-surface-1/60 p-6"
             >
               <div className="flex items-center justify-between mb-4">
-                <span className="font-mono text-xs font-bold text-lime">
+                <span className="font-mono text-xs font-semibold text-lime">
                   STEP {step.number}
                 </span>
                 <div className="flex size-9 items-center justify-center rounded-xl bg-surface-2 text-text">

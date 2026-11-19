@@ -325,7 +325,7 @@ export function RouteStatusPage() {
       {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-text">
+          <h1 className="text-2xl font-semibold tracking-tight text-text">
             {ROUTE_STATUS_COPY.title}
           </h1>
           <p className="text-xs text-text-muted mt-1">
@@ -448,7 +448,9 @@ export function RouteStatusPage() {
                     </span>
                     <span
                       className={
-                        opRoute.enabled ? 'text-ok font-bold' : 'text-danger'
+                        opRoute.enabled
+                          ? 'text-ok font-semibold'
+                          : 'text-danger'
                       }
                     >
                       {opRoute.enabled ? 'ACTIVE' : 'PAUSED'}
@@ -486,7 +488,7 @@ export function RouteStatusPage() {
           type="button"
           onClick={handleTestAllRoutes}
           disabled={testingAll || !solverReachable || !hasEnabledRoutes}
-          className="inline-flex items-center justify-center gap-2 rounded-pill bg-lime px-5 py-2 text-xs font-bold text-lime-ink hover:bg-lime/90 transition-colors disabled:opacity-40 cursor-pointer shrink-0 shadow-elev-pill"
+          className="inline-flex items-center justify-center gap-2 rounded-pill bg-lime px-5 py-2 text-xs font-semibold text-lime-ink hover:bg-lime/90 transition-colors disabled:opacity-40 cursor-pointer shrink-0 shadow-elev-pill"
         >
           {testingAll ? (
             <>
@@ -510,7 +512,7 @@ export function RouteStatusPage() {
             <div
               key={route.id}
               data-testid={`route-card-${route.id}`}
-              className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card transition-all hover:border-hairline/80"
+              className="rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card transition-colors hover:border-hairline/80"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-hairline pb-3 mb-3">
                 <div className="flex items-center gap-2.5">

@@ -156,7 +156,7 @@ export function PayLinkPage() {
               </span>
             )}
           </div>
-          <h1 className="mt-1 text-xl font-bold text-text print:text-black">
+          <h1 className="mt-1 text-xl font-semibold text-text print:text-black">
             Pay {requestedAmount.toFixed(2)} {token}
           </h1>
           {note && (
