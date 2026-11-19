@@ -560,6 +560,55 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(bad.statusCode).toBe(400);
     });
 
+    it('relay-claim refuses a claim signed by anyone but the recipient fixed in the order', async () => {
+      const { privateKeyToAccount, generatePrivateKey } =
+        await import('viem/accounts');
+      const { claimRequestTypedData } = await import('@ferry/core/api');
+      const recipient = privateKeyToAccount(generatePrivateKey());
+      const stranger = privateKeyToAccount(generatePrivateKey());
+      const now = Math.floor(Date.now() / 1000);
+      const orderId = ('0x' + 'f1'.repeat(32)) as `0x${string}`;
+      const lockId = ('0x' + 'f2'.repeat(32)) as `0x${string}`;
+      db.saveOrder({
+        id: orderId,
+        direction: 'BCH_TO_EVM',
+        status: 'SOLVER_LOCK_SEEN',
+        userCounterAddress: recipient.address,
+        lockId,
+        termsJson: JSON.stringify({
+          userEvmAddress: recipient.address,
+          evmChainId: 8453,
+          bchRefundHeight: 330100,
+          evmDeadline: now + 3600,
+        }),
+        hashLock: orderId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const typed = claimRequestTypedData({ chainId: 8453, orderId, lockId });
+      const bad = await stranger.signTypedData(typed);
+      const refused = await app.inject({
+        method: 'POST',
+        url: `/v1/orders/${orderId}/relay-claim`,
+        payload: { secret: '0x' + '11'.repeat(32), lockId, claimSig: bad },
+      });
+      expect(refused.statusCode).toBeGreaterThanOrEqual(400);
+      expect(JSON.stringify(refused.json())).toContain(
+        'Only ' + recipient.address,
+      );
+
+      // Signed by the recipient: the signature check passes (later checks may still refuse).
+      const good = await recipient.signTypedData(typed);
+      const passed = await app.inject({
+        method: 'POST',
+        url: `/v1/orders/${orderId}/relay-claim`,
+        payload: { secret: '0x' + '11'.repeat(32), lockId, claimSig: good },
+      });
+      expect(JSON.stringify(passed.json())).not.toContain(
+        'Only ' + recipient.address,
+      );
+    });
+
     it('refuses a pay link below one dollar, whatever the setting', async () => {
       const res = await app.inject({
         method: 'POST',

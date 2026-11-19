@@ -1,6 +1,7 @@
 import { listDeployedContracts } from '@ferry/chain-config/browser';
 import chainsData from '../../../../chain-config/src/data/chains.json';
 import { evmLockId, type Hex, type Hex32 } from '@ferry/core';
+import { claimRequestTypedData } from '@ferry/core/api';
 import type { EvmSignerPort } from '@ferry/user-flow';
 import { encodeFunctionData, parseAbi } from 'viem';
 import type { SendLinkSolverPort } from './ports';
@@ -40,12 +41,32 @@ export async function claimSendLinkLive(
     lockId = evmLockId(deps.solverEvmAddress, deps.hashLock);
   }
 
+  // Only the wallet the link was made for may ask for the claim: a different wallet is refused
+  // here, and the relay checks the signature again on its side.
+  let claimSig: Hex | undefined;
+  if (deps.evmSigner && input.recipientEvmAddress) {
+    const signer = (await deps.evmSigner.getAddress()).toLowerCase();
+    if (signer !== input.recipientEvmAddress.toLowerCase()) {
+      throw new Error(
+        `This link pays ${input.recipientEvmAddress} only. Connect that wallet to claim.`,
+      );
+    }
+    if (lockId) {
+      const chainForSig =
+        input.chainId ?? deps.chainId ?? (await deps.evmSigner.getChainId());
+      claimSig = await deps.evmSigner.signTypedData(
+        claimRequestTypedData({ chainId: chainForSig, orderId, lockId }),
+      );
+    }
+  }
+
   // 1. Try solver relay first
   if (deps.solver.relayClaim) {
     try {
       const relayRes = await deps.solver.relayClaim(orderId, {
         secret,
         ...(lockId ? { lockId } : {}),
+        ...(claimSig ? { claimSig } : {}),
       });
       if (relayRes.ok) {
         return {
@@ -54,8 +75,14 @@ export async function claimSendLinkLive(
           txHash: relayRes.txHash,
         };
       }
-    } catch {
-      // Relay not offered or failed; fall back to connected wallet
+    } catch (cause) {
+      // A refusal of the signature is final; any other failure falls back to the wallet.
+      if (
+        cause instanceof Error &&
+        /Only 0x[0-9a-fA-F]{40} can claim/.test(cause.message)
+      ) {
+        throw cause;
+      }
     }
   }
 

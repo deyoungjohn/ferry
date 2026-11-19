@@ -626,6 +626,7 @@ describe('Send Links Live Execution and Receiver Claim (Task B3-14)', () => {
           status: 'connected',
           address: dummyRecipient,
           chainId: 8453,
+          signTypedData: async () => `0x${'22'.repeat(65)}`,
           sendTransaction: async (tx: { to: string; data: string }) => {
             sent.push(tx);
             return ('0x' + '88'.repeat(32)) as Hex32;

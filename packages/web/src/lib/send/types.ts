@@ -35,6 +35,8 @@ export interface ClaimSendLinkLiveInput {
   readonly secret: Hex32;
   readonly lockId?: Hex32 | undefined;
   readonly chainId?: number | undefined;
+  /** The address the funds are fixed to; a different connected wallet is refused. */
+  readonly recipientEvmAddress?: string | undefined;
 }
 
 export interface ClaimSendLinkLiveResult {

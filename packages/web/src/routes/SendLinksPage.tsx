@@ -52,7 +52,10 @@ function toRow(link: SendLinkData): LinkRow {
           : { status: 'Open', tone: 'neutral' as const };
   return {
     id: link.id,
-    href: `/send/${link.id}`,
+    // With the secret in the fragment (kept only in this browser), so the link opens ready to claim.
+    href: link.secret
+      ? `/send/${link.id}#${link.secret.replace(/^0x/i, '')}`
+      : `/send/${link.id}`,
     amount: `${link.amount.toFixed(2)} ${link.destinationToken} (${link.destinationChain})`,
     createdAt: link.createdAt,
     completedAt: link.status === 'claimed' ? (link.claimedAt ?? null) : null,

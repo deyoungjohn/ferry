@@ -183,6 +183,7 @@ export function SendLinkPage({
         await claimSendLinkLive(
           {
             id: id ?? '',
+            recipientEvmAddress: link?.recipientEvmAddress,
             secret: activeSecret,
             // The link says which lock to claim; nothing else in the page knows it.
             ...(rawLink?.lockId ? { lockId: rawLink.lockId as Hex32 } : {}),
@@ -264,7 +265,7 @@ export function SendLinkPage({
 
       <div
         className={
-          steps ? 'grid items-start gap-6 lg:grid-cols-2' : 'mx-auto max-w-md'
+          steps ? 'grid items-stretch gap-6 lg:grid-cols-2' : 'mx-auto max-w-md'
         }
       >
         <div className="card-ring relative rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card">

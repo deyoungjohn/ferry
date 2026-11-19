@@ -8,6 +8,7 @@ import {
   http,
   type Address,
   type PublicClient,
+  verifyTypedData,
 } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 import {
@@ -85,6 +86,7 @@ import type { BchQuorumStatus } from '../bch/types.js';
 import { redactConfigForDisplay, type SolverConfig } from '../config.js';
 import type { SolverDatabase } from '../db/database.js';
 import { MIN_TRANSACTION_USD_MICROS } from '@ferry/core';
+import { claimRequestTypedData } from '@ferry/core/api';
 import type { OrderRecord, PayLinkRecord } from '../db/types.js';
 import type { SolverEngine } from '../engine/runner.js';
 import { createLinkId, verifyPayLinksSignature } from '../paylink/link.js';
@@ -1388,6 +1390,33 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           : undefined;
       } catch {
         // ignore parse errors
+      }
+
+      // A claim that carries a signature must be signed by the recipient fixed in the order
+      // (the send link's entered address): anyone else is refused, not merely redirected.
+      if (typeof raw.claimSig === 'string' && orderTerms) {
+        const typed = claimRequestTypedData({
+          chainId: Number(orderTerms.evmChainId),
+          orderId: order.id as `0x${string}`,
+          lockId: lockId as `0x${string}`,
+        });
+        let signedByRecipient = false;
+        try {
+          signedByRecipient = await verifyTypedData({
+            address: orderTerms.userEvmAddress as `0x${string}`,
+            ...typed,
+            signature: raw.claimSig as `0x${string}`,
+          });
+        } catch {
+          signedByRecipient = false;
+        }
+        if (!signedByRecipient) {
+          return sendApiError(
+            reply,
+            'UNAUTHORIZED',
+            `Only ${orderTerms.userEvmAddress} can claim this link: sign the claim with that wallet`,
+          );
+        }
       }
 
       const targetAdapter = getAdapter(orderTerms?.evmChainId);

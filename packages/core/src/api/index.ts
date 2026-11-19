@@ -425,9 +425,36 @@ export const RelayLockResponseSchema = z.strictObject({
 
 export type RelayLockResponse = z.infer<typeof RelayLockResponseSchema>;
 
+/**
+ * The typed data the recipient signs to ask for a send link's claim (EIP-712). The relay checks
+ * the signer is the recipient fixed in the order, so a claim signed by anyone else is refused.
+ */
+export function claimRequestTypedData(input: {
+  readonly chainId: number;
+  readonly orderId: `0x${string}`;
+  readonly lockId: `0x${string}`;
+}) {
+  return {
+    domain: { name: 'Ferry', version: '1', chainId: input.chainId },
+    types: {
+      ClaimRequest: [
+        { name: 'orderId', type: 'bytes32' },
+        { name: 'lockId', type: 'bytes32' },
+      ],
+    },
+    primaryType: 'ClaimRequest' as const,
+    message: { orderId: input.orderId, lockId: input.lockId },
+  };
+}
+
 export const RelayClaimRequestSchema = z.strictObject({
   secret: hex32Schema,
   lockId: hex32Schema.optional(),
+  /** The recipient's signature of the claim request (see `claimRequestTypedData`). */
+  claimSig: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{130}$/)
+    .optional(),
 });
 
 export type RelayClaimRequest = z.infer<typeof RelayClaimRequestSchema>;
