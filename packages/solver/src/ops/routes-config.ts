@@ -159,8 +159,13 @@ export function buildActiveRoutes(
     const chainFact = chainConfig.facts.find((c) => c.id === route.chain);
     const tokenFact = chainFact?.assets.find((a) => a.symbol === route.asset);
 
-    // Effective HTLC address from facts or environment override
+    // The contract has one address on every chain: FERRY_HTLC_ADDRESS when set, else the
+    // recorded deployment (Base also keeps its older per-chain setting).
+    const sharedHtlc = /^0x[0-9a-fA-F]{40}$/.test(env.FERRY_HTLC_ADDRESS ?? '')
+      ? env.FERRY_HTLC_ADDRESS
+      : null;
     const rawHtlc =
+      sharedHtlc ??
       chainFact?.htlcAddress ??
       (route.chain === 'base' ? config.baseHtlcAddress : null);
     const htlcAddress =

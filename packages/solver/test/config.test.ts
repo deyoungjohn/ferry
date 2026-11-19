@@ -110,3 +110,36 @@ describe('SolverConfig and Config Loader', () => {
     expect(displayed).toContain('testnet');
   });
 });
+
+describe('mainnet defaults from the recorded chain facts', () => {
+  it('needs no Base address, token, chain id or contract setting in the environment', () => {
+    const config = loadConfigFromEnv({
+      NETWORK: 'mainnet',
+      SOLVER_EVM_PRIVATE_KEY: `0x${'11'.repeat(32)}`,
+      OPERATOR_TOKEN: 'o'.repeat(40),
+      SOLVER_BCH_WIF: 'x',
+      RPC_URL_BASE: 'https://rpc.example/base, https://backup.example/base',
+    });
+    expect(config.baseChainId).toBe(8453);
+    expect(config.baseRpcUrl).toBe('https://rpc.example/base');
+    expect(config.baseUsdcAddress).toBe(
+      '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    );
+    expect(config.baseHtlcAddress).toBe(
+      '0x8b968625F983420B571C102eC0b57F7e509c916e',
+    );
+  });
+
+  it('lets FERRY_HTLC_ADDRESS set the contract address', () => {
+    const config = loadConfigFromEnv({
+      NETWORK: 'mainnet',
+      SOLVER_EVM_PRIVATE_KEY: `0x${'11'.repeat(32)}`,
+      OPERATOR_TOKEN: 'o'.repeat(40),
+      SOLVER_BCH_WIF: 'x',
+      FERRY_HTLC_ADDRESS: '0x1234567890123456789012345678901234567890',
+    });
+    expect(config.baseHtlcAddress).toBe(
+      '0x1234567890123456789012345678901234567890',
+    );
+  });
+});

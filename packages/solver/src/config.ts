@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { loadChainConfig } from '@ferry/chain-config';
 
 export const DEFAULT_DEV_EVM_PRIVATE_KEY =
   '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
@@ -208,12 +209,38 @@ export const SolverConfigSchema = z
 
 export type SolverConfig = z.infer<typeof SolverConfigSchema>;
 
+/** The first URL of a comma list, so RPC_URL_BASE may hold fallbacks. */
+function firstUrl(value: string | undefined): string | undefined {
+  return value
+    ?.split(',')
+    .map((u) => u.trim())
+    .find((u) => u.length > 0);
+}
+
+/**
+ * On mainnet the Base values come from the recorded chain facts (chain id, USDC, the
+ * HTLC address, public RPC); the environment only overrides them. FERRY_HTLC_ADDRESS is the one
+ * address of the contract on every chain. The RPC is RPC_URL_BASE, as for every other chain.
+ */
+function mainnetBaseDefaults(env: Record<string, string | undefined>) {
+  const base = loadChainConfig({ network: 'mainnet', env }).facts.find(
+    (c) => c.id === 'base',
+  );
+  return {
+    rpcUrl: firstUrl(env.RPC_URL_BASE) ?? base?.rpcUrls[0],
+    chainId: base?.chainId,
+    htlc: base?.htlcAddress ?? undefined,
+    usdc: base?.assets.find((a) => a.symbol === 'USDC')?.address,
+  };
+}
+
 export function loadConfigFromEnv(
   env: Record<string, string | undefined>,
 ): SolverConfig {
   const network = (env.NETWORK || 'testnet').toLowerCase() as
     'testnet' | 'mainnet';
   const isMainnet = network === 'mainnet';
+  const mainnet = isMainnet ? mainnetBaseDefaults(env) : undefined;
 
   const bchElectrumUrls = isMainnet
     ? env.BCH_ELECTRUM_URLS || MAINNET_BCH_ELECTRUM_URLS
@@ -256,13 +283,15 @@ export function loadConfigFromEnv(
     dbPath: env.DATABASE_PATH || env.DATABASE_URL,
     network,
     bchElectrumUrls,
-    baseRpcUrl: env.BASE_RPC_URL,
-    baseChainId: env.BASE_CHAIN_ID,
+    baseRpcUrl:
+      firstUrl(env.RPC_URL_BASE) || env.BASE_RPC_URL || mainnet?.rpcUrl,
+    baseChainId: env.BASE_CHAIN_ID || mainnet?.chainId,
     baseHtlcAddress:
+      env.FERRY_HTLC_ADDRESS ||
       env.BASE_FERRY_HTLC_ADDRESS ||
       env.BASE_HTLC_ADDRESS ||
-      env.FERRY_HTLC_ADDRESS,
-    baseUsdcAddress: env.BASE_USDC_ADDRESS || env.USDC_ADDRESS,
+      mainnet?.htlc,
+    baseUsdcAddress: env.BASE_USDC_ADDRESS || env.USDC_ADDRESS || mainnet?.usdc,
     solverEvmPrivateKey,
     solverBchWif: env.SOLVER_BCH_WIF || undefined,
     operatorToken: env.OPERATOR_TOKEN ? env.OPERATOR_TOKEN.trim() : undefined,
