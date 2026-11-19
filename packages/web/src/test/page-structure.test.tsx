@@ -121,15 +121,18 @@ describe('page structure', { timeout: 45_000 }, () => {
 
   it('stats page lists the deployed contract with an explorer link', async () => {
     renderAt('/stats');
-    const link = await screen.findByRole(
+    const links = await screen.findAllByRole(
       'link',
       {
         name: /Read the source on the explorer/,
       },
       { timeout: 30_000 },
     );
-    expect(link.getAttribute('href')).toMatch(
-      /\/address\/0x[0-9a-fA-F]{40}#code$/,
-    );
+    expect(links.length).toBeGreaterThanOrEqual(1);
+    for (const link of links) {
+      expect(link.getAttribute('href')).toMatch(
+        /\/address\/0x[0-9a-fA-F]{40}#code$/,
+      );
+    }
   });
 });

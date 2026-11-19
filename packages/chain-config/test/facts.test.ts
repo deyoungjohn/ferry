@@ -65,10 +65,18 @@ describe('chain fact data', () => {
     for (const id of CHAIN_IDS) {
       for (const network of NETWORKS) {
         const deployment = data.chains[id][network].deployment;
-        // Base mainnet was deployed and recorded on 2026-11-17; every other row stays null.
-        if (id === 'base' && network === 'mainnet') {
+        // Base was recorded on 2026-11-17 and the other five mainnets on 2026-11-19; testnets stay null.
+        const deployed: Record<string, number> = {
+          base: 58633459,
+          ethereum: 26450983,
+          arbitrum: 525697203,
+          arc: 32096216,
+          bnb: 134553116,
+          robinhood: 118437901,
+        };
+        if (network === 'mainnet') {
           expect(deployment.htlcAddress).toBe(PREDICTED_FERRY_HTLC_ADDRESS);
-          expect(deployment.deployBlock).toBe(58633459);
+          expect(deployment.deployBlock).toBe(deployed[id]);
           expect(deployment.evidence.status).toBe('verified');
           continue;
         }
