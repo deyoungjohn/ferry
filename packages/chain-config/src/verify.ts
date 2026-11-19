@@ -16,7 +16,11 @@ import {
   parseFerryNetwork,
   routeIneligibilityReasons,
 } from './config.js';
-import { predictHtlcAddress, usdt0DomainSeparator } from './htlc.js';
+import {
+  predictHtlcAddress,
+  usdgDomainSeparator,
+  usdt0DomainSeparator,
+} from './htlc.js';
 import {
   parseRpcOverrides,
   probeRpcLogMaxRange,
@@ -574,6 +578,35 @@ async function checkToken(
             summary,
             network,
             `${token.symbol} USDT0 domain reconstruction`,
+            token.domainSeparator,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+    }
+
+    if (
+      (token.name === 'Global Dollar' || token.symbol === 'USDG') &&
+      token.domainSeparator !== null
+    ) {
+      try {
+        const computed = usdgDomainSeparator(chainId, getAddress(address));
+        check(
+          normalizeHex(computed) === normalizeHex(token.domainSeparator),
+          summary,
+          network,
+          `${token.symbol} USDG domain reconstruction`,
+          token.domainSeparator,
+          computed,
+        );
+      } catch (error) {
+        if (isTransient(error)) {
+          skip(summary);
+        } else {
+          record(
+            summary,
+            network,
+            `${token.symbol} USDG domain reconstruction`,
             token.domainSeparator,
             error instanceof Error ? error.message : String(error),
           );

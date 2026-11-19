@@ -95,7 +95,7 @@ describe('chain fact data', () => {
       arbitrum: ['USDC', 'USDT'],
       arc: ['USDC'],
       bnb: ['USDC', 'USDT'],
-      robinhood: [],
+      robinhood: ['USDG'],
     };
     for (const id of CHAIN_IDS) {
       const feeds = data.chains[id].mainnet.priceFeeds;
@@ -130,12 +130,14 @@ describe('chain fact data', () => {
       'usdc:base',
       'usdc:bnb',
       'usdc:ethereum',
+      'usdg:robinhood',
       'usdt:arbitrum',
       'usdt:bnb',
       'usdt:ethereum',
     ]);
     expect(routes.get('usdc:base')).toEqual([]);
     expect(routes.get('usdt:bnb')).toEqual([]);
+    expect(routes.get('usdg:robinhood')).toEqual([]);
     expect(routes.get('usdc:bnb')).toContain('token address is reported');
     expect(routes.has('usdc:robinhood')).toBe(false);
   });

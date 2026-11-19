@@ -19,8 +19,8 @@ describe('loadChainConfig', () => {
     expect(loaded.network).toBe('mainnet');
     expect(loaded.chains).toHaveLength(12);
     expect(loaded.facts).toHaveLength(6);
-    expect(loaded.coreChains).toHaveLength(5);
-    expect(loaded.routes).toHaveLength(8);
+    expect(loaded.coreChains).toHaveLength(6);
+    expect(loaded.routes).toHaveLength(9);
     expect(loaded.enabledRoutes).toEqual([]);
     expect(loaded.routes.every((route) => !route.enabled)).toBe(true);
   });
@@ -114,6 +114,24 @@ describe('loadChainConfig', () => {
     expect(bnb?.assets.find((asset) => asset.symbol === 'USDT')).toMatchObject({
       decimals: 18,
       permit: false,
+    });
+  });
+
+  it('enables the USDG route on Robinhood Chain', () => {
+    const loaded = loadChainConfig({
+      env: { ENABLED_ROUTES: 'usdg:robinhood' },
+    });
+    const route = loaded.routes.find((item) => item.key === 'usdg:robinhood');
+    expect(route?.enabled).toBe(true);
+    const robinhood = loaded.coreChains.find(
+      (chain) => chain.id === 'robinhood',
+    );
+    expect(
+      robinhood?.assets.find((asset) => asset.symbol === 'USDG'),
+    ).toMatchObject({
+      decimals: 6,
+      permit: true,
+      address: '0x5fc5360d0400a0fd4f2af552add042d716f1d168',
     });
   });
 

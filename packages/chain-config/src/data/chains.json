@@ -1290,9 +1290,63 @@
             "date": "2026-11-19"
           }
         },
-        "tokens": [],
-        "priceFeeds": [],
-        "notes": "https://docs.robinhood.com/chain/contracts/ lists WETH and USDG only. Circle's USDC list and Tether's supported protocols do not list Robinhood Chain. No USDC or USDT route."
+        "tokens": [
+          {
+            "symbol": "USDG",
+            "address": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+            "decimals": 6,
+            "name": "Global Dollar",
+            "version": "1",
+            "domainSeparator": "0x7a3d7400b27830f4f91c2c16a082486d67c1befecaec2f53b33f1f35d5b62036",
+            "permit": true,
+            "nonces": true,
+            "nativeOrBridged": "native",
+            "issuer": "Paxos (Global Dollar Network)",
+            "verification": {
+              "address": {
+                "status": "verified",
+                "source": "https://docs.robinhood.com/chain/contracts/; eth_getCode at 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168 returns 170 bytes (upgradeable proxy)",
+                "date": "2026-11-19"
+              },
+              "decimals": {
+                "status": "verified",
+                "source": "cast call 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168 \"decimals()(uint8)\" via https://rpc.mainnet.chain.robinhood.com = 6",
+                "date": "2026-11-19"
+              },
+              "eip712": {
+                "status": "verified",
+                "source": "DOMAIN_SEPARATOR() = 0x7a3d7400b27830f4f91c2c16a082486d67c1befecaec2f53b33f1f35d5b62036, which equals the EIP-712 domain for name \"Global Dollar\", version \"1\", chainId 4663 and verifying contract 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168; version() and eip712Domain() revert with FacetNotFound",
+                "date": "2026-11-19"
+              },
+              "permit": {
+                "status": "verified",
+                "source": "nonces(address) returns 0; permit(...) reverts with InvalidSignature (0x8baa579f) on invalid signature",
+                "date": "2026-11-19"
+              }
+            },
+            "notes": "Global Dollar (USDG) issued by Paxos for the Global Dollar Network; upgradeable proxy with EIP-2612 permit on Robinhood Chain."
+          }
+        ],
+        "priceFeeds": [
+          {
+            "asset": "USDG",
+            "pair": "USDG/USD",
+            "source": "Chainlink",
+            "address": "0x61B7e5650328764B076A108EFF5fa7282a1B9aD2",
+            "decimals": 8,
+            "heartbeatSeconds": 86400,
+            "deviationThresholdPercent": 0.5,
+            "sampleAnswer": "100001000",
+            "sampleUpdatedAt": 1795103667,
+            "sampleReadAt": "2026-11-19T19:08:02Z",
+            "evidence": {
+              "status": "verified",
+              "source": "https://reference-data-directory.vercel.app/feeds-robinhood-mainnet.json; description() = \"USDG / USD\", decimals() = 8, latestRoundData() via https://rpc.mainnet.chain.robinhood.com on 2026-11-19",
+              "date": "2026-11-19"
+            }
+          }
+        ],
+        "notes": "https://docs.robinhood.com/chain/contracts/ lists WETH and USDG. FerryHTLC deployed. USDG route enabled via usdg:robinhood."
       },
       "testnet": {
         "chainId": 46630,

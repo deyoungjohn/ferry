@@ -83,3 +83,22 @@ export function usdt0DomainSeparator(
 ): Hex {
   return eip712DomainSeparator(usdt0Domain(chainId, verifyingContract));
 }
+
+export function usdgDomain(
+  chainId: number,
+  verifyingContract: Address,
+): Eip712Domain {
+  return {
+    name: 'Global Dollar',
+    version: '1',
+    chainId,
+    verifyingContract: getAddress(verifyingContract),
+  };
+}
+
+export function usdgDomainSeparator(
+  chainId: number,
+  verifyingContract: Address,
+): Hex {
+  return eip712DomainSeparator(usdgDomain(chainId, verifyingContract));
+}

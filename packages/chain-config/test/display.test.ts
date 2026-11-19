@@ -30,10 +30,10 @@ describe('loadChainDisplay', () => {
 
     const robinhood = display.chains.find((chain) => chain.id === 'robinhood');
     expect(robinhood).toMatchObject({
-      tokenSymbols: [],
+      tokenSymbols: ['USDG'],
       enabled: false,
-      disabledReason: 'No canonical USDC or USDT route',
-      priceSource: 'Fallback (no route)',
+      disabledReason: 'usdg:robinhood: route not enabled',
+      priceSource: 'Chainlink USDG/USD',
     });
 
     const serialized = JSON.stringify(display);

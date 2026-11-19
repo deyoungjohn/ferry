@@ -29,7 +29,7 @@ import {
   type RpcCaller,
 } from './rpc-overrides.js';
 import { makeJsonRpc } from './rpc-client.js';
-import { usdt0DomainSeparator } from './htlc.js';
+import { usdgDomainSeparator, usdt0DomainSeparator } from './htlc.js';
 import { MINIMUM_TIER, routeMinimumTarget } from './floors.js';
 
 const MAINNET_GENESIS =
@@ -525,6 +525,15 @@ async function checkRoute(
           if (token.name === 'USD₮0') {
             versionOk =
               usdt0DomainSeparator(
+                chain.chainId,
+                getAddress(token.address),
+              ).toLowerCase() === domain.toLowerCase();
+          } else if (
+            token.symbol === 'USDG' ||
+            token.name === 'Global Dollar'
+          ) {
+            versionOk =
+              usdgDomainSeparator(
                 chain.chainId,
                 getAddress(token.address),
               ).toLowerCase() === domain.toLowerCase();

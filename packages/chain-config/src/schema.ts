@@ -16,7 +16,7 @@ export type ChainId = (typeof CHAIN_IDS)[number];
 export const NETWORKS = ['mainnet', 'testnet'] as const;
 export type Network = (typeof NETWORKS)[number];
 
-export const ASSET_SYMBOLS = ['USDC', 'USDT'] as const;
+export const ASSET_SYMBOLS = ['USDC', 'USDT', 'USDG'] as const;
 export type AssetSymbol = (typeof ASSET_SYMBOLS)[number];
 
 export const NATIVE_GAS_TOKENS = ['ETH', 'BNB', 'USDC'] as const;
@@ -100,7 +100,7 @@ export type DeploymentFacts = z.infer<typeof deploymentFactsSchema>;
 
 export const priceFeedFactsSchema = z.object({
   asset: z.enum(ASSET_SYMBOLS),
-  pair: z.enum(['USDC/USD', 'USDT/USD']),
+  pair: z.enum(['USDC/USD', 'USDT/USD', 'USDG/USD']),
   source: z.literal('Chainlink'),
   address: addressSchema,
   decimals: z.number().int().min(0).max(36),
