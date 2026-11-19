@@ -89,4 +89,30 @@ describe('RoutePriceSource (Composite Pricing)', () => {
       PriceUnavailableError,
     );
   });
+
+  it('prices USDG via documented peg assumption when no EVM feed exists', async () => {
+    const now = 1700000000;
+    const source = new RoutePriceSource({
+      chainConfig,
+      nowSeconds: () => now,
+    });
+
+    const reading = await source.getPrice('USDG', 'robinhood');
+    expect(reading.usdPrice).toBe(1_000_000n);
+    expect(reading.source).toBe('usdg-peg-assumption');
+  });
+
+  it('refuses USDG price when deviation exceeds the refusal threshold override', async () => {
+    const now = 1700000000;
+    const source = new RoutePriceSource({
+      chainConfig,
+      nowSeconds: () => now,
+      usdgPegPriceUsdMicros: 1_020_000n, // $1.02
+      usdgPegRefusalToleranceUsdMicros: 10_000n, // 1% threshold
+    });
+
+    await expect(source.getPrice('USDG', 'robinhood')).rejects.toThrow(
+      /Peg guard refused USDG primary price.*exceeding peg tolerance/,
+    );
+  });
 });

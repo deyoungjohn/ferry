@@ -593,7 +593,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       request.evmToken ??
       (chainFact.id === 'base'
         ? config.baseUsdcAddress
-        : chainFact.assets.find((a) => a.symbol === 'USDC')?.address);
+        : (chainFact.assets.find((a) => a.symbol === 'USDC')?.address ??
+          chainFact.assets[0]?.address));
 
     if (!requestedToken) {
       return reply.status(422).send({
@@ -608,7 +609,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         (a) =>
           a.address &&
           requestedToken &&
-          a.address.toLowerCase() === requestedToken.toLowerCase(),
+          (a.address.toLowerCase() === requestedToken.toLowerCase() ||
+            a.symbol.toUpperCase() === requestedToken.toUpperCase()),
       ) ??
       (chainFact.id === 'base' &&
       config.baseUsdcAddress &&

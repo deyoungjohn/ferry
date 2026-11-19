@@ -41,6 +41,8 @@ export {
   predictHtlcAddress,
   usdt0Domain,
   usdt0DomainSeparator,
+  usdgDomain,
+  usdgDomainSeparator,
 } from './htlc.js';
 export type { Eip712Domain } from './htlc.js';
 export {

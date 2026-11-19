@@ -299,6 +299,7 @@ export interface CalculateRouteCostParams {
   direction: Direction;
   chainId?: number | string | undefined;
   inputs: LiveCostInputs;
+  gasPriceWei?: bigint | undefined;
   safetyMarginPercent?: number | undefined;
   minMarginUsdMicros?: bigint | undefined;
   bchCarrySats?: bigint | undefined;
@@ -317,6 +318,13 @@ export function calculateRouteCost(
 
   const { ethUsd, bchUsd, baseGas, bchFeeRate } = params.inputs;
 
+  const isRobinhood =
+    params.chainId === 4663 ||
+    params.chainId === '4663' ||
+    params.chainId === 'robinhood';
+
+  const effectiveGasPrice = params.gasPriceWei ?? baseGas.gasPriceWei;
+
   let gasUnits: bigint;
   let l1FeeWei: bigint;
   let bchTxBytes: number;
@@ -326,7 +334,7 @@ export function calculateRouteCost(
     // Solver pays: the relayed EVM lock, its own Bitcoin Cash lock (with the carry
     // placed in the covenant output).
     gasUnits = relayLockGas;
-    l1FeeWei = baseGas.l1FeeWeiPerRelayLock;
+    l1FeeWei = isRobinhood ? 0n : baseGas.l1FeeWeiPerRelayLock;
     bchTxBytes = BCH_LOCK_TX_BYTES;
     const lockMinerSats = BigInt(
       Math.max(1, Math.ceil(bchTxBytes * bchFeeRate.effectiveSatsPerByte)),
@@ -335,14 +343,14 @@ export function calculateRouteCost(
   } else {
     // Solver pays: its EVM lock and the Bitcoin Cash claim; the carry comes back.
     gasUnits = solverLockGas;
-    l1FeeWei = baseGas.l1FeeWeiPerLock;
+    l1FeeWei = isRobinhood ? 0n : baseGas.l1FeeWeiPerLock;
     bchTxBytes = BCH_CLAIM_TX_BYTES;
     bchFeeSats = BigInt(
       Math.max(1, Math.ceil(bchTxBytes * bchFeeRate.effectiveSatsPerByte)),
     );
   }
 
-  const totalEvmWei = gasUnits * baseGas.gasPriceWei + l1FeeWei;
+  const totalEvmWei = gasUnits * effectiveGasPrice + l1FeeWei;
   const gasCostUsdMicros = (totalEvmWei * ethUsd.usdPriceMicros) / WEI_PER_ETH;
 
   const bchFeeCostUsdMicros =
@@ -357,7 +365,7 @@ export function calculateRouteCost(
     direction: params.direction,
     chainId: params.chainId ?? 8453,
     gasUnits,
-    gasPriceWei: baseGas.gasPriceWei,
+    gasPriceWei: effectiveGasPrice,
     l1FeeWei,
     totalEvmWei,
     gasCostUsdMicros,
@@ -502,6 +510,9 @@ export interface LiveCostReaderOptions {
   fetchCoinbaseFn?: typeof fetchCoinbaseBchUsd | undefined;
   fetchKrakenFn?: typeof fetchKrakenBchUsd | undefined;
   fetchBitstampFn?: typeof fetchBitstampBchUsd | undefined;
+  robinhoodClient?: PublicClient | undefined;
+  robinhoodClients?: PublicClient[] | undefined;
+  robinhoodGasPriceWei?: bigint | undefined;
 }
 
 export class LiveCostModelReader {
@@ -517,6 +528,8 @@ export class LiveCostModelReader {
   private readonly cacheTtlSeconds: number;
   private readonly costFeedGraceSeconds: number;
   private readonly clients: PublicClient[];
+  private readonly robinhoodClients: PublicClient[];
+  private readonly robinhoodGasPriceWei?: bigint | undefined;
   private readonly fetchCoinbase: typeof fetchCoinbaseBchUsd;
   private readonly fetchKraken: typeof fetchKrakenBchUsd;
   private readonly fetchBitstamp: typeof fetchBitstampBchUsd;
@@ -536,6 +549,13 @@ export class LiveCostModelReader {
   } = {};
 
   private baseGasState: {
+    lastGood?: BaseGasReading | undefined;
+    lastSuccessTime?: number | undefined;
+    lastError?: string | undefined;
+    lastErrorTime?: number | undefined;
+  } = {};
+
+  private robinhoodGasState: {
     lastGood?: BaseGasReading | undefined;
     lastSuccessTime?: number | undefined;
     lastError?: string | undefined;
@@ -569,6 +589,13 @@ export class LiveCostModelReader {
         : options.client
           ? [options.client]
           : [];
+    this.robinhoodClients =
+      options.robinhoodClients && options.robinhoodClients.length > 0
+        ? options.robinhoodClients
+        : options.robinhoodClient
+          ? [options.robinhoodClient]
+          : [];
+    this.robinhoodGasPriceWei = options.robinhoodGasPriceWei;
     this.fetchCoinbase = options.fetchCoinbaseFn ?? fetchCoinbaseBchUsd;
     this.fetchKraken = options.fetchKrakenFn ?? fetchKrakenBchUsd;
     this.fetchBitstamp = options.fetchBitstampFn ?? fetchBitstampBchUsd;
@@ -964,6 +991,89 @@ export class LiveCostModelReader {
     };
   }
 
+  async readRobinhoodGas(nowSeconds?: number): Promise<BaseGasReading> {
+    const now = nowSeconds ?? Math.floor(Date.now() / 1000);
+
+    if (this.robinhoodGasPriceWei !== undefined) {
+      return {
+        gasPriceWei: this.robinhoodGasPriceWei,
+        l1FeeWeiPerRelayLock: 0n,
+        l1FeeWeiPerLock: 0n,
+        source: 'robinhood-configured-gas',
+        asOf: now,
+      };
+    }
+    if (typeof process !== 'undefined' && process.env.ROBINHOOD_GAS_PRICE_WEI) {
+      return {
+        gasPriceWei: BigInt(process.env.ROBINHOOD_GAS_PRICE_WEI),
+        l1FeeWeiPerRelayLock: 0n,
+        l1FeeWeiPerLock: 0n,
+        source: 'robinhood-env-gas',
+        asOf: now,
+      };
+    }
+
+    if (this.robinhoodClients.length > 0) {
+      const errors: string[] = [];
+      for (let i = 0; i < this.robinhoodClients.length; i++) {
+        const client = this.robinhoodClients[i]!;
+        try {
+          const gasPriceWei = await client.getGasPrice();
+          const reading: BaseGasReading = {
+            gasPriceWei,
+            l1FeeWeiPerRelayLock: 0n,
+            l1FeeWeiPerLock: 0n,
+            source: 'robinhood-rpc',
+            asOf: now,
+          };
+          this.robinhoodGasState.lastGood = reading;
+          this.robinhoodGasState.lastSuccessTime = now;
+          this.robinhoodGasState.lastError = undefined;
+          this.robinhoodGasState.lastErrorTime = undefined;
+          return reading;
+        } catch (err) {
+          errors.push(
+            `RPC[${i}]: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      this.robinhoodGasState.lastError = errors.join('; ');
+      this.robinhoodGasState.lastErrorTime = now;
+      if (this.robinhoodGasState.lastGood) {
+        const age = now - this.robinhoodGasState.lastGood.asOf;
+        if (age <= this.costFeedGraceSeconds) {
+          return {
+            ...this.robinhoodGasState.lastGood,
+            source: `${this.robinhoodGasState.lastGood.source} (cached, ${age}s old)`,
+          };
+        }
+      }
+      throw new LiveCostError(
+        'PRICE_UNAVAILABLE',
+        `All Robinhood RPCs failed for gas: ${errors.join('; ')}`,
+      );
+    }
+
+    if (
+      typeof process !== 'undefined' &&
+      process.env.ROBINHOOD_GAS_REQUIRED === 'true'
+    ) {
+      throw new LiveCostError(
+        'PRICE_UNAVAILABLE',
+        'No EVM client or gas price configured for Robinhood gas',
+      );
+    }
+
+    const baseGas = await this.readBaseGas();
+    return {
+      gasPriceWei: baseGas.gasPriceWei,
+      l1FeeWeiPerRelayLock: 0n,
+      l1FeeWeiPerLock: 0n,
+      source: `${baseGas.source} (fallback)`,
+      asOf: now,
+    };
+  }
+
   getFeedStatuses(nowSeconds?: number): Record<string, CostFeedStatus> {
     const now = nowSeconds ?? Math.floor(Date.now() / 1000);
 
@@ -1001,10 +1111,20 @@ export class LiveCostModelReader {
     nowSeconds?: number | undefined,
   ): Promise<RouteCostBreakdown> {
     const inputs = await this.readLiveInputs(nowSeconds);
+    const isRobinhood =
+      chainId === 4663 || chainId === '4663' || chainId === 'robinhood';
+
+    let gasPriceWei: bigint | undefined;
+    if (isRobinhood) {
+      const rhGas = await this.readRobinhoodGas(nowSeconds);
+      gasPriceWei = rhGas.gasPriceWei;
+    }
+
     return calculateRouteCost({
       direction,
       chainId,
       inputs,
+      gasPriceWei,
       safetyMarginPercent: this.costSafetyPercent,
       minMarginUsdMicros: this.minMarginUsdMicros,
     });

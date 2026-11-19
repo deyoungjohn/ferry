@@ -11,6 +11,9 @@ describe('explorer links', () => {
       `https://basescan.org/tx/0x${HASH}`,
     );
     expect(evmTxUrl(8453, HASH)).toBe(`https://basescan.org/tx/0x${HASH}`);
+    expect(evmTxUrl(4663, `0x${HASH}`)).toBe(
+      `https://robinhoodchain.blockscout.com/tx/0x${HASH}`,
+    );
     expect(evmTxUrl(999999, HASH)).toBeNull();
     expect(bchTxUrl(`0x${HASH}`)).toBe(`https://bchexplorer.info/tx/${HASH}`);
   });
@@ -28,6 +31,7 @@ describe('explorer links', () => {
 
   it('labels EVM chains by name and Bitcoin Cash by nothing', () => {
     expect(chainLabel('Chain 8453')).toBe('Base');
+    expect(chainLabel('Chain 4663')).toBe('Robinhood Chain');
     expect(chainLabel('Bitcoin Cash')).toBeNull();
     expect(chainLabel('Chain 999')).toBe('Chain 999');
   });

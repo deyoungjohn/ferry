@@ -33,6 +33,8 @@ export interface RoutePriceSourceOptions {
   sourceDisagreementRefuseUsdMicros?: bigint;
   paryonMaxAgeSeconds?: number;
   cauldronMaxAgeSeconds?: number;
+  usdgPegRefusalToleranceUsdMicros?: bigint;
+  usdgPegPriceUsdMicros?: bigint;
 }
 
 export class RoutePriceSource implements PriceSource {
@@ -45,6 +47,8 @@ export class RoutePriceSource implements PriceSource {
   private readonly sourceDisagreementRefuseUsdMicros: bigint;
   private readonly paryonMaxAgeSeconds: number;
   private readonly cauldronMaxAgeSeconds: number;
+  private readonly usdgPegRefusalToleranceUsdMicros?: bigint | undefined;
+  private readonly usdgPegPriceUsdMicros?: bigint | undefined;
 
   constructor(options: RoutePriceSourceOptions) {
     this.nowSeconds =
@@ -61,6 +65,14 @@ export class RoutePriceSource implements PriceSource {
       options.paryonMaxAgeSeconds ?? DEFAULT_PARYON_MAX_AGE_SECONDS;
     this.cauldronMaxAgeSeconds =
       options.cauldronMaxAgeSeconds ?? DEFAULT_CAULDRON_MAX_AGE_SECONDS;
+    const envTolerance =
+      typeof process !== 'undefined' &&
+      process.env.USDG_PEG_REFUSAL_TOLERANCE_USD_MICROS
+        ? BigInt(process.env.USDG_PEG_REFUSAL_TOLERANCE_USD_MICROS)
+        : undefined;
+    this.usdgPegRefusalToleranceUsdMicros =
+      options.usdgPegRefusalToleranceUsdMicros ?? envTolerance;
+    this.usdgPegPriceUsdMicros = options.usdgPegPriceUsdMicros;
 
     this.bchSource =
       options.bchSource ??
@@ -228,27 +240,41 @@ export class RoutePriceSource implements PriceSource {
       }
     }
 
-    // 2. EVM Stablecoins (USDC, USDT)
-    if (symbol === 'USDC' || symbol === 'USDT') {
-      const targetChain = (chainId ?? 'base').toLowerCase();
+    // 2. EVM Stablecoins (USDC, USDT, USDG)
+    if (symbol === 'USDC' || symbol === 'USDT' || symbol === 'USDG') {
+      const targetChain = (
+        chainId ?? (symbol === 'USDG' ? 'robinhood' : 'base')
+      ).toLowerCase();
       const evmSource =
         this.evmSources.get(targetChain) ??
         this.evmSources.get(symbol.toLowerCase());
-      if (!evmSource) {
+
+      let reading: AssetPriceReading;
+      if (evmSource) {
+        // A configured feed that fails or is stale refuses the quote; the assumed price below is
+        // only for a chain with no feed at all.
+        reading = await evmSource.getPrice(symbol);
+        assertFreshPrice(reading, now);
+      } else if (symbol === 'USDG') {
+        reading = this.getUsdgPegReading(now);
+      } else {
         throw new PriceUnavailableError(
           `No price source configured for EVM asset ${symbol} on chain ${targetChain}`,
         );
       }
-      const reading = await evmSource.getPrice(symbol);
-      assertFreshPrice(reading, now);
 
       // Rule (a) Peg guard on primary EVM asset
       const pegDiff = absDiff(reading.usdPrice, 1_000_000n);
-      if (pegDiff > this.pegToleranceUsdMicros) {
+      const tolerance =
+        symbol === 'USDG' && this.usdgPegRefusalToleranceUsdMicros !== undefined
+          ? this.usdgPegRefusalToleranceUsdMicros
+          : this.pegToleranceUsdMicros;
+
+      if (pegDiff > tolerance) {
         const devPct = (Number(pegDiff) / 10_000).toFixed(2);
-        const tolPct = (Number(this.pegToleranceUsdMicros) / 10_000).toFixed(2);
+        const tolPct = (Number(tolerance) / 10_000).toFixed(2);
         throw new PriceUnavailableError(
-          `Peg guard refused ${symbol} primary price ($${formatUsdMicrosToDecimal(reading.usdPrice)} from ${reading.source}): deviated ${pegDiff} micros (${devPct}%) from $1, exceeding peg tolerance of ${this.pegToleranceUsdMicros} micros (${tolPct}%)`,
+          `Peg guard refused ${symbol} primary price ($${formatUsdMicrosToDecimal(reading.usdPrice)} from ${reading.source}): deviated ${pegDiff} micros (${devPct}%) from $1, exceeding peg tolerance of ${tolerance} micros (${tolPct}%)`,
         );
       }
 
@@ -263,6 +289,20 @@ export class RoutePriceSource implements PriceSource {
     }
 
     throw new PriceUnavailableError(`Unsupported asset for pricing: ${asset}`);
+  }
+
+  private getUsdgPegReading(now: number): AssetPriceReading {
+    const envPrice =
+      typeof process !== 'undefined' && process.env.USDG_PEG_USD_MICROS
+        ? BigInt(process.env.USDG_PEG_USD_MICROS)
+        : undefined;
+    const usdPrice = this.usdgPegPriceUsdMicros ?? envPrice ?? 1_000_000n;
+    return {
+      usdPrice,
+      source: 'usdg-peg-assumption',
+      asOf: now,
+      role: 'primary',
+    };
   }
 
   async getPrice(asset: string, chainId?: string): Promise<AssetPriceReading> {

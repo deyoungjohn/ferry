@@ -6,6 +6,8 @@ import {
   PREDICTED_FERRY_HTLC_ADDRESS,
   eip712DomainSeparator,
   predictHtlcAddress,
+  usdgDomain,
+  usdgDomainSeparator,
   usdt0Domain,
   usdt0DomainSeparator,
 } from '../src/index.js';
@@ -56,6 +58,19 @@ describe('EIP-712 domain helper', () => {
       }),
     ).toBe(
       '0x02fa7265e7c5d81118673727957699e4d68f74cd74b7db77da710fe8a2c7834f',
+    );
+  });
+
+  it('reconstructs the Paxos USDG domain on Robinhood', () => {
+    const token = getAddress('0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168');
+    expect(usdgDomain(4663, token)).toEqual({
+      name: 'Global Dollar',
+      version: '1',
+      chainId: 4663,
+      verifyingContract: token,
+    });
+    expect(usdgDomainSeparator(4663, token)).toBe(
+      '0x7a3d7400b27830f4f91c2c16a082486d67c1befecaec2f53b33f1f35d5b62036',
     );
   });
 });
