@@ -10,6 +10,8 @@ export interface SelectOption {
   readonly value: string;
   readonly label: string;
   readonly disabled?: boolean;
+  /** Artwork before the label (see lib/icons). */
+  readonly icon?: string | null | undefined;
 }
 
 export interface SelectProps {
@@ -65,6 +67,7 @@ export function Select({
             key={option.value}
             value={option.value}
             disabled={option.disabled ?? false}
+            icon={option.icon ?? undefined}
           >
             {option.label}
           </MorphSelectItem>

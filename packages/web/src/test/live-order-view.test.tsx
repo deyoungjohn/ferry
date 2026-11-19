@@ -188,4 +188,59 @@ describe('the order page', () => {
     expect(await screen.findByTestId('order-back-to-swap')).toBeInTheDocument();
     expect(screen.queryByTestId('order-lock-now')).toBeNull();
   });
+
+  const SNAPSHOT = {
+    state: 'SOLVER_LOCK_SEEN',
+    direction: 'EVM_TO_BCH',
+    txids: { evmLock: 'a'.repeat(64), bchLock: 'b'.repeat(64) },
+    summary: {
+      bchToken: 'PUSD',
+      bchTokenAmount: '498',
+      evmAmount: '5000000',
+      evmChainId: 8453,
+    },
+    timeline: [],
+  };
+
+  it('ticks the steps the server already shows before the session has been read back, with the amount on top', async () => {
+    vi.stubEnv('VITE_SOLVER_URLS', 'https://solver.test');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(SNAPSHOT)),
+    );
+    // The session never answers: only the server's record and the saved file are known.
+    vi.spyOn(UserSwapSession, 'resume').mockReturnValue(new Promise(() => {}));
+    renderPage(false);
+    expect(await screen.findByTestId('order-amount')).toHaveTextContent(
+      '5.00 USDC → 4.98 PUSD',
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('order-step-waitCounterLock')).toHaveAttribute(
+        'data-state',
+        'done',
+      ),
+    );
+    expect(screen.getByTestId('order-step-claim')).toHaveAttribute(
+      'data-state',
+      'active',
+    );
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it('a swap this browser did not start shows its progress read-only, with links', async () => {
+    vi.stubEnv('VITE_SOLVER_URLS', 'https://solver.test');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(SNAPSHOT)),
+    );
+    window.localStorage.clear();
+    renderPage(false);
+    expect(await screen.findByTestId('order-readonly')).toHaveTextContent(
+      '5.00 USDC → 4.98 PUSD',
+    );
+    expect(screen.getAllByTestId('tx-link').length).toBeGreaterThan(0);
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
 });

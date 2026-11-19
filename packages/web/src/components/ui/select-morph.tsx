@@ -47,9 +47,15 @@ interface MorphContextValue {
   open: boolean;
   setOpen: (open: boolean) => void;
   select: (value: string) => void;
-  register: (value: string, label: string, disabled: boolean) => void;
+  register: (
+    value: string,
+    label: string,
+    disabled: boolean,
+    icon?: string,
+  ) => void;
   unregister: (value: string) => void;
   labelFor: (value: string | undefined) => string | undefined;
+  iconFor: (value: string | undefined) => string | undefined;
   rows: ListboxRow[];
   /** Closes the panel; focus inside it returns to the trigger. */
   close: () => void;
@@ -110,7 +116,10 @@ export function MorphSelect({
   // ref-counted: items render twice (hidden registrar + open panel), so a
   // label is only dropped once every copy with that value has unmounted.
   const [labels, setLabels] = useState<
-    Map<string, { label: string; disabled: boolean; count: number }>
+    Map<
+      string,
+      { label: string; disabled: boolean; count: number; icon?: string }
+    >
   >(new Map());
   const [placeholder, setPlaceholder] = useState('Select');
 
@@ -139,10 +148,15 @@ export function MorphSelect({
   );
 
   const register = useCallback(
-    (v: string, label: string, disabled: boolean) => {
+    (v: string, label: string, disabled: boolean, icon?: string) => {
       setLabels((m) => {
         const next = new Map(m);
-        next.set(v, { label, disabled, count: (m.get(v)?.count ?? 0) + 1 });
+        next.set(v, {
+          label,
+          disabled,
+          count: (m.get(v)?.count ?? 0) + 1,
+          ...(icon ? { icon } : {}),
+        });
         return next;
       });
     },
@@ -193,6 +207,7 @@ export function MorphSelect({
       register,
       unregister,
       labelFor: (v) => (v === undefined ? undefined : labels.get(v)?.label),
+      iconFor: (v) => (v === undefined ? undefined : labels.get(v)?.icon),
       rows,
       close,
       triggerRef,
@@ -245,13 +260,18 @@ export function MorphSelectValue({
     if (placeholder) ctx.setPlaceholder(placeholder);
   }, [placeholder, ctx.setPlaceholder]);
   const label = ctx.labelFor(ctx.value);
+  const icon = ctx.iconFor(ctx.value);
   return (
     <span
       className={cn(
+        'inline-flex items-center gap-2',
         label ? 'text-foreground' : 'text-muted-foreground',
         className,
       )}
     >
+      {icon ? (
+        <img src={icon} alt="" className="size-5 shrink-0 rounded-full" />
+      ) : null}
       {label ?? placeholder ?? 'Select'}
     </span>
   );
@@ -427,6 +447,8 @@ export interface MorphSelectItemProps {
   value: string;
   disabled?: boolean;
   className?: string;
+  /** Artwork shown before the label, in the list and in the closed select. */
+  icon?: string | undefined;
   children: ReactNode;
 }
 
@@ -434,6 +456,7 @@ export function MorphSelectItem({
   value,
   disabled = false,
   className,
+  icon,
   children,
 }: MorphSelectItemProps) {
   const ctx = useMorphContext('MorphSelectItem');
@@ -443,9 +466,9 @@ export function MorphSelectItem({
   const label = typeof children === 'string' ? children : value;
 
   useLayoutEffect(() => {
-    ctx.register(value, label, disabled);
+    ctx.register(value, label, disabled, icon);
     return () => ctx.unregister(value);
-  }, [ctx.register, ctx.unregister, value, label, disabled]);
+  }, [ctx.register, ctx.unregister, value, label, disabled, icon]);
 
   // The hidden copy only registers; no stray options outside the listbox.
   if (registrarOnly) return null;
@@ -470,7 +493,12 @@ export function MorphSelectItem({
           className,
         )}
       >
-        {children}
+        <span className="inline-flex items-center gap-2">
+          {icon ? (
+            <img src={icon} alt="" className="size-5 shrink-0 rounded-full" />
+          ) : null}
+          {children}
+        </span>
         {selected ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
       </button>
     </motion.li>

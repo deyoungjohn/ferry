@@ -1,4 +1,5 @@
 import { cn } from '../../lib/cn';
+import { chainIconUrl, tokenIconUrl } from '../../lib/icons';
 import type { Chain, Token } from './types';
 
 export function ChainChip({
@@ -46,20 +47,26 @@ export function ChainDot({
     <span
       style={{ width: size, height: size }}
       className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-full text-xs font-semibold',
-        chain.tone,
+        'inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold',
+        chainIconUrl(chain.name) ? '' : chain.tone,
       )}
     >
-      {chain.symbol}
+      {chainIconUrl(chain.name) ? (
+        <img
+          src={chainIconUrl(chain.name)!}
+          alt=""
+          className="size-full object-cover"
+        />
+      ) : (
+        chain.symbol
+      )}
     </span>
   );
 }
 
-/** The PUSD artwork (also for the test token tPUSD); other tokens have none yet and show initials. */
+/** The artwork of a token (PUSD, MUSD, USDC, USDT); null when there is none yet. */
 export function pusdIconUrl(symbol: string): string | null {
-  return symbol.replace(/^t/, '').toUpperCase() === 'PUSD'
-    ? `${import.meta.env.BASE_URL}brand/pusd.svg`
-    : null;
+  return tokenIconUrl(symbol);
 }
 
 export function TokenDot({
@@ -95,11 +102,19 @@ export function TokenDot({
           height: size * 0.42,
         }}
         className={cn(
-          'absolute -bottom-0.5 -right-0.5 inline-flex items-center justify-center rounded-full border-2 border-card text-[7px] font-semibold',
-          chain.tone,
+          'absolute -bottom-0.5 -right-0.5 inline-flex items-center justify-center overflow-hidden rounded-full border-2 border-card text-[7px] font-semibold',
+          chainIconUrl(chain.name) ? '' : chain.tone,
         )}
       >
-        {chain.symbol}
+        {chainIconUrl(chain.name) ? (
+          <img
+            src={chainIconUrl(chain.name)!}
+            alt=""
+            className="size-full object-cover"
+          />
+        ) : (
+          chain.symbol
+        )}
       </span>
     </span>
   );

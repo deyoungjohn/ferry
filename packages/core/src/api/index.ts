@@ -377,6 +377,15 @@ export const OrderStatusResponseSchema = z.strictObject({
   updatedAt: unixTimestampSeconds,
   createdAt: unixTimestampSeconds.optional(),
   timeline: OrderTimelineSchema.optional(),
+  /** What the swap is for (public: the recent swaps list shows the same): token, amounts, chain. */
+  summary: z
+    .strictObject({
+      bchToken: z.string().min(1).max(16),
+      bchTokenAmount: z.string().regex(/^\d+$/),
+      evmAmount: z.string().regex(/^\d+$/),
+      evmChainId: positiveUint,
+    })
+    .optional(),
 });
 
 export type OrderStatusResponse = z.infer<typeof OrderStatusResponseSchema>;

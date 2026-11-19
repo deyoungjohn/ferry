@@ -15,6 +15,15 @@ export interface OrderSnapshot {
   readonly updatedAt?: number | undefined;
   readonly timeline?:
     ReadonlyArray<{ readonly status: string; readonly at: number }> | undefined;
+  readonly direction?: 'EVM_TO_BCH' | 'BCH_TO_EVM' | undefined;
+  readonly summary?:
+    | {
+        readonly bchToken: string;
+        readonly bchTokenAmount: string;
+        readonly evmAmount: string;
+        readonly evmChainId: number;
+      }
+    | undefined;
 }
 
 /** The time the order first reached any of these states. */
@@ -49,6 +58,8 @@ export async function readOrderTxids(
       createdAt?: number;
       updatedAt?: number;
       timeline?: OrderSnapshot['timeline'];
+      direction?: OrderSnapshot['direction'];
+      summary?: OrderSnapshot['summary'];
     };
     return {
       state: body.state ?? '',
@@ -56,6 +67,8 @@ export async function readOrderTxids(
       createdAt: body.createdAt,
       updatedAt: body.updatedAt,
       timeline: body.timeline,
+      direction: body.direction,
+      summary: body.summary,
     };
   } catch {
     return null;
@@ -187,6 +200,106 @@ export function sendLinkSteps(
       state: states[4]!,
       at: timeOf(snapshot, T.done),
       txs: bch("Solver's claim", t.bchClaim),
+    },
+  ];
+}
+
+/** "5.00 USDC → 4.98 PUSD" for a swap, from the server's summary (the figure at the top of a swap). */
+export function swapAmountText(
+  direction: 'EVM_TO_BCH' | 'BCH_TO_EVM',
+  summary: NonNullable<OrderSnapshot['summary']>,
+  evmToken = 'USDC',
+): string {
+  const cents = (raw: string, decimals: number) => {
+    const units = BigInt(raw);
+    const value =
+      decimals >= 2
+        ? units / 10n ** BigInt(decimals - 2)
+        : units * 10n ** BigInt(2 - decimals);
+    const text = value.toString().padStart(3, '0');
+    return `${text.slice(0, -2)}.${text.slice(-2)}`;
+  };
+  const evm = `${cents(summary.evmAmount, 6)} ${evmToken}`;
+  const bch = `${cents(summary.bchTokenAmount, 2)} ${summary.bchToken}`;
+  return direction === 'EVM_TO_BCH' ? `${evm} → ${bch}` : `${bch} → ${evm}`;
+}
+
+/** How far a swap has got, from the server's record alone: 0 nothing, up to 4 done. */
+export function swapMilestones(
+  snapshot: OrderSnapshot | null,
+  direction: 'EVM_TO_BCH' | 'BCH_TO_EVM',
+) {
+  const t = snapshot?.txids ?? {};
+  const forward = direction === 'EVM_TO_BCH';
+  const userLock = Boolean(forward ? t.evmLock : t.bchLock);
+  const solverLock = Boolean(forward ? t.bchLock : t.evmLock);
+  const userClaim = Boolean(forward ? t.bchClaim : t.evmClaim);
+  const done =
+    snapshot?.state === 'DONE' || Boolean(forward ? t.evmClaim : t.bchClaim);
+  return { userLock, solverLock, userClaim, done };
+}
+
+/**
+ * The read-only steps of any swap (for someone who did not start it, or whose browser has no
+ * recovery file): every transaction linked to its explorer, each step timed.
+ */
+export function swapSteps(
+  snapshot: OrderSnapshot | null,
+  direction: 'EVM_TO_BCH' | 'BCH_TO_EVM',
+  chainId = 8453,
+): ProcessStep[] {
+  const t = snapshot?.txids ?? {};
+  const forward = direction === 'EVM_TO_BCH';
+  const m = swapMilestones(snapshot, direction);
+  const states = pick([
+    true,
+    m.userLock,
+    m.solverLock,
+    m.userClaim || m.done,
+    m.done,
+  ]);
+  return [
+    {
+      id: 'created',
+      label: 'Swap created',
+      state: states[0]!,
+      at: snapshot?.createdAt,
+    },
+    {
+      id: 'locked',
+      label: 'The funds are locked',
+      state: states[1]!,
+      at: timeOf(snapshot, T.userLock),
+      txs: forward
+        ? evm(chainId, "Payer's lock", t.evmLock)
+        : bch("Payer's lock", t.bchLock),
+    },
+    {
+      id: 'solver',
+      label: "The solver's funds are locked",
+      state: states[2]!,
+      at: timeOf(snapshot, T.solverLock),
+      txs: forward
+        ? bch("Solver's lock", t.bchLock)
+        : evm(chainId, "Solver's lock", t.evmLock),
+    },
+    {
+      id: 'claimed',
+      label: 'The funds are claimed',
+      state: states[3]!,
+      at: timeOf(snapshot, T.claimed),
+      txs: forward
+        ? bch('Claim', t.bchClaim)
+        : evm(chainId, 'Claim', t.evmClaim),
+    },
+    {
+      id: 'done',
+      label: 'Done',
+      state: states[4]!,
+      at: timeOf(snapshot, T.done),
+      txs: forward
+        ? evm(chainId, "Solver's claim", t.evmClaim)
+        : bch("Solver's claim", t.bchClaim),
     },
   ];
 }

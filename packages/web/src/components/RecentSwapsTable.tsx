@@ -1,6 +1,9 @@
 import { formatDuration } from '@ferry/core';
 import { bchTxUrl, chainLabel, evmTxUrl } from '../lib/explorer';
+import { chainIconUrl, tokenIconUrl } from '../lib/icons';
+import { ROUTES } from '../lib/routes';
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router';
 import { useSolver } from '../lib/solver/useSolver';
 import type { RecentSwap } from '../lib/solver/types';
 import { Pagination } from './ui/pagination';
@@ -93,6 +96,7 @@ export function RecentSwapsTable() {
                 <th className="px-4 py-3 font-medium">Duration</th>
                 <th className="px-4 py-3 font-medium">Source Tx</th>
                 <th className="px-4 py-3 font-medium">Claim Tx</th>
+                <th className="px-4 py-3 font-medium">Order</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
@@ -123,7 +127,7 @@ export function RecentSwapsTable() {
               ) : data.items.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     data-testid="recent-swaps-empty"
                     className="px-4 py-12 text-center"
                   >
@@ -143,26 +147,18 @@ export function RecentSwapsTable() {
                     className="transition-colors hover:bg-surface-2/40"
                   >
                     <td className="px-4 py-3 text-text">
-                      <span className="font-semibold">
-                        {swap.fromAmount.toFixed(2)}
-                      </span>{' '}
-                      {swap.fromToken}{' '}
-                      {chainLabel(swap.fromChain) && (
-                        <span className="text-xs text-text-dim">
-                          ({chainLabel(swap.fromChain)})
-                        </span>
-                      )}
+                      <AmountCell
+                        amount={swap.fromAmount}
+                        token={swap.fromToken}
+                        chain={swap.fromChain}
+                      />
                     </td>
-                    <td className="px-4 py-3 text-lime font-medium">
-                      <span className="font-semibold">
-                        {swap.toAmount.toFixed(2)}
-                      </span>{' '}
-                      {swap.toToken}{' '}
-                      {chainLabel(swap.toChain) && (
-                        <span className="text-xs text-text-dim">
-                          ({chainLabel(swap.toChain)})
-                        </span>
-                      )}
+                    <td className="px-4 py-3 font-medium text-lime">
+                      <AmountCell
+                        amount={swap.toAmount}
+                        token={swap.toToken}
+                        chain={swap.toChain}
+                      />
                     </td>
                     <td className="px-4 py-3 font-mono text-text-muted">
                       {formatDuration(swap.durationSeconds)}
@@ -180,6 +176,20 @@ export function RecentSwapsTable() {
                         mock={swap.isMock}
                         chain={swap.toChain}
                       />
+                    </td>
+                    <td className="px-4 py-3">
+                      {swap.isMock ? (
+                        <span className="text-text-dim">—</span>
+                      ) : (
+                        <Link
+                          to={ROUTES.swapOrder(swap.id)}
+                          title={swap.id}
+                          data-testid="recent-order-link"
+                          className="font-mono text-lime underline-offset-2 hover:underline"
+                        >
+                          {swap.id.slice(0, 5)}…
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -248,5 +258,42 @@ function ExplorerCell({
     >
       {name} ↗
     </a>
+  );
+}
+
+/** An amount with its token's artwork, and the chain (name and artwork) for an EVM token. */
+function AmountCell({
+  amount,
+  token,
+  chain,
+}: {
+  amount: number;
+  token: string;
+  chain: string;
+}) {
+  const tokenIcon = tokenIconUrl(token);
+  const label = chainLabel(chain);
+  const chainIcon = label
+    ? chainIconUrl(
+        chain.match(/\d+/)?.[0] ? Number(chain.match(/\d+/)![0]) : chain,
+      )
+    : null;
+  return (
+    <span className="inline-flex items-center gap-2">
+      {tokenIcon ? (
+        <img src={tokenIcon} alt="" className="size-5 rounded-full" />
+      ) : null}
+      <span>
+        <span className="font-semibold">{amount.toFixed(2)}</span> {token}
+      </span>
+      {label && (
+        <span className="inline-flex items-center gap-1 text-xs text-text-dim">
+          {chainIcon ? (
+            <img src={chainIcon} alt="" className="size-4 rounded-full" />
+          ) : null}
+          {label}
+        </span>
+      )}
+    </span>
   );
 }

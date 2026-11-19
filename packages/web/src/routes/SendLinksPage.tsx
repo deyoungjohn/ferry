@@ -9,6 +9,7 @@ import { sendLinkUrl, type SendLinkData } from '../lib/paylink/link';
 import { NETWORK_PROFILE } from '../lib/config';
 import { GlassModal } from '../components/GlassModal';
 import { readOrderTxids } from '../lib/paylink/order-steps';
+import { chainIconUrl, tokenIconUrl } from '../lib/icons';
 import { MorphWorkspace } from '../components/links/MorphWorkspace';
 import { LinksTable, type LinkRow } from '../components/links/LinksTable';
 import { useToast } from '../lib/toast/ToastContext';
@@ -449,6 +450,7 @@ export function SendLinksPage({
                           ? `${c.name} (${c.disabledReason})`
                           : c.name,
                       disabled: !c.enabled,
+                      icon: chainIconUrl(c.name),
                     }))}
                   />
                 </div>
@@ -461,7 +463,11 @@ export function SendLinksPage({
                     options={(
                       farChains.find((c) => c.name === destChain)
                         ?.tokenSymbols ?? ['USDC']
-                    ).map((sym) => ({ value: sym, label: sym }))}
+                    ).map((sym) => ({
+                      value: sym,
+                      label: sym,
+                      icon: tokenIconUrl(sym),
+                    }))}
                   />
                 </div>
               </div>

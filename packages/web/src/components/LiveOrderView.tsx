@@ -12,6 +12,15 @@ import { createLiveDependencies } from '../lib/live/ports';
 import { createLocalRecoveryStore } from '../lib/live/recovery-store';
 import { WAIT_OPTIONS } from '../lib/live/run';
 import { latestWallet } from '../lib/live/latest-wallets';
+import { readSnapshot, writeSnapshot } from '../lib/paylink/snapshot-cache';
+import {
+  readOrderTxids,
+  swapAmountText,
+  swapMilestones,
+  swapSteps,
+  type OrderSnapshot,
+} from '../lib/paylink/order-steps';
+import { ProcessSteps } from './links/ProcessSteps';
 import { bchTxUrl, evmTxUrl } from '../lib/explorer';
 import { TxLink } from './TxLink';
 
@@ -77,7 +86,6 @@ export function LiveOrderView({
   const [fileJson, setFileJson] = useState<string | null>(null);
   const sessionRef = useRef<UserSwapSession | null>(null);
   const running = useRef(false);
-  const [chainTxids, setChainTxids] = useState<Record<string, string>>({});
   const walletsRef = useRef(wallets);
   walletsRef.current = wallets;
   const checkingRef = useRef(false);
@@ -149,34 +157,34 @@ export function LiveOrderView({
     return () => clearInterval(timer);
   }, []);
 
-  // The transactions the solver recorded for this order, for the explorer links.
+  // What the server holds for this order (state, transactions, times, amounts). The last copy is
+  // kept in this browser and paints at once; the live answer corrects it every few seconds.
+  const [snap, setSnap] = useState<OrderSnapshot | null>(() =>
+    readSnapshot<OrderSnapshot>(`order.${orderId}`),
+  );
+  const solverBase = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+    ?.split(',')[0]
+    ?.trim();
+  const snapFinished = snap?.state === 'DONE';
   useEffect(() => {
-    const base = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
-      ?.split(',')[0]
-      ?.trim();
-    if (!base) return;
+    if (!solverBase) return;
     let cancelled = false;
     const read = async () => {
-      try {
-        const res = await fetch(
-          `${base.replace(/\/+$/, '')}/v1/orders/${orderId}`,
-        );
-        if (!res.ok) return;
-        const body = (await res.json()) as {
-          txids?: Record<string, string>;
-        };
-        if (!cancelled && body.txids) setChainTxids(body.txids);
-      } catch {
-        // the links are a convenience; the page works without them
-      }
+      const fresh = await readOrderTxids(solverBase, orderId);
+      if (cancelled || !fresh) return;
+      writeSnapshot(`order.${orderId}`, fresh);
+      setSnap(fresh);
     };
     void read();
-    const timer = setInterval(read, 10_000);
+    const timer = setInterval(() => {
+      if (!snapFinished) void read();
+    }, 8_000);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [orderId]);
+  }, [solverBase, orderId, snapFinished]);
+  const chainTxids = (snap?.txids ?? {}) as Record<string, string>;
 
   // Until the swap has reached its end (done or refunded), look at the chains every 15 seconds:
   // a failed or stalled step must not leave the page frozen until it is reloaded.
@@ -275,6 +283,29 @@ export function LiveOrderView({
     URL.revokeObjectURL(url);
   }
 
+  if (missing && snap?.direction) {
+    return (
+      <div
+        className="mx-auto max-w-lg px-4 py-8 sm:px-6"
+        data-testid="order-readonly"
+      >
+        <h1 className="text-2xl font-semibold text-text">
+          {snap.summary ? swapAmountText(snap.direction, snap.summary) : 'Swap'}
+        </h1>
+        <p className="mt-1 break-all font-mono text-[11px] text-text-dim">
+          {orderId}
+        </p>
+        <div className="mt-6">
+          <ProcessSteps steps={swapSteps(snap, snap.direction)} />
+        </div>
+        <p className="mt-4 text-xs text-text-dim">
+          This swap was started in another browser, so this page only shows its
+          progress.
+        </p>
+      </div>
+    );
+  }
+
   if (missing) {
     return (
       <div className="mx-auto max-w-lg px-4 py-10" data-testid="order-not-here">
@@ -346,8 +377,46 @@ export function LiveOrderView({
     return [];
   }
 
-  const current = state ? stepIndex(state.step) : 0;
-  const done = state?.step === 'done';
+  const fileTerms = (() => {
+    try {
+      return fileJson ? parseRecoveryFileJson(fileJson).terms : null;
+    } catch {
+      return null;
+    }
+  })();
+  const direction = fileTerms?.direction ?? snap?.direction ?? null;
+  // How far the server's record says the swap is (2 = price and file done), so the page does not
+  // wait for the wallet and chain reads of the session to tick what the record already shows.
+  const snapIndex = (() => {
+    if (!direction || !snap) return 0;
+    const m = swapMilestones(snap, direction);
+    if (m.done) return 5;
+    if (m.userClaim) return 5;
+    if (m.solverLock) return 4;
+    if (m.userLock) return 3;
+    return 2;
+  })();
+  const amountText = (() => {
+    if (fileTerms) {
+      return swapAmountText(
+        fileTerms.direction,
+        {
+          bchToken: fileTerms.bchToken,
+          bchTokenAmount: String(fileTerms.bchTokenAmount),
+          evmAmount: String(fileTerms.evmAmount),
+          evmChainId: fileTerms.evmChainId,
+        },
+        embedded ? undefined : undefined,
+      );
+    }
+    return snap?.summary && snap.direction
+      ? swapAmountText(snap.direction, snap.summary)
+      : null;
+  })();
+  const sessionIndex = state ? stepIndex(state.step) : 0;
+  const current = Math.max(sessionIndex, snapIndex);
+  const done =
+    state?.step === 'done' || (snap?.state === 'DONE' && snapIndex >= 5);
   const refundReady = state?.step === 'refund';
   const needsLockStart = state?.step === 'lock' && !running.current;
   const waitingForWallets = !dependencies && !wallets?.bch.address;
@@ -406,14 +475,24 @@ export function LiveOrderView({
         </p>
       )}
 
-      <ol className="mt-6 space-y-3" data-testid="order-steps">
+      {amountText && (
+        <p
+          className="mt-5 text-xl font-bold text-text"
+          data-testid="order-amount"
+        >
+          {amountText}
+        </p>
+      )}
+
+      <ol className="mt-4 space-y-3" data-testid="order-steps">
         {STEPS.map((item, index) => {
           // The price and the saved file exist before the swap has been read back: they are done
           // as soon as the recovery file is found in this browser, not when the session catches up.
-          const reached = state
-            ? index < current || done
-            : fileJson !== null && index < 2;
-          const active = state ? index === current && !done : false;
+          const reached =
+            state || snap
+              ? index < current || done
+              : fileJson !== null && index < 2;
+          const active = state || snap ? index === current && !done : false;
           return (
             <li
               key={item.id}

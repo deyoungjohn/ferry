@@ -11,6 +11,7 @@ import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse } from '../lib/solver/types';
 import { useToast } from '../lib/toast/ToastContext';
 import { pusdIconUrl } from '../components/swap-block/token-badges';
+import { chainIconUrl } from '../lib/icons';
 import { Select } from '../components/ui/select';
 import { LIVE_EXECUTION_ENABLED } from '../lib/config';
 import { listPayLinks } from '../lib/paylink/pay-store';
@@ -475,6 +476,7 @@ export function PayLinkPage() {
                       options={farChains.map((c) => ({
                         value: String(c.id),
                         label: c.name,
+                        icon: chainIconUrl(c.name),
                       }))}
                       className="w-full"
                       triggerClassName="w-full py-1 text-xs"

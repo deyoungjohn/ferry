@@ -1025,6 +1025,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       updatedAt: order.updatedAt,
       createdAt: order.createdAt,
       timeline: db.listOrderEvents(order.id),
+      summary: {
+        bchToken: String(terms.bchToken),
+        bchTokenAmount: terms.bchTokenAmount.toString(),
+        evmAmount: terms.evmAmount.toString(),
+        evmChainId: Number(terms.evmChainId),
+      },
     };
 
     OrderStatusResponseSchema.parse(response);
