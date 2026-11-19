@@ -69,9 +69,7 @@ export function StatsRow() {
               </div>
               <div>
                 <p className="text-2xl font-bold text-text">—</p>
-                <p className="mt-1 text-xs text-text-muted">
-                  Median time
-                </p>
+                <p className="mt-1 text-xs text-text-muted">Median time</p>
               </div>
             </div>
           </div>
@@ -95,9 +93,7 @@ export function StatsRow() {
               <p className="text-3xl font-bold text-lime">
                 {formatMedian(stats.medianSecondsFast)}
               </p>
-              <p className="mt-1 text-xs text-text-muted">
-                Median time
-              </p>
+              <p className="mt-1 text-xs text-text-muted">Median time</p>
             </div>
           </div>
         )}
