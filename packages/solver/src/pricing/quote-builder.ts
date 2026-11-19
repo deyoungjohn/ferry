@@ -433,7 +433,12 @@ export class QuoteBuilder {
         reserveResult.maxAmountUnit === 'token'
           ? reserveResult.maxAmount
           : (reserveResult.maxAmount * 10n ** BigInt(outDecimals)) / 1_000_000n;
-      const maxHuman = formatUnits(tokenUnits, outDecimals);
+      // Never more than 2 decimals, rounded down so the amount shown is always available.
+      const cent = outDecimals > 2 ? 10n ** BigInt(outDecimals - 2) : 1n;
+      const maxHuman = formatUnits(
+        tokenUnits - (tokenUnits % cent),
+        outDecimals,
+      );
       const isLiquidity = reserveResult.maxAmountUnit === 'token';
       return {
         ok: false,

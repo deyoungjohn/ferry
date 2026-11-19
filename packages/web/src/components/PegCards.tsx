@@ -96,7 +96,7 @@ export function PegCards() {
                 </span>
               </div>
               <p className="mt-1 font-mono text-2xl font-bold text-text">
-                ${peg.priceUsd.toFixed(4)}
+                ${peg.priceUsd.toFixed(2)}
               </p>
               <div className="mt-1 flex items-center gap-2 text-[11px] text-text-dim">
                 <span>Target $1.00 USD</span>

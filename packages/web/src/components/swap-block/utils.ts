@@ -15,10 +15,11 @@ export function sanitizeAmount(v: string) {
   const cleaned = v.replace(/[^0-9.]/g, '');
   const parts = cleaned.split('.');
   if (parts.length <= 1) return cleaned;
-  return `${parts[0]}.${parts.slice(1).join('')}`;
+  // At most 2 decimals: USDC and PUSD are never shown or typed with more.
+  return `${parts[0]}.${parts.slice(1).join('').slice(0, 2)}`;
 }
 
-export function formatAmount(n: number, max = 6) {
+export function formatAmount(n: number, max = 2) {
   if (!Number.isFinite(n)) return '0';
   if (n === 0) return '0';
   if (n >= 1000) {

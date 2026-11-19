@@ -49,7 +49,7 @@ export async function prepareSwap(
 }
 
 export const WAIT_OPTIONS = {
-  pollIntervalMs: 10_000,
+  pollIntervalMs: 3_000,
   timeoutMs: 25 * 60_000,
 } as const;
 

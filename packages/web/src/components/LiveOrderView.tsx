@@ -273,12 +273,21 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
               key={item.id}
               data-testid={`order-step-${item.id}`}
               data-state={reached ? 'done' : active ? 'active' : 'todo'}
-              className={`flex items-start gap-3 rounded-lg border p-3 ${
+              className={`relative flex items-start gap-3 rounded-lg border p-3 ${
                 active
                   ? 'border-lime/40 bg-lime/5'
                   : 'border-hairline bg-surface-1'
               }`}
             >
+              {index < STEPS.length - 1 && (
+                <span
+                  aria-hidden="true"
+                  data-testid={`order-link-${item.id}`}
+                  className={`absolute top-full left-[22px] h-3 w-px ${
+                    reached ? 'bg-lime' : 'bg-hairline'
+                  }`}
+                />
+              )}
               <span
                 aria-hidden="true"
                 className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-full text-[11px] ${

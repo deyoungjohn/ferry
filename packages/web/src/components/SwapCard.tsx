@@ -21,6 +21,7 @@ import { WalletContext } from '../lib/wallet/context';
 import { RealPriceReader } from '../lib/pricing/real';
 import {
   formatPricingEvidence,
+  formatPricingSummary,
   CHECKABLE_QUOTE_WORDING,
 } from '../lib/solver/pricing-display';
 import type { ChainDisplay } from '../lib/network';
@@ -504,6 +505,8 @@ export function SwapCard({
         evmTokenDecimals: far.decimals,
         bchTokenDecimals: 2,
         lane,
+        // Picking the fast lane is the person's consent to it.
+        fastOptIn: lane === 'fast',
       },
     };
   }
@@ -751,7 +754,7 @@ export function SwapCard({
                   : 'text-text-muted hover:text-text'
               }`}
             >
-              Fast (0-conf)
+              Fast
             </button>
             <button
               type="button"
@@ -764,7 +767,7 @@ export function SwapCard({
                   : 'text-text-muted hover:text-text'
               }`}
             >
-              Safe (1-conf)
+              Safe
             </button>
           </div>
         </div>
@@ -1224,7 +1227,7 @@ export function SwapCard({
               <span className="text-text-dim">Rate</span>
               <span className="font-mono text-text">
                 1 {sendTokenSymbol} ≈{' '}
-                {quote?.exchangeRate ? quote.exchangeRate.toFixed(4) : '1.0000'}{' '}
+                {quote?.exchangeRate ? quote.exchangeRate.toFixed(2) : '1.00'}{' '}
                 {receiveTokenSymbol}
               </span>
             </div>
@@ -1235,9 +1238,12 @@ export function SwapCard({
               <span
                 data-testid="quote-evidence-line"
                 className="font-mono text-text text-right truncate"
+                title={
+                  quote?.formattedPricingEvidence ??
+                  formatPricingEvidence(bestSolverQuote?.quote.terms.pricing)
+                }
               >
-                {quote?.formattedPricingEvidence ??
-                  formatPricingEvidence(bestSolverQuote?.quote.terms.pricing)}
+                {formatPricingSummary(bestSolverQuote?.quote.terms.pricing)}
               </span>
             </div>
 
@@ -1246,7 +1252,7 @@ export function SwapCard({
               <span className="text-ok">
                 {lane === 'fast'
                   ? '< 1 minute (Fast lane)'
-                  : '≈ 10 minutes (Safe lane)'}
+                  : '≈ 1–2 minutes (Safe lane)'}
               </span>
             </div>
 

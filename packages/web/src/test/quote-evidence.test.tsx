@@ -162,6 +162,9 @@ describe('Quote row with evidence (FR-17) & PriceReader', () => {
       ).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/Cauldron/i)).toBeInTheDocument();
+    // The visible line is short and never shows more than 2 decimals; the sources are in its hover text.
+    const line = screen.getByTestId('quote-evidence-line');
+    expect(line.textContent ?? '').not.toMatch(/\d\.\d{3,}/);
+    expect(line.getAttribute('title') ?? '').toMatch(/Cauldron/i);
   });
 });

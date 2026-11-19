@@ -164,7 +164,9 @@ export async function startSolver(
         baseFact?.deployment.predictedHtlcAddress ||
         '0x0000000000000000000000000000000000000000') as `0x${string}`,
       relayCostUsd: 0.05,
-      finality: { fast: 1, safe: 'finalized' as const },
+      // Base's `safe` block (its data is on L1) trails the head by under a minute; `finalized`
+      // trails it by about 15 minutes, which is what made every swap slow.
+      finality: { fast: 1, safe: 'safe' as const },
       assets: [
         {
           symbol: 'USDC' as const,
@@ -199,7 +201,7 @@ export async function startSolver(
   // 7. Initialize Solver Engine
   const engine = new SolverEngine(db, bchPort, evmPort, {
     dsproofWindowMs: config.dsproofWindowMs,
-    pollIntervalMs: 5000,
+    pollIntervalMs: 3000,
     solverBchWif: config.solverBchWif,
     bchNetwork: config.network === 'mainnet' ? 'mainnet' : 'chipnet',
     executionReady: config.executionReady,
