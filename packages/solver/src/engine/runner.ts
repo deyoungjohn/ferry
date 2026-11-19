@@ -117,6 +117,9 @@ export class SolverEngine {
   private readonly onOrderError?: EngineConfig['onOrderError'];
   private readonly onEngineEvent?: EngineConfig['onEngineEvent'];
   private lastSummary = '';
+  private readonly lastLockSeen = new Map<string, string>();
+  private passes = 0;
+  private heartbeatAt = 0;
   private readonly lastErrors = new Map<string, string>();
   private readonly bchExecutor: ActionExecutor;
   private readonly evmExecutor: ActionExecutor;
@@ -380,6 +383,18 @@ export class SolverEngine {
 
   async reconcileOrders(): Promise<void> {
     const nonTerminalOrders = this.db.listNonTerminalOrders();
+    this.passes += 1;
+    if (Date.now() - this.heartbeatAt > 60_000) {
+      this.heartbeatAt = Date.now();
+      this.onEngineEvent?.(
+        {
+          passes: this.passes,
+          executionReady: this.executionReady,
+          open: nonTerminalOrders.length,
+        },
+        'Engine heartbeat',
+      );
+    }
     const summary = nonTerminalOrders
       .map((o) => `${o.id.slice(0, 12)}:${o.status}`)
       .join(' ');
@@ -472,6 +487,19 @@ export class SolverEngine {
         order.terms.hashLock,
       );
       const lockState = await this.evmPort.getLock(lockId);
+      const lockSeen = `${order.id}:${order.status}:${lockState.status}:${lockState.txid ?? ''}`;
+      if (lockSeen !== this.lastLockSeen.get(order.id)) {
+        this.lastLockSeen.set(order.id, lockSeen);
+        this.onEngineEvent?.(
+          {
+            orderId: order.id,
+            lockId,
+            found: lockState.status,
+            txid: lockState.txid,
+          },
+          'EVM lock lookup',
+        );
+      }
       if (lockState.status === 'locked' && lockState.txid) {
         if (order.status === 'QUOTED') {
           this.applyEvent(order, {
@@ -511,10 +539,18 @@ export class SolverEngine {
         safe: true,
       });
       if (!revealDecision.allowed) {
+        this.onEngineEvent?.(
+          { orderId: order.id, reason: revealDecision.reason },
+          'Counter-lock waits',
+        );
         return; // wait for finality
       }
 
       // Execute BCH lock via bchExecutor
+      this.onEngineEvent?.(
+        { orderId: order.id },
+        'Building the Bitcoin Cash lock',
+      );
       const lockResult = await this.bchExecutor.executeOrAdopt({
         orderId: order.id,
         actionType: 'SOLVER_LOCK',
