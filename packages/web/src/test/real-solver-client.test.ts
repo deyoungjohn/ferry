@@ -89,4 +89,29 @@ describe('RealSolverClient against the live response shapes', () => {
       /not switched on/,
     );
   });
+
+  it('asks again when the refusal is a price blip, and shows a real refusal after two retries', async () => {
+    let asked = 0;
+    const blip = new RealSolverClient({
+      baseUrl: 'https://solver.example.org',
+      retryDelayMs: 0,
+      fetch: (async () => {
+        asked += 1;
+        return new Response(
+          JSON.stringify({ reason: 'PEG_GUARD', asset: 'PUSD' }),
+          { status: 422 },
+        );
+      }) as typeof fetch,
+    });
+    const quote = await blip.getQuote({
+      fromToken: 'USDC',
+      toToken: 'PUSD',
+      fromChain: 'Base',
+      toChain: 'Bitcoin Cash',
+      fromAmount: 1,
+      lane: 'safe',
+    });
+    expect(asked).toBe(3);
+    expect(quote.refusal?.reason).toBe('PEG_GUARD');
+  });
 });

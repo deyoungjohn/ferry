@@ -394,7 +394,15 @@ export class UserSwapSession {
     try {
       let txid: string;
       if (terms.direction === 'EVM_TO_BCH') {
-        const utxos = await this.covenantUtxos(file);
+        // The solver can report its lock before this browser's Bitcoin Cash node has it, so look
+        // again for up to 90 seconds before saying it is missing.
+        const sleep = this.deps.sleep ?? defaultSleep;
+        const giveUpAt = this.nowMs() + 90_000;
+        let utxos = await this.covenantUtxos(file);
+        while (utxos.length === 0 && this.nowMs() < giveUpAt) {
+          await sleep(5_000);
+          utxos = await this.covenantUtxos(file);
+        }
         if (utxos.length === 0) {
           throw new UserFlowError(
             'NOTHING_TO_SPEND',

@@ -24,7 +24,14 @@ export class RealSolverClient implements SolverClient {
   private readonly baseUrl: string;
   private readonly fetchFn: typeof fetch;
 
-  constructor(options?: { baseUrl?: string; fetch?: typeof fetch }) {
+  private readonly retryDelayMs: number;
+
+  constructor(options?: {
+    baseUrl?: string;
+    fetch?: typeof fetch;
+    retryDelayMs?: number;
+  }) {
+    this.retryDelayMs = options?.retryDelayMs ?? 1500;
     const envUrls =
       typeof import.meta !== 'undefined'
         ? (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
@@ -85,7 +92,22 @@ export class RealSolverClient implements SolverClient {
     return (await res.json()) as LiquidityResponse;
   }
 
+  /**
+   * A refusal because the reference price blipped (peg guard, price unavailable) usually clears
+   * within seconds: ask again twice before showing it, so a first-time visitor is not turned away.
+   */
   async getQuote(request: QuoteRequest): Promise<QuoteResponse> {
+    let quote = await this.getQuoteOnce(request);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const reason = quote.refusal?.reason;
+      if (reason !== 'PEG_GUARD' && reason !== 'PRICE_UNAVAILABLE') break;
+      await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs));
+      quote = await this.getQuoteOnce(request);
+    }
+    return quote;
+  }
+
+  private async getQuoteOnce(request: QuoteRequest): Promise<QuoteResponse> {
     const refusalResponse = (
       reason: 'ROUTE_DISABLED' | 'QUOTING_PAUSED' | 'PRICE_UNAVAILABLE',
       message: string,

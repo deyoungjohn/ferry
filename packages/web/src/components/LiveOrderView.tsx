@@ -209,6 +209,18 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
         {orderId}
       </p>
 
+      {state?.step === 'lock' && state.status === 'running' && (
+        <p
+          className="mt-4 rounded-lg border border-hairline bg-surface-2 p-3 text-xs text-text-muted"
+          data-testid="order-wallet-hint"
+        >
+          Approve the requests in your wallet. Locking can ask twice (approve,
+          then lock). If the second request does not appear, open your wallet
+          from the browser toolbar or extensions menu: some wallets, OKX
+          included, do not pop up again by themselves.
+        </p>
+      )}
+
       {waitingForWallets && (
         <p
           className="mt-4 rounded-lg border border-warn/30 bg-warn/10 p-3 text-xs text-warn"
