@@ -1,6 +1,11 @@
 /** Block explorers for a transaction, so anyone can check a swap on the chain itself. */
 const EVM_EXPLORERS: Record<number, string> = {
+  1: 'https://etherscan.io',
+  56: 'https://bscscan.com',
+  4663: 'https://robinhoodchain.blockscout.com',
+  5042: 'https://explorer.arc.io',
   8453: 'https://basescan.org',
+  42161: 'https://arbiscan.io',
   84532: 'https://sepolia.basescan.org',
 };
 
@@ -24,6 +29,8 @@ export function bchTxUrl(hash: string): string {
 const EVM_CHAIN_NAMES: Record<number, string> = {
   1: 'Ethereum',
   56: 'BNB Chain',
+  4663: 'Robinhood Chain',
+  5042: 'Arc',
   8453: 'Base',
   42161: 'Arbitrum',
   84532: 'Base Sepolia',
