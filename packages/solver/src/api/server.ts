@@ -1400,7 +1400,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           orderId: order.id as `0x${string}`,
           lockId: lockId as `0x${string}`,
         });
-        let signedByRecipient = false;
+        let signedByRecipient: boolean;
         try {
           signedByRecipient = await verifyTypedData({
             address: orderTerms.userEvmAddress as `0x${string}`,
