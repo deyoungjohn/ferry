@@ -39,6 +39,15 @@ const REFUSAL_CASES: readonly {
     expectedSubstring: '42 PUSD',
   },
   {
+    reason: 'BELOW_MINIMUM',
+    refusal: {
+      reason: 'BELOW_MINIMUM',
+      minAmount: '5.00',
+      asset: 'USDC',
+    },
+    expectedSubstring: '$5.00',
+  },
+  {
     reason: 'OVER_MAX_SWAP',
     refusal: {
       reason: 'OVER_MAX_SWAP',
