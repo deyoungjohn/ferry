@@ -7,9 +7,9 @@ export interface TimingConfig {
 
 export const DEFAULT_TIMING_CONFIG: Readonly<TimingConfig> = Object.freeze({
   solverReactionSeconds: 60,
-  safetySeconds: 7200,
+  safetySeconds: 1800,
   blockMeanSeconds: 600,
-  minReverseRemainingBlocks: 108,
+  minReverseRemainingBlocks: 33,
 });
 
 export interface CounterLockTime {

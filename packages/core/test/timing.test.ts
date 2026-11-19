@@ -35,7 +35,7 @@ describe('timing invariants F and R', () => {
 
   it('rejects Invariant F with typed reason when margin is insufficient or expired', () => {
     const short = invariantF(
-      { evmDeadlineSeconds: t0 + 12 * 3600, bchRefundHeight: tip + 36 },
+      { evmDeadlineSeconds: t0 + 6 * 3600, bchRefundHeight: tip + 36 },
       { unixSeconds: t0, bchTipHeight: tip },
     );
     expect(short.allowed).toBe(false);
@@ -65,16 +65,16 @@ describe('timing invariants F and R', () => {
     expect(decision.reason).toBe('ok');
   });
 
-  it('rejects Invariant R when remaining blocks < 108 or margin insufficient', () => {
+  it('rejects Invariant R when remaining blocks < 33 or margin insufficient', () => {
     const lowBlocks = invariantR(
-      { evmDeadlineSeconds: t0 + 6 * 3600, bchRefundHeight: tip + 107 },
+      { evmDeadlineSeconds: t0 + 2 * 3600, bchRefundHeight: tip + 32 },
       { unixSeconds: t0, bchTipHeight: tip },
     );
     expect(lowBlocks.allowed).toBe(false);
     expect(lowBlocks.reason).toBe('remaining-blocks');
 
     const tooLongEvm = invariantR(
-      { evmDeadlineSeconds: t0 + 15 * 3600, bchRefundHeight: tip + 108 },
+      { evmDeadlineSeconds: t0 + 15 * 3600, bchRefundHeight: tip + 33 },
       { unixSeconds: t0, bchTipHeight: tip },
     );
     expect(tooLongEvm.allowed).toBe(false);

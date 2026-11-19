@@ -375,12 +375,12 @@ describe('Solver pure state machine transitions', () => {
       expect(timingDecision.reason).toBe('expired');
     });
 
-    it('checks invariant R on reverse order: refuses counter-lock when remaining blocks < 108', () => {
+    it('checks invariant R on reverse order: refuses counter-lock when remaining blocks < 33', () => {
       const order = makeOrder('USER_LOCK_FINAL', 'BCH_TO_COUNTER');
-      // Only 50 remaining blocks (minReverseRemainingBlocks is 108)
+      // Only 20 remaining blocks (minReverseRemainingBlocks is 33)
       const timingDecision = checkCounterLockTiming(
         order,
-        order.terms.bchRefundHeight - 50,
+        order.terms.bchRefundHeight - 20,
         1700000000,
       );
       expect(timingDecision.allowed).toBe(false);
