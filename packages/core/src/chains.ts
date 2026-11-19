@@ -25,7 +25,7 @@ const nonZeroEvmAddress = z
   .transform((value) => value.toLowerCase() as Hex);
 
 export const EvmAssetConfigSchema = z.strictObject({
-  symbol: z.enum(['USDC', 'USDT']),
+  symbol: z.enum(['USDC', 'USDT', 'USDG']),
   decimals: z.number().int().min(1).max(36),
   address: nonZeroEvmAddress,
   permit: z.boolean(),
