@@ -11,6 +11,7 @@ import { WalletContext } from '../lib/wallet/context';
 import { createLiveDependencies } from '../lib/live/ports';
 import { createLocalRecoveryStore } from '../lib/live/recovery-store';
 import { WAIT_OPTIONS } from '../lib/live/run';
+import { latestWallet } from '../lib/live/latest-wallets';
 
 const POLL_MS = 15_000;
 import { ROUTES } from '../lib/routes';
@@ -58,6 +59,8 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
   const [fileJson, setFileJson] = useState<string | null>(null);
   const sessionRef = useRef<UserSwapSession | null>(null);
   const running = useRef(false);
+  const walletsRef = useRef(wallets);
+  walletsRef.current = wallets;
   const checkingRef = useRef(false);
   const [checking, setChecking] = useState(false);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
@@ -72,7 +75,10 @@ export function LiveOrderView({ orderId, dependencies }: LiveOrderViewProps) {
     if (!solverUrl) throw new Error('No solver is configured.');
     const file = parseRecoveryFileJson(json);
     return createLiveDependencies({
-      wallets: { evm: wallets.evm, bch: wallets.bch },
+      wallets: {
+        evm: latestWallet(() => walletsRef.current?.evm),
+        bch: latestWallet(() => walletsRef.current?.bch),
+      },
       solverUrl,
       chainId: file.terms.evmChainId,
     });
