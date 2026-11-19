@@ -249,7 +249,7 @@ export function recoveryActions(
         waits.push({
           chain: 'BCH',
           action: 'refund',
-          waitingFor: `Waiting for BCH block height ${file.terms.bchRefundHeight} (${blocksRemaining} blocks remaining)`,
+          waitingFor: `Waiting for BCH block height ${file.terms.bchRefundHeight} (${blocksRemaining.toLocaleString('en-US')} blocks remaining, about ${formatDuration(blocksRemaining * 600)})`,
         });
       }
     } else if (chainState.bchLock.state === 'none') {

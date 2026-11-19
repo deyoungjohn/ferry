@@ -292,7 +292,7 @@ export async function lockUserOnBch(
     if (error instanceof Error && error.message.startsWith('Insufficient')) {
       throw new UserFlowError(
         'INSUFFICIENT_FUNDS',
-        `Your Bitcoin Cash address does not hold enough to lock this swap, so nothing was locked. ${error.message}`,
+        insufficientBchMessage(error.message),
         { cause: error },
       );
     }
@@ -314,4 +314,26 @@ export async function lockUserOnBch(
     );
   }
   return context.bchChain.broadcast(signedHex);
+}
+
+/** Satoshis as BCH with no trailing zeros: 4633 reads "0.00004633 BCH". */
+export function formatBchAmount(sats: bigint): string {
+  const whole = sats / 100_000_000n;
+  const fraction = (sats % 100_000_000n)
+    .toString()
+    .padStart(8, '0')
+    .replace(/0+$/, '');
+  return `${whole}${fraction ? `.${fraction}` : ''} BCH`;
+}
+
+/** The lock builder's "required X, available Y" (satoshis) in words a person can act on. */
+export function insufficientBchMessage(builderMessage: string): string {
+  const match = /required (\d+), available (\d+)/.exec(builderMessage);
+  if (!match) {
+    return 'Your Bitcoin Cash address does not hold enough BCH to lock this swap. Nothing was locked. Add a little BCH to it and try again.';
+  }
+  const required = BigInt(match[1]!);
+  const available = BigInt(match[2]!);
+  const missing = required > available ? required - available : 0n;
+  return `Your Bitcoin Cash address needs a little BCH to pay the network fee and the small amount that travels with your tokens: about ${formatBchAmount(required)}, and it holds ${formatBchAmount(available)}. Add about ${formatBchAmount(missing)} to this address and press the button again. Nothing was locked.`;
 }

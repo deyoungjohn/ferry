@@ -10,6 +10,7 @@ import {
   orderId as computeOrderId,
   type RecoveryFile,
   type RecoveryPlan,
+  formatDuration,
   type Hex32,
 } from '@ferry/core';
 import {
@@ -20,6 +21,8 @@ import {
 import { createPublicClient, http, type Address, type Hex } from 'viem';
 import { base } from 'viem/chains';
 import { WalletContext } from '../lib/wallet/context';
+import { readBchTipHeight } from '../lib/solver/tip';
+import { evmTxUrl } from '../lib/explorer';
 import { CopyDiagnosticsButton } from '../components/CopyDiagnosticsButton';
 import { InfoIcon, ExternalLinkIcon } from '../components/icons';
 import { useToast } from '../lib/toast/ToastContext';
@@ -40,7 +43,7 @@ export function RecoverPage() {
   const [evmCalldata, setEvmCalldata] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  function processJson(rawJson: string) {
+  async function processJson(rawJson: string) {
     setError(null);
     setNotice(null);
     setActionResult(null);
@@ -106,9 +109,22 @@ export function RecoverPage() {
 
     // Run core's direction-aware recoveryActions planner (Requirement 3)
     const now = Math.floor(Date.now() / 1000);
+    // The plan is worked out from the chains, not from assumptions: the real Bitcoin Cash height
+    // and, when it can be read, the real state of the EVM lock.
+    let bchTipHeight: number | null;
+    try {
+      bchTipHeight = await readBchTipHeight(
+        (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+          ?.split(',')[0]
+          ?.trim(),
+      );
+    } catch {
+      bchTipHeight = null;
+    }
     const recoveryPlan = recoveryActions(parsed, {
       nowSeconds: now,
-      bchTipHeight: 170000,
+      // Unknown height: assume the refund height has not been reached, never that it has.
+      bchTipHeight: bchTipHeight ?? parsed.terms.bchRefundHeight - 1,
       evmLock: { state: 'locked' },
       bchLock: { state: 'locked' },
     });
@@ -125,7 +141,11 @@ export function RecoverPage() {
     });
     setEvmPlan(evmRecovery);
 
-    if (isSimulation) {
+    if (bchTipHeight === null) {
+      setNotice(
+        'Recovery file loaded, but the current Bitcoin Cash height could not be read, so waiting times may be off. Press "Verify On-Chain Status" or try again.',
+      );
+    } else if (isSimulation) {
       setNotice(
         'Recovery file loaded. This file was issued by an offline simulation and cannot be claimed on chain.',
       );
@@ -144,68 +164,69 @@ export function RecoverPage() {
     reader.onload = (event) => {
       const text = event.target?.result as string;
       setFileContent(text);
-      processJson(text);
+      void processJson(text);
     };
     reader.readAsText(file);
   }
 
   function handlePasteSubmit(e: FormEvent) {
     e.preventDefault();
-    processJson(fileContent);
+    void processJson(fileContent);
   }
 
-  async function handleClaim() {
+  /** Sends the recovery transaction (claim with the secret, or refund) from the connected EVM wallet. */
+  async function sendEvmRecovery(expected: 'claim' | 'refund') {
     if (!recoveryFile) return;
     setBusy(true);
     setError(null);
+    setActionResult(null);
     try {
-      if (
-        walletContext?.evm?.status === 'connected' &&
-        recoveryFile.secret &&
-        recoveryFile.orderId
-      ) {
-        const txHash = await walletContext.evm.claimLock(
-          recoveryFile.orderId as Hex,
-          recoveryFile.secret as Hex,
+      const evm = walletContext?.evm;
+      if (!evm || evm.status !== 'connected' || !evm.sendTransaction) {
+        evm?.connect();
+        setNotice(
+          'Connect your EVM wallet in the dialog that opened, then press the button again.',
         );
-        setActionResult(
-          `EVM claim submitted via connected wallet! Tx hash: ${txHash}. Secret preimage: ${recoveryFile.secret}`,
-        );
-      } else {
-        setActionResult(
-          `Claim ready! Secret preimage: ${recoveryFile.secret ?? 'Preimage unavailable in this file'}`,
-        );
+        return;
       }
+      const call = buildEvmRecoveryCalldata(recoveryFile);
+      if (call.action !== expected) {
+        setError(
+          expected === 'claim'
+            ? 'The claim of this swap is on Bitcoin Cash, not on the EVM chain: open the swap from your swap list (or the standalone recovery page) to claim it.'
+            : 'The refund of this lock is on Bitcoin Cash, not on the EVM chain: use the standalone recovery page once its refund height has passed.',
+        );
+        return;
+      }
+      if (evm.chainId !== undefined && evm.chainId !== call.chainId) {
+        setError(
+          `Switch your wallet to the chain of this swap (chain ${call.chainId}) and try again.`,
+        );
+        return;
+      }
+      const hash = await evm.sendTransaction({
+        to: call.to as Hex,
+        data: call.data,
+        value: 0n,
+        chainId: call.chainId,
+      });
+      const url = evmTxUrl(call.chainId, hash);
+      setActionResult(
+        `${expected === 'claim' ? 'Claim' : 'Refund'} sent. ${url ? `Check it on the explorer: ${url}` : `Transaction: ${hash}`}`,
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Claim failed');
+      setError(
+        err instanceof Error
+          ? err.message
+          : `The ${expected} was not sent. Nothing changed on chain.`,
+      );
     } finally {
       setBusy(false);
     }
   }
 
-  async function handleRefund() {
-    if (!recoveryFile) return;
-    setBusy(true);
-    setError(null);
-    try {
-      if (walletContext?.evm?.status === 'connected' && recoveryFile.orderId) {
-        const txHash = await walletContext.evm.refundLock(
-          recoveryFile.orderId as Hex,
-        );
-        setActionResult(
-          `EVM refund submitted via connected wallet! Tx hash: ${txHash}. Target: ${recoveryFile.terms.direction === 'EVM_TO_BCH' ? recoveryFile.terms.userEvmAddress : 'BCH locking bytecode'}`,
-        );
-      } else {
-        setActionResult(
-          `Refund ready! Target: ${recoveryFile.terms.direction === 'EVM_TO_BCH' ? recoveryFile.terms.userEvmAddress : 'BCH locking bytecode'}`,
-        );
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Refund failed');
-    } finally {
-      setBusy(false);
-    }
-  }
+  const handleClaim = () => sendEvmRecovery('claim');
+  const handleRefund = () => sendEvmRecovery('refund');
 
   function handleViewEvmCalldata() {
     if (!recoveryFile) return;
@@ -329,7 +350,7 @@ export function RecoverPage() {
         </form>
 
         {/* Status Alerts */}
-        {error && (
+        {error && !plan && (
           <div
             className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger flex items-center justify-between gap-3"
             role="alert"
@@ -344,20 +365,12 @@ export function RecoverPage() {
             />
           </div>
         )}
-        {notice && (
+        {notice && !plan && (
           <div
             className="mt-4 rounded-lg border border-lime/30 bg-lime/10 p-3 text-xs text-lime"
             role="status"
           >
             {notice}
-          </div>
-        )}
-        {actionResult && (
-          <div
-            className="mt-4 rounded-lg border border-ok/30 bg-ok/10 p-3 text-xs text-ok font-mono"
-            role="status"
-          >
-            {actionResult}
           </div>
         )}
       </div>
@@ -479,10 +492,7 @@ export function RecoverPage() {
                   <p className="mt-1 text-[11px] text-warn">
                     Time to refund deadline:{' '}
                     <span className="font-mono">
-                      {Math.ceil(evmPlan.secondsRemaining / 60)} minutes (
-                      {evmPlan.blocksRemaining ??
-                        Math.ceil(evmPlan.secondsRemaining / 2)}{' '}
-                      blocks)
+                      {formatDuration(evmPlan.secondsRemaining)}
                     </span>
                   </p>
                 )}
@@ -626,6 +636,33 @@ export function RecoverPage() {
               Verify On-Chain Status
             </button>
           </div>
+
+          {error && (
+            <div
+              className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger"
+              role="alert"
+              data-testid="recover-action-error"
+            >
+              {error}
+            </div>
+          )}
+          {notice && (
+            <div
+              className="mt-4 rounded-lg border border-warn/30 bg-warn/10 p-3 text-xs text-warn"
+              role="status"
+            >
+              {notice}
+            </div>
+          )}
+          {actionResult && (
+            <div
+              className="mt-4 break-all rounded-lg border border-ok/30 bg-ok/10 p-3 text-xs text-ok"
+              role="status"
+              data-testid="recover-action-result"
+            >
+              {actionResult}
+            </div>
+          )}
 
           {evmCalldata && (
             <div className="mt-4 rounded-well border border-hairline bg-surface-2 p-3 text-xs">
