@@ -20,6 +20,8 @@ export interface BchUtxo {
     readonly category: string;
     readonly amount: bigint;
   };
+  readonly lockingBytecodeHex?: string;
+  readonly derivationPath?: readonly ['receive' | 'change', number];
 }
 
 export interface BchSourceOutput {
