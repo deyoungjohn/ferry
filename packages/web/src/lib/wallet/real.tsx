@@ -45,6 +45,9 @@ import type {
 
 const queryClient = new QueryClient();
 
+/** How many receive and change addresses are searched for funds (100 each: 200 reads per server). */
+const FUNDING_SCAN_DEPTH = 100;
+
 function useRealEvmWallet(): EvmWallet {
   const {
     address,
@@ -332,8 +335,9 @@ function useRealBchWallet(
       if (!address) throw new Error('Connect a BCH wallet first');
       return [];
     },
-    // The first 20 receive and 20 change addresses: a wallet that rotates its address (Paytaca
-    // does after every payment) keeps its money spread over them.
+    // The first FUNDING_SCAN_DEPTH receive and change addresses: a wallet that rotates its address
+    // (Paytaca does after every payment) keeps its money spread over them. Funds only on addresses
+    // beyond that are not seen.
     listFundingAddresses: async () => {
       const manager = wizard.manager;
       if (!manager) return [];
@@ -346,7 +350,7 @@ function useRealBchWallet(
         ['change', 1],
       ] as const;
       for (const [branch, childIndex] of branches) {
-        for (let index = 0; index < 20; index++) {
+        for (let index = 0; index < FUNDING_SCAN_DEPTH; index++) {
           const pubkey = manager.getPubkey(childIndex, BigInt(index));
           if (!pubkey) break;
           found.push({

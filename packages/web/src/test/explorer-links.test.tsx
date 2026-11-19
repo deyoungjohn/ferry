@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { TxLink } from '../components/TxLink';
-import { bchTxUrl, evmTxUrl } from '../lib/explorer';
+import { bchTxUrl, chainLabel, evmTxUrl } from '../lib/explorer';
 
 const HASH = 'ab'.repeat(32);
 
@@ -24,5 +24,11 @@ describe('explorer links', () => {
     );
     rerender(<TxLink label="Your lock" hash={HASH} url={null} />);
     expect(screen.queryByTestId('tx-link')).toBeNull();
+  });
+
+  it('labels EVM chains by name and Bitcoin Cash by nothing', () => {
+    expect(chainLabel('Chain 8453')).toBe('Base');
+    expect(chainLabel('Bitcoin Cash')).toBeNull();
+    expect(chainLabel('Chain 999')).toBe('Chain 999');
   });
 });

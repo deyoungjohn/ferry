@@ -1733,7 +1733,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       return {
         orderId: o.id,
         direction:
-          o.direction === 'BCH_TO_COUNTER' ? 'BCH_TO_EVM' : 'EVM_TO_BCH',
+          o.direction === 'BCH_TO_COUNTER' || o.direction === 'BCH_TO_EVM'
+            ? 'BCH_TO_EVM'
+            : 'EVM_TO_BCH',
         status: o.status,
         createdAt: o.createdAt,
         evmAmount,

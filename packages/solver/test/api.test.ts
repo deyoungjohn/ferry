@@ -512,10 +512,14 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
     it('GET /v1/orders?address lists that address funded swaps and refuses a bad address', async () => {
       const addr = '0x1111111111111111111111111111111111111111';
       const now = Math.floor(Date.now() / 1000);
-      const make = (id: string, status: 'DONE' | 'QUOTED') =>
+      const make = (
+        id: string,
+        status: 'DONE' | 'QUOTED',
+        direction: 'EVM_TO_BCH' | 'BCH_TO_EVM' = 'EVM_TO_BCH',
+      ) =>
         db.saveOrder({
           id: ('0x' + id.repeat(32)) as `0x${string}`,
-          direction: 'EVM_TO_BCH',
+          direction,
           status,
           userCounterAddress: addr,
           lockId: ('0x' + id.repeat(32)) as `0x${string}`,
@@ -530,16 +534,21 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
         });
       make('c1', 'DONE');
       make('c2', 'QUOTED');
+      make('c3', 'DONE', 'BCH_TO_EVM');
       const ok = await app.inject({
         method: 'GET',
         url: `/v1/orders?address=${addr.toUpperCase().replace('0X', '0x')}`,
       });
       expect(ok.statusCode).toBe(200);
       const listed = ok.json().orders;
-      expect(listed).toHaveLength(1);
+      expect(listed).toHaveLength(2);
+      // A BCH to EVM swap is listed as such (it was once listed the wrong way round).
+      expect(
+        listed.find((o: { direction: string }) => o.direction === 'BCH_TO_EVM'),
+      ).toBeDefined();
       expect(listed[0]).toMatchObject({
         status: 'DONE',
-        direction: 'EVM_TO_BCH',
+        direction: expect.stringMatching(/EVM_TO_BCH|BCH_TO_EVM/),
         evmAmount: '1000000',
         bchTokenAmount: '99',
         bchToken: 'PUSD',

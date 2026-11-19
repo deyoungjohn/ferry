@@ -1,5 +1,5 @@
 import { formatDuration } from '@ferry/core';
-import { bchTxUrl, evmTxUrl } from '../lib/explorer';
+import { bchTxUrl, chainLabel, evmTxUrl } from '../lib/explorer';
 import { useEffect, useMemo, useState } from 'react';
 import { useSolver } from '../lib/solver/useSolver';
 import type { RecentSwap } from '../lib/solver/types';
@@ -147,18 +147,22 @@ export function RecentSwapsTable() {
                         {swap.fromAmount.toFixed(2)}
                       </span>{' '}
                       {swap.fromToken}{' '}
-                      <span className="text-[11px] text-text-dim">
-                        ({swap.fromChain})
-                      </span>
+                      {chainLabel(swap.fromChain) && (
+                        <span className="text-xs text-text-dim">
+                          ({chainLabel(swap.fromChain)})
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-lime font-medium">
                       <span className="font-semibold">
                         {swap.toAmount.toFixed(2)}
                       </span>{' '}
                       {swap.toToken}{' '}
-                      <span className="text-[11px] text-text-dim">
-                        ({swap.toChain})
-                      </span>
+                      {chainLabel(swap.toChain) && (
+                        <span className="text-xs text-text-dim">
+                          ({chainLabel(swap.toChain)})
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 font-mono text-text-muted">
                       {formatDuration(swap.durationSeconds)}
