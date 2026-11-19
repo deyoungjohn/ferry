@@ -195,6 +195,19 @@ export function createBrowserBchChain(
           }
         }
       }
+      for (const utxos of result.values()) {
+        utxos.sort((a, b) => {
+          if (a.token && b.token && a.token.category === b.token.category) {
+            if (b.token.amount !== a.token.amount) {
+              return b.token.amount > a.token.amount ? 1 : -1;
+            }
+          }
+          if (b.satoshis !== a.satoshis) {
+            return b.satoshis > a.satoshis ? 1 : -1;
+          }
+          return a.txid.localeCompare(b.txid);
+        });
+      }
       return result;
     },
     async broadcast(txHex: string): Promise<string> {
