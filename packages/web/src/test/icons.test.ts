@@ -17,3 +17,19 @@ describe('token and chain icons', () => {
     expect(chainIconUrl('robinhood')).toContain('robinhood.png');
   });
 });
+
+describe('chain artwork by the names the chain facts use', () => {
+  it('finds it for every chain name in the facts', async () => {
+    const { chainIconUrl } = await import('../lib/icons');
+    for (const name of [
+      'Base',
+      'Ethereum',
+      'Arbitrum One',
+      'Arc',
+      'BNB Chain',
+      'Robinhood Chain',
+    ]) {
+      expect(chainIconUrl(name), name).not.toBeNull();
+    }
+  });
+});

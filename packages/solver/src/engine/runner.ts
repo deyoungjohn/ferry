@@ -542,11 +542,28 @@ export class SolverEngine {
         return;
       }
 
-      const revealDecision = checkLockRevealPolicy(order, {
-        exists: true,
-        confirmations: 10,
-        safe: true,
-      });
+      // What the chain reports about the user's lock; the placeholder only for a port that cannot say
+      // (the local test harness).
+      const measured = order.userLockTxId
+        ? await this.evmPort.getLockEvidence?.(
+            order.userLockTxId,
+            Number(order.terms.evmChainId),
+          )
+        : undefined;
+      const revealDecision = checkLockRevealPolicy(
+        order,
+        measured
+          ? {
+              exists: true,
+              confirmations: measured.confirmations,
+              ageSeconds: measured.ageSeconds,
+              safe: measured.finalized,
+              finalized: measured.finalized,
+            }
+          : measured === null
+            ? { exists: false, confirmations: 0 }
+            : { exists: true, confirmations: 10, safe: true },
+      );
       if (!revealDecision.allowed) {
         this.onEngineEvent?.(
           { orderId: order.id, reason: revealDecision.reason },

@@ -12,6 +12,7 @@ const CHAIN_FILES: Record<string, string> = {
   'bnb chain': 'bnb.svg',
   bsc: 'bnb.svg',
   arbitrum: 'arbitrum.svg',
+  'arbitrum one': 'arbitrum.svg',
   arc: 'arc.jpg',
   robinhood: 'robinhood.png',
   'robinhood chain': 'robinhood.png',

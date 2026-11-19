@@ -130,6 +130,33 @@ export function createEvmPort(options: EvmPortOptions): EvmChainPort {
         return false;
       }
     },
+    async getLockEvidence(txid: string, chainId?: number) {
+      try {
+        const adapter = adapterFor(chainId);
+        const client = clientFor(chainId);
+        const receipt = await client.getTransactionReceipt({
+          hash: txid as `0x${string}`,
+        });
+        if (!receipt || receipt.status !== 'success') return null;
+        const [tip, block, finalized] = await Promise.all([
+          client.getBlockNumber(),
+          client.getBlock({ blockNumber: receipt.blockNumber }),
+          adapter.isFinal({ chain: adapter.id, txId: txid as Hex32 }, 'safe'),
+        ]);
+        return {
+          confirmations: Number(
+            tip >= receipt.blockNumber ? tip - receipt.blockNumber + 1n : 0n,
+          ),
+          ageSeconds: Math.max(
+            0,
+            Math.floor(Date.now() / 1000) - Number(block.timestamp),
+          ),
+          finalized,
+        };
+      } catch {
+        return null;
+      }
+    },
     async extractSecretFromClaim(txid: string, chainId?: number) {
       try {
         const adapter = adapterFor(chainId);

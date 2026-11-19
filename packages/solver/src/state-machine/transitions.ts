@@ -64,6 +64,9 @@ function resolveEvmChainName(chainId?: number): EvmChainId {
   if (chainId === 8453 || chainId === 84532 || chainId === 31337) return 'base';
   if (chainId === 1 || chainId === 11155111) return 'ethereum';
   if (chainId === 42161 || chainId === 421614) return 'arbitrum';
+  if (chainId === 56 || chainId === 97) return 'bnb';
+  if (chainId === 5042) return 'arc';
+  if (chainId === 4663) return 'robinhood';
   return 'base';
 }
 

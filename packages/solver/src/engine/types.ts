@@ -71,6 +71,18 @@ export interface EvmChainPort {
       secret?: `0x${string}` | undefined;
     }) => void,
   ): () => void;
+  /**
+   * What the chain reports about a lock transaction, for the reveal policy: confirmations, seconds
+   * since its block, and whether the chain's own "safe" point has passed it.
+   */
+  getLockEvidence?(
+    txid: string,
+    chainId?: number,
+  ): Promise<{
+    confirmations: number;
+    ageSeconds: number;
+    finalized: boolean;
+  } | null>;
   extractSecretFromClaim?(
     txid: string,
     chainId?: number,
