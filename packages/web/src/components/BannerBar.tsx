@@ -22,7 +22,7 @@ export function BannerBar() {
   }
 
   return (
-    <aside aria-label="Project banner" className="w-full">
+    <aside aria-label="Project banner" className="w-full print:hidden">
       {warnings.length > 0 && (
         <div
           role="alert"

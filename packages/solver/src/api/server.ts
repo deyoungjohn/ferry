@@ -156,6 +156,27 @@ const SEND_LINK_EXTRA_BCH_BLOCKS = 6;
 export function buildServer(options: BuildServerOptions): FastifyInstance {
   const { config, db, evmAdapter, bchClient, engine, priceSource } = options;
 
+  /**
+   * A pay link follows the swap that pays it: the order is attached when one exists, and the link
+   * becomes paid once that order is done.
+   */
+  const syncPayLink = (link: PayLinkRecord): PayLinkRecord => {
+    if (link.status !== 'open' && link.status !== 'reserved') return link;
+    const order = db.findOrderForPayLink(link);
+    if (!order) return link;
+    const done = order.status === 'DONE';
+    const next: PayLinkRecord = {
+      ...link,
+      orderId: order.id,
+      status: done ? 'paid' : 'reserved',
+      updatedAt: done ? order.updatedAt : link.updatedAt,
+    };
+    if (next.orderId !== link.orderId || next.status !== link.status) {
+      db.savePayLink(next);
+    }
+    return next;
+  };
+
   const getAdapter = (chainOrId?: string | number): EvmChainAdapter => {
     if (chainOrId !== undefined && options.evmAdapters) {
       const key = String(chainOrId).toLowerCase();
@@ -2352,10 +2373,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   // 16. GET /v1/links/:id
   app.get<{ Params: { id: string } }>('/v1/links/:id', async (req, reply) => {
     const { id } = req.params;
-    const link = db.getPayLink(id);
-    if (!link) {
+    const stored = db.getPayLink(id);
+    if (!stored) {
       return sendApiError(reply, 'LINK_NOT_FOUND', `Pay link ${id} not found`);
     }
+    const link = syncPayLink(stored);
 
     const response = {
       id: link.id,
@@ -2373,6 +2395,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       createdAt: link.createdAt,
       expiresAt: link.expiresAt,
       ...(link.status === 'paid' ? { paidAt: link.updatedAt } : {}),
+      ...(link.orderId ? { orderId: link.orderId } : {}),
       verified: link.verified,
     };
 

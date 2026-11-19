@@ -927,6 +927,42 @@ export class SolverDatabase {
     });
   }
 
+  /**
+   * The newest swap that pays this link: a forward swap made after the link, to the link's
+   * recipient script, for the link's token and (when the amount is fixed) its exact amount.
+   * Quotes nobody locked against, expired and rejected orders do not count.
+   */
+  findOrderForPayLink(link: PayLinkRecord): OrderRecord | null {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM orders
+         WHERE direction IN ('EVM_TO_BCH', 'COUNTER_TO_BCH')
+           AND status NOT IN ('QUOTED', 'EXPIRED', 'REJECTED')
+           AND created_at >= ?
+         ORDER BY created_at DESC
+         LIMIT 200`,
+      )
+      .all(link.createdAt - 600) as Array<Record<string, unknown>>;
+    for (const row of rows) {
+      const order = this.mapOrderRow(row);
+      try {
+        const terms = JSON.parse(order.termsJson) as Record<string, unknown>;
+        const recipient = String(
+          terms.userBchLockingBytecode ?? '',
+        ).toLowerCase();
+        const token = String(terms.bchToken ?? '');
+        const amount = termsBigInt(terms.bchTokenAmount);
+        if (recipient !== link.recipientLockingBytecode.toLowerCase()) continue;
+        if (token !== link.token) continue;
+        if (link.amountOut !== undefined && amount !== link.amountOut) continue;
+        return order;
+      } catch {
+        // unreadable terms: not a match
+      }
+    }
+    return null;
+  }
+
   getPayLink(id: string): PayLinkRecord | null {
     const stmt = this.db.prepare('SELECT * FROM pay_links WHERE id = ?');
     const row = stmt.get(id) as Record<string, unknown> | undefined;

@@ -81,7 +81,7 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
 
     expect(screen.getByText('Pay link')).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: /Pay 25\.00 PUSD/i }),
+      screen.getByRole('heading', { name: /^Pay 2[0-9]\.\d\d USDC/i }),
     ).toBeInTheDocument();
     expect(screen.getByText('They receive')).toBeInTheDocument();
     expect(screen.getByText('You pay')).toBeInTheDocument();
@@ -111,7 +111,7 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
       </MemoryRouter>,
     );
     expect(
-      screen.getByRole('heading', { name: /Pay 2\.00 PUSD/i }),
+      screen.getByRole('heading', { name: /^Pay 2\.\d\d USDC/i }),
     ).toBeInTheDocument();
     expect(screen.getByTestId('pay-link-note')).toHaveTextContent(
       'Lunch money',

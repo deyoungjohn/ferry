@@ -560,6 +560,59 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(bad.statusCode).toBe(400);
     });
 
+    it('a pay link follows the swap that pays it: reserved while it runs, paid when it is done', async () => {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/v1/links',
+        payload: {
+          token: 'PUSD',
+          recipientAddress:
+            'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk',
+          amountOut: '200',
+        },
+      });
+      expect(created.statusCode).toBe(200);
+      const link = created.json();
+      const now = Math.floor(Date.now() / 1000);
+      const orderId = ('0x' + 'e7'.repeat(32)) as `0x${string}`;
+      db.saveOrder({
+        id: orderId,
+        direction: 'EVM_TO_BCH',
+        status: 'SOLVER_LOCK_SEEN',
+        userCounterAddress: '0x2222222222222222222222222222222222222222',
+        lockId: orderId,
+        termsJson: JSON.stringify({
+          evmAmount: '2060000n',
+          bchTokenAmount: '200n',
+          bchToken: 'PUSD',
+          userBchLockingBytecode: link.recipientLockingBytecode,
+        }),
+        hashLock: orderId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const running = await app.inject({
+        method: 'GET',
+        url: `/v1/links/${link.id}`,
+      });
+      expect(running.json()).toMatchObject({ status: 'reserved', orderId });
+
+      db.saveOrder({
+        ...db.getOrder(orderId)!,
+        status: 'DONE',
+        updatedAt: now + 30,
+      });
+      const done = await app.inject({
+        method: 'GET',
+        url: `/v1/links/${link.id}`,
+      });
+      expect(done.json()).toMatchObject({
+        status: 'paid',
+        orderId,
+        paidAt: now + 30,
+      });
+    });
+
     it('GET /v1/pegs returns peg snapshot with unix seconds timestamps', async () => {
       const res = await app.inject({ method: 'GET', url: '/v1/pegs' });
       expect(res.statusCode).toBe(200);

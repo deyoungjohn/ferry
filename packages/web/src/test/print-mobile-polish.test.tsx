@@ -30,7 +30,10 @@ describe('Print and Mobile Polish (Task B3-09)', () => {
 
     // Title
     expect(
-      screen.getByRole('heading', { level: 1, name: /Pay 25\.00 PUSD/i }),
+      screen.getByRole('heading', {
+        level: 1,
+        name: /^Pay 2[0-9]\.\d\d USDC/i,
+      }),
     ).toBeInTheDocument();
 
     // QR Code

@@ -1,6 +1,12 @@
 import { useEffect, useState, useContext } from 'react';
 import { ROUTES } from '../lib/routes';
 import { useParams, useNavigate, Link } from 'react-router';
+import { ProcessSteps } from '../components/links/ProcessSteps';
+import {
+  sendLinkSteps,
+  readOrderTxids,
+  type OrderTxids,
+} from '../lib/paylink/order-steps';
 import { getModeCopy } from '../lib/copy';
 import { SolverContext } from '../lib/solver/context';
 import type { SendLinkView } from '../lib/solver/types';
@@ -189,6 +195,42 @@ export function SendLinkPage({
     void navigate(ROUTES.swapOrder(orderId));
   }
 
+  // The steps of the swap behind the link, from the solver's record of its transactions.
+  const solverUrl = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+    ?.split(',')[0]
+    ?.trim();
+  const [orderTxids, setOrderTxids] = useState<OrderTxids | null>(null);
+  const [orderState, setOrderState] = useState('');
+  const linkReady = load.state === 'ready' ? load.link : null;
+  const finished = orderState === 'DONE' || linkReady?.status === 'refunded';
+  useEffect(() => {
+    if (!solverUrl || !id || !isLive) return;
+    let active = true;
+    const tick = async () => {
+      const read = await readOrderTxids(solverUrl, id);
+      if (!active || !read) return;
+      setOrderTxids(read.txids);
+      setOrderState(read.state);
+    };
+    void tick();
+    const timer = setInterval(() => {
+      if (!finished) void tick();
+    }, 8_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [solverUrl, id, isLive, finished]);
+  const steps =
+    isLive && linkReady
+      ? sendLinkSteps(
+          linkReady.chain,
+          orderTxids,
+          linkReady.status === 'claimed' || claimedLocally,
+          orderState === 'DONE',
+        )
+      : null;
+
   return (
     <div className="mx-auto max-w-md px-4 py-8 sm:px-6">
       <div className="mb-4">
@@ -327,6 +369,17 @@ export function SendLinkPage({
           </>
         )}
       </div>
+
+      {steps && (
+        <section
+          className="mt-5"
+          aria-label="Progress"
+          data-testid="send-link-progress"
+        >
+          <h2 className="mb-3 text-sm font-semibold text-text">Progress</h2>
+          <ProcessSteps steps={steps} />
+        </section>
+      )}
     </div>
   );
 }

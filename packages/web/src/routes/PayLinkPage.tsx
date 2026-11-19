@@ -14,6 +14,12 @@ import { Select } from '../components/ui/select';
 import { LIVE_EXECUTION_ENABLED } from '../lib/config';
 import { listPayLinks } from '../lib/paylink/pay-store';
 import { readPayLink, type PayLinkDetails } from '../lib/paylink/pay-api';
+import {
+  payLinkSteps,
+  readOrderTxids,
+  type OrderTxids,
+} from '../lib/paylink/order-steps';
+import { ProcessSteps } from '../components/links/ProcessSteps';
 
 const DEMO_LINK: PayLinkDetails = {
   id: 'demo',
@@ -68,6 +74,35 @@ export function PayLinkPage() {
     };
   }, [live, solverUrl, id]);
   const ready = details !== 'loading' && details !== null ? details : null;
+
+  // Once a swap pays the link, the page follows it: the QR code gives way to the steps.
+  const [orderTxids, setOrderTxids] = useState<OrderTxids | null>(null);
+  const orderId = ready?.orderId;
+  const paid = ready?.status === 'paid';
+  useEffect(() => {
+    if (!live || !solverUrl || !id) return;
+    let active = true;
+    const tick = async () => {
+      const link = await readPayLink(solverUrl, id);
+      if (active && link) setDetails(link);
+      if (link?.orderId) {
+        const read = await readOrderTxids(solverUrl, link.orderId);
+        if (active && read) setOrderTxids(read.txids);
+      }
+    };
+    const timer = setInterval(() => {
+      if (!paid) void tick();
+    }, 8_000);
+    void tick();
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [live, solverUrl, id, paid]);
+  const showSteps =
+    Boolean(orderId) ||
+    ready?.status === 'paid' ||
+    ready?.status === 'reserved';
   const recipientCashaddr = ready?.recipientAddress ?? '';
   const token: 'PUSD' | 'MUSD' = ready?.token ?? 'PUSD';
   const [payerAmount, setPayerAmount] = useState('');
@@ -97,6 +132,10 @@ export function PayLinkPage() {
 
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [paying, setPaying] = useState(false);
+  const youPayText =
+    requestedAmount > 0
+      ? (quote ? quote.fromAmount : requestedAmount * 1.004).toFixed(2)
+      : '0.00';
 
   // Exact-output quote: recipient receives exact amount
   useEffect(() => {
@@ -249,8 +288,8 @@ export function PayLinkPage() {
             </div>
             <h1 className="mt-1 text-xl font-semibold text-text print:text-black">
               {ready.amount !== undefined
-                ? `Pay ${requestedAmount.toFixed(2)} ${token}`
-                : `Pay any amount of ${token}`}
+                ? `Pay ${youPayText} ${selectedPayerToken}`
+                : `Pay any amount in ${selectedPayerToken}`}
             </h1>
             {note && (
               <p
@@ -262,73 +301,77 @@ export function PayLinkPage() {
             )}
           </div>
 
-          <div className="grid gap-4 md:grid-cols-[auto_1fr] md:items-stretch">
-            {/* QR code, for scan and print */}
-            <div className="flex flex-col items-center justify-center rounded-well border border-hairline bg-surface-2 p-4 print:border-black/20 print:bg-white">
-              <div className="rounded-lg bg-white p-3 shadow-sm">
-                <QRCodeSVG
-                  value={currentUrl}
-                  size={160}
-                  level="M"
-                  aria-label="Payment QR code"
-                />
-              </div>
-              <span className="mt-2 text-xs text-text-dim print:text-black/60">
-                Scan with any wallet or camera to pay
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              {/* Recipient (chunked, for anti-phishing) */}
-              <div className="rounded-well border border-hairline bg-surface-2 p-3 text-xs print:border-black/20 print:bg-white">
-                <span className="mb-1 block text-text-dim print:text-black/60">
-                  Recipient address
+          {showSteps ? (
+            <ProcessSteps steps={payLinkSteps(token, orderTxids, paid)} />
+          ) : (
+            <div className="grid gap-4 md:grid-cols-[auto_1fr] md:items-stretch">
+              {/* QR code, for scan and print */}
+              <div className="flex flex-col items-center justify-center rounded-well border border-hairline bg-surface-2 p-4 print:border-black/20 print:bg-white">
+                <div className="rounded-lg bg-white p-3 shadow-sm">
+                  <QRCodeSVG
+                    value={currentUrl}
+                    size={160}
+                    level="M"
+                    aria-label="Payment QR code"
+                  />
+                </div>
+                <span className="mt-2 text-xs text-text-dim print:text-black/60">
+                  Scan with any wallet or camera to pay
                 </span>
-                <p
-                  data-testid="chunked-address"
-                  className="break-all font-mono text-xs font-semibold text-text print:text-black"
-                >
-                  {chunkCashaddr(recipientCashaddr)}
-                </p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                {/* They receive */}
-                <div className="rounded-well border border-hairline bg-surface-2 p-3 print:border-black/20 print:bg-white">
-                  <div className="mb-1 flex items-center justify-between text-xs text-text-muted print:text-black/60">
-                    <span>{copy.receiveLabel}</span>
-                    <span className="text-xs text-text-dim print:text-black/60">
-                      Bitcoin Cash
-                    </span>
-                  </div>
-                  {ready.amount === undefined ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        inputMode="decimal"
-                        aria-label="Amount to pay"
-                        value={payerAmount}
-                        onChange={(e) => setPayerAmount(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full rounded-well border border-hairline bg-surface-1 px-2 py-1 text-lg font-semibold text-text focus:border-lime focus:outline-none"
-                      />
-                      <span className="text-lg font-semibold text-text">
-                        {token}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="text-xl font-semibold text-text print:text-black">
-                      {requestedAmount.toFixed(2)} {token}
-                    </div>
-                  )}
+              {/* Two rows that together are as tall as the QR card: the recipient, then the amounts */}
+              <div className="grid grid-rows-[2fr_3fr] gap-3">
+                <div className="overflow-hidden rounded-well border border-hairline bg-surface-2 p-3 text-xs print:border-black/20 print:bg-white">
+                  <span className="mb-1 block text-text-dim print:text-black/60">
+                    Recipient address
+                  </span>
+                  <p
+                    data-testid="chunked-address"
+                    className="break-all font-mono text-xs font-semibold text-text print:text-black"
+                  >
+                    {chunkCashaddr(recipientCashaddr)}
+                  </p>
                 </div>
 
-                {/* You pay (hidden in the print receipt: the payer chooses at pay time) */}
-                <div className="rounded-well border border-hairline bg-surface-2 p-3 print:hidden">
-                  <div className="mb-1 flex items-center justify-between gap-2 text-xs text-text-muted">
-                    <span className="whitespace-nowrap">{copy.sendLabel}</span>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {/* They receive */}
+                  <div className="rounded-well border border-hairline bg-surface-2 p-3 print:border-black/20 print:bg-white">
+                    <div className="mb-1 flex items-center justify-between text-xs text-text-muted print:text-black/60">
+                      <span>{copy.receiveLabel}</span>
+                      <span className="text-xs text-text-dim print:text-black/60">
+                        Bitcoin Cash
+                      </span>
+                    </div>
+                    {ready.amount === undefined ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          inputMode="decimal"
+                          aria-label="Amount to pay"
+                          value={payerAmount}
+                          onChange={(e) => setPayerAmount(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full rounded-well border border-hairline bg-surface-1 px-2 py-1 text-lg font-semibold text-text focus:border-lime focus:outline-none"
+                        />
+                        <span className="text-lg font-semibold text-text">
+                          {token}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-xl font-semibold text-text print:text-black">
+                        {requestedAmount.toFixed(2)} {token}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* You pay: the label, then the chain across the card's width, then the amount */}
+                  <div className="flex flex-col gap-2 rounded-well border border-hairline bg-surface-2 p-3 print:hidden">
+                    <span className="text-xs text-text-muted">
+                      {copy.sendLabel}
+                    </span>
                     <Select
                       label="Payer chain"
                       value={String(selectedChainId)}
@@ -339,43 +382,38 @@ export function PayLinkPage() {
                         value: String(c.id),
                         label: c.name,
                       }))}
-                      className="w-28"
-                      triggerClassName="py-1 text-xs"
+                      className="w-full"
+                      triggerClassName="w-full py-1 text-xs"
                     />
-                  </div>
-                  <div className="text-xl font-semibold text-text">
-                    {requestedAmount > 0
-                      ? quote
-                        ? quote.fromAmount.toFixed(2)
-                        : (requestedAmount * 1.004).toFixed(2)
-                      : '0.00'}{' '}
-                    {selectedPayerToken}
+                    <div className="text-xl font-semibold text-text">
+                      {youPayText} {selectedPayerToken}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* The action: centered, as wide as its words need (hidden in print) */}
-          <div className="mt-5 flex justify-center print:hidden">
-            <button
-              type="button"
-              disabled={
-                paying || requestedAmount <= 0 || ready.status !== 'open'
-              }
-              onClick={handlePay}
-              data-testid="pay-link-submit-button"
-              className="inline-flex h-11 items-center justify-center rounded-pill bg-olive px-10 font-semibold text-text shadow-elev-pill transition-colors"
-            >
-              {paying
-                ? 'Opening the swap…'
-                : ready.status === 'paid'
-                  ? 'Already paid'
+          {!showSteps && (
+            <div className="mt-5 flex justify-center print:hidden">
+              <button
+                type="button"
+                disabled={
+                  paying || requestedAmount <= 0 || ready.status !== 'open'
+                }
+                onClick={handlePay}
+                data-testid="pay-link-submit-button"
+                className="inline-flex h-11 items-center justify-center rounded-pill bg-olive px-10 font-semibold text-text shadow-elev-pill transition-colors"
+              >
+                {paying
+                  ? 'Opening the swap…'
                   : ready.status === 'open'
                     ? 'Pay now'
                     : 'Not payable'}
-            </button>
-          </div>
+              </button>
+            </div>
+          )}
 
           <p className="mt-3 text-center text-xs text-text-dim print:text-black/50">
             Atomic swap through Ferry. Funds never touch a custodian or bridge.

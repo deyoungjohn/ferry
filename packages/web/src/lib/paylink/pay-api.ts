@@ -74,6 +74,9 @@ export interface PayLinkDetails {
   readonly note?: string | undefined;
   readonly verified: boolean;
   readonly status: PayLinkData['status'];
+  /** The swap paying this link, once there is one. */
+  readonly orderId?: string | undefined;
+  readonly paidAt?: number | undefined;
 }
 
 /** The link as the solver holds it, so the payer sees what the creator made. Null when not found. */
@@ -95,6 +98,8 @@ export async function readPayLink(
       memo?: string;
       verified?: boolean;
       status: PayLinkData['status'];
+      orderId?: string;
+      paidAt?: number;
     };
     return {
       id: body.id,
@@ -106,6 +111,8 @@ export async function readPayLink(
       ...(body.memo ? { note: body.memo } : {}),
       verified: Boolean(body.verified),
       status: body.status,
+      ...(body.orderId ? { orderId: body.orderId } : {}),
+      ...(body.paidAt ? { paidAt: body.paidAt } : {}),
     };
   } catch {
     return null;

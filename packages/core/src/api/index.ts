@@ -573,6 +573,8 @@ export const PayLinkJsonSchema = z.strictObject({
   paidTxid: hex32Schema.optional(),
   /** When the link was paid (Unix seconds), for a paid link. */
   paidAt: unixTimestampSeconds.optional(),
+  /** The swap that pays (or is paying) this link, once there is one. */
+  orderId: hex32Schema.optional(),
   verified: z.boolean().optional(),
 });
 
