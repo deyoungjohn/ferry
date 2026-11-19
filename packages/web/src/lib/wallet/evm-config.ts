@@ -34,7 +34,7 @@ if (wagmiAdapter && REOWN_PROJECT_ID) {
       projectId: REOWN_PROJECT_ID,
       metadata: {
         name: 'Ferry',
-        description: 'Move dollars onto Bitcoin Cash without a bridge.',
+        description: 'Move stablecoins onto Bitcoin Cash without a bridge.',
         url:
           typeof window !== 'undefined'
             ? window.location.origin

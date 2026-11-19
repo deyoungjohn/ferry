@@ -1,5 +1,5 @@
 import { MIN_TRANSACTION_USD } from '@ferry/core';
-import { useState, useContext, type FormEvent } from 'react';
+import { useState, useContext, useEffect, type FormEvent } from 'react';
 import { SEND_LINK_NOTE_MAX_LENGTH } from '@ferry/core/api';
 import { SolverClient } from '@ferry/solver-client';
 import { Link } from 'react-router';
@@ -8,6 +8,7 @@ import { isAddress } from 'viem';
 import { sendLinkUrl, type SendLinkData } from '../lib/paylink/link';
 import { NETWORK_PROFILE } from '../lib/config';
 import { GlassModal } from '../components/GlassModal';
+import { readOrderTxids } from '../lib/paylink/order-steps';
 import { MorphWorkspace } from '../components/links/MorphWorkspace';
 import { LinksTable, type LinkRow } from '../components/links/LinksTable';
 import { useToast } from '../lib/toast/ToastContext';
@@ -108,6 +109,58 @@ export function SendLinksPage({
       });
     });
   }
+
+  // The table is the sender's own list, so it asks the solver what became of each link (claimed,
+  // refunded, expired) on opening and every 15 seconds, and keeps what it learns.
+  const listSolverUrl = (
+    import.meta.env?.VITE_SOLVER_URLS as string | undefined
+  )
+    ?.split(',')[0]
+    ?.trim();
+  useEffect(() => {
+    if (!listSolverUrl) return;
+    let active = true;
+    const refresh = async () => {
+      let changed = false;
+      for (const link of listSendLinks()) {
+        if (link.status !== 'open' || link.lockStatus === 'pending_lock')
+          continue;
+        const snapshot = await readOrderTxids(listSolverUrl, link.id);
+        if (!snapshot || !active) continue;
+        const reached = (names: readonly string[]) =>
+          snapshot.timeline?.find((e) => names.includes(e.status))?.at;
+        let next: SendLinkData | null = null;
+        if (snapshot.state === 'SECRET_KNOWN' || snapshot.state === 'DONE') {
+          next = {
+            ...link,
+            status: 'claimed',
+            claimedAt:
+              reached(['SECRET_KNOWN', 'DONE']) ??
+              snapshot.updatedAt ??
+              link.claimedAt,
+          };
+        } else if (
+          snapshot.state === 'REFUNDED' ||
+          snapshot.state === 'SOLVER_REFUNDED'
+        ) {
+          next = { ...link, status: 'expired' };
+        } else if (snapshot.state === 'EXPIRED') {
+          next = { ...link, status: 'expired' };
+        }
+        if (next) {
+          saveSendLink(next);
+          changed = true;
+        }
+      }
+      if (active && changed) setCreatedLinks(listSendLinks());
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 15_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [listSolverUrl]);
 
   const wallets = useContext(WalletContext);
   const solverContext = useContext(SolverContext);
@@ -289,8 +342,8 @@ export function SendLinksPage({
             Send Links
           </h1>
           <p className="text-xs text-text-muted">
-            Send dollars from Bitcoin Cash to someone on another chain with an
-            automatic refund window.
+            Send stablecoins from Bitcoin Cash to someone on another chain with
+            an automatic refund window.
           </p>
         </div>
         <Link
@@ -613,7 +666,7 @@ export function SendLinksPage({
                 >
                   {resumingId === link.id ? 'Resuming…' : 'Resume'}
                 </button>
-              ) : (
+              ) : link.status !== 'open' ? null : (
                 <button
                   type="button"
                   onClick={() => setActiveCreated(link)}

@@ -1,5 +1,6 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { Navigate, Route, Routes, useParams } from 'react-router';
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router';
+import { useEffect } from 'react';
 import { AppShell } from './components/AppShell';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LandingPage } from './routes/LandingPage';
@@ -87,9 +88,44 @@ function RedirectWithOrder() {
   return <Navigate to={`/app/swap/${orderId ?? ''}`} replace />;
 }
 
+/** One title per page, so tabs and history say where you are. */
+const LANDING_TITLE = 'Ferry | Atomic Stablecoin Swaps on Bitcoin Cash';
+
+export function titleFor(pathname: string, search: string): string {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  if (path === '/') return LANDING_TITLE;
+  if (path.startsWith('/send/')) return 'Send | Ferry';
+  if (path.startsWith('/pay/')) return 'Pay | Ferry';
+  if (path === '/app/pay-link') {
+    return new URLSearchParams(search).get('type') === 'send'
+      ? 'Send | Ferry'
+      : 'Pay | Ferry';
+  }
+  if (path.startsWith('/app/swap') || path === '/swap') return 'Swap | Ferry';
+  if (path === '/features') return 'Features | Ferry';
+  if (path === '/how-it-works') return 'How it works | Ferry';
+  if (path === '/stats') return 'Stats | Ferry';
+  if (path === '/app/my-activity') return 'Activity | Ferry';
+  if (path === '/app/recover') return 'Recover | Ferry';
+  if (path === '/app/user-guide' || path === '/user-guide' || path === '/help')
+    return 'Guide | Ferry';
+  if (path === '/route-status' || path === '/app/route-status')
+    return 'Routes | Ferry';
+  return 'Ferry';
+}
+
+function PageTitle() {
+  const { pathname, search } = useLocation();
+  useEffect(() => {
+    document.title = titleFor(pathname, search);
+  }, [pathname, search]);
+  return null;
+}
+
 export function App() {
   return (
     <ErrorBoundary>
+      <PageTitle />
       <Routes>
         <Route element={<AppShell />}>
           {/* Public: no wallet needed */}

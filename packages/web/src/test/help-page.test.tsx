@@ -18,7 +18,7 @@ describe('User Guide Page (/help) (Task B3-09)', () => {
 
     // Verify all 6 required topics are present
     expect(
-      screen.getByText('Send dollars to Bitcoin Cash'),
+      screen.getByText('Send stablecoins to Bitcoin Cash'),
     ).toBeInTheDocument();
     expect(screen.getByText('Get paid with a pay link')).toBeInTheDocument();
     expect(

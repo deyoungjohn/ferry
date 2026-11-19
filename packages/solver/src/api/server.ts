@@ -304,6 +304,14 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       maxPerIp: config.rateLimitMaxPerIp,
     });
 
+  // Prices asked for only to look (a dry run: nothing reserved) have their own, much larger
+  // allowance: a page asks for several while a person types an amount or the exact amount is found.
+  const previewLimiter = new QuoteRateLimiter({
+    windowMs: config.rateLimitWindowMs,
+    maxPerAddress: config.rateLimitMaxPerAddress * 10,
+    maxPerIp: config.rateLimitMaxPerIp * 10,
+  });
+
   const solverAccount = privateKeyToAccount(
     config.solverEvmPrivateKey as `0x${string}`,
   );
@@ -521,12 +529,15 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     };
 
     // Rate limit check
-    const rateCheck = rateLimiter.check(request.userEvmAddress, clientIp);
+    const rateCheck = (isDryRun ? previewLimiter : rateLimiter).check(
+      request.userEvmAddress,
+      clientIp,
+    );
     if (!rateCheck.allowed) {
       return sendApiError(
         reply,
         'RATE_LIMITED',
-        `Rate limit exceeded on quote requests for ${rateCheck.reason}`,
+        'Too many quote requests in a short time. Wait a minute and try again.',
       );
     }
 

@@ -58,7 +58,7 @@ describe('navigation', () => {
 
 describe('page structure', { timeout: 45_000 }, () => {
   it.each([
-    ['/', /Move dollars onto Bitcoin Cash/],
+    ['/', /Move stablecoins onto Bitcoin Cash/],
     ['/features', /What Ferry does/],
     ['/stats', /Stats/],
     ['/how-it-works', /How it works/],

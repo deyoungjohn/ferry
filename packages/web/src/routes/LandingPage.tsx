@@ -26,7 +26,7 @@ export function LandingPage() {
           Built for BCH BLAZE 2026
         </div>
         <h1 className="max-w-2xl text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-text sm:text-6xl">
-          Move dollars onto Bitcoin Cash{' '}
+          Move stablecoins onto Bitcoin Cash{' '}
           <span className="font-accent inline-block whitespace-nowrap text-lime">
             without a bridge
           </span>

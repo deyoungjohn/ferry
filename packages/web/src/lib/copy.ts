@@ -186,7 +186,7 @@ export const HELP_COPY = {
   sections: [
     {
       id: 'send-dollars',
-      title: 'Send dollars to Bitcoin Cash',
+      title: 'Send stablecoins to Bitcoin Cash',
       summary:
         'Exchange EVM stablecoins (USDC/USDT) directly for native Bitcoin Cash stablecoins (PUSD/MUSD) without a custodial bridge.',
       steps: [
@@ -221,7 +221,7 @@ export const HELP_COPY = {
       id: 'send-link',
       title: 'Send a link to someone on another chain',
       summary:
-        'Send dollars to anyone via a shareable URL fragment, redeemable by the recipient without prior coordination.',
+        'Send stablecoins to anyone via a shareable URL fragment, redeemable by the recipient without prior coordination.',
       steps: [
         'Navigate to Send Links (/send-links) and lock the amount you want to transfer.',
         'The app generates a unique link containing the cryptographic claim secret inside the URL fragment (#secret=...).',

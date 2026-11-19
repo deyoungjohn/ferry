@@ -48,7 +48,7 @@ describe('Swap form viewport visibility (above-the-fold layout test)', () => {
     const nav = screen.getByRole('navigation', { name: /Main/i });
     const hero = screen.getByRole('heading', {
       level: 1,
-      name: /Move dollars onto Bitcoin Cash/i,
+      name: /Move stablecoins onto Bitcoin Cash/i,
     });
     const sendWell = screen.getByText('You send');
     const receiveWell = screen.getByText('You receive');

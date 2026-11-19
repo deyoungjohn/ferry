@@ -5,7 +5,7 @@ import { ROUTES } from './routes';
 export const SITE = {
   name: 'Ferry',
   tagline:
-    'Move dollars onto Bitcoin Cash without a bridge. Atomic, non-custodial and refundable.',
+    'Move stablecoins into Bitcoin Cash seamlessly. Atomic, non-custodial and recoverable',
   bigWord: 'ferry',
   copyright: `© ${new Date().getFullYear()} Ferry`,
   finePrintLeft: 'Built for BCH BLAZE 2026. Trust-minimised swaps.',

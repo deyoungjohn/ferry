@@ -14,7 +14,7 @@ const DETAILS = [
   },
   {
     title: 'Send links',
-    body: 'Send dollars from Bitcoin Cash to a person who only uses another chain. The link names the chain, the receiving address and a time window; the contract on that chain enforces them.',
+    body: 'Send stablecoins from Bitcoin Cash to a person who only uses another chain. The link names the chain, the receiving address and a time window; the contract on that chain enforces them.',
   },
   {
     title: 'Recovery without us',

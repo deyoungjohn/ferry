@@ -17,7 +17,7 @@ describe('HomePage components', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Move dollars onto Bitcoin Cash/i,
+        name: /Move stablecoins onto Bitcoin Cash/i,
       }),
     ).toBeInTheDocument();
 
