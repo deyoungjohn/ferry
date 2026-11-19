@@ -93,6 +93,20 @@ export function orderRecordToSolverOrder(
   };
 }
 
+const STEP_TIMEOUT_MS = 45_000;
+
+function withTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer));
+}
+
 export class SolverEngine {
   private running = false;
   private pollTimer: NodeJS.Timeout | null = null;
@@ -380,7 +394,23 @@ export class SolverEngine {
     let failed = false;
     for (const orderRecord of nonTerminalOrders) {
       try {
-        await this.stepOrder(orderRecord);
+        const startedAt = Date.now();
+        await withTimeout(
+          this.stepOrder(orderRecord),
+          STEP_TIMEOUT_MS,
+          `Stepping order ${orderRecord.id.slice(0, 12)} (${orderRecord.status}) took longer than ${STEP_TIMEOUT_MS / 1000} s: a chain call is not answering`,
+        );
+        const took = Date.now() - startedAt;
+        if (took > 3000) {
+          this.onEngineEvent?.(
+            {
+              orderId: orderRecord.id,
+              status: orderRecord.status,
+              tookMs: took,
+            },
+            'Slow order step',
+          );
+        }
       } catch (err) {
         // one failing order must not block the others; the first error is rethrown after the pass
         if (!failed) {
