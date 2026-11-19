@@ -828,6 +828,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         reason: quoteResult.reason,
         maxAmount: quoteResult.maxAmount ?? '0',
         asset: quoteResult.asset,
+        ...('minAmount' in quoteResult
+          ? { minAmount: quoteResult.minAmount }
+          : {}),
         ...(quoteResult.message ? { message: quoteResult.message } : {}),
       };
       QuoteRefusalSchema.parse(refusal);
@@ -2678,6 +2681,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           reason: quoteResult.reason,
           maxAmount: quoteResult.maxAmount ?? '0',
           asset: quoteResult.asset,
+          ...('minAmount' in quoteResult
+            ? { minAmount: quoteResult.minAmount }
+            : {}),
           ...(quoteResult.message ? { message: quoteResult.message } : {}),
         };
         QuoteRefusalSchema.parse(refusal);

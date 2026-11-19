@@ -235,6 +235,7 @@ export const QUOTE_REFUSAL_REASONS = [
   'PRICE_UNAVAILABLE',
   'ROUTE_DISABLED',
   'OVER_MAX_SWAP',
+  'BELOW_MINIMUM',
   'QUOTING_PAUSED',
 ] as const;
 
@@ -255,6 +256,14 @@ export const QuoteRefusalSchema = z.discriminatedUnion('reason', [
     reason: z.literal('OVER_MAX_SWAP'),
     maxAmount: decimalAmountString,
     asset: assetSymbol,
+    message: optionalMessage,
+  }),
+  z.strictObject({
+    reason: z.literal('BELOW_MINIMUM'),
+    /** The smallest amount for this route, in US dollars ("5.00"). */
+    minAmount: decimalAmountString,
+    asset: assetSymbol,
+    maxAmount: decimalAmountString.optional(),
     message: optionalMessage,
   }),
   z.strictObject({
@@ -291,6 +300,8 @@ export function formatQuoteRefusalMessage(refusal: QuoteRefusal): string {
       return `Only ${refusal.maxAmount} ${refusal.asset} available; try ${refusal.maxAmount} or less`;
     case 'OVER_MAX_SWAP':
       return `Swap exceeds the ${refusal.maxAmount} ${refusal.asset} maximum; try ${refusal.maxAmount} or less`;
+    case 'BELOW_MINIMUM':
+      return `The minimum on this route is $${refusal.minAmount}`;
     case 'PEG_GUARD':
       return `Quoting paused for ${refusal.asset} because the peg guard is active`;
     case 'PRICE_UNAVAILABLE':

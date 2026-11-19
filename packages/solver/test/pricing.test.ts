@@ -185,6 +185,48 @@ describe('Checkable quotes, price sources, and liquidity reservations (blueprint
       expect(asked).toContainEqual(['PUSD', undefined]);
     });
 
+    it('refuses an amount below the route minimum with BELOW_MINIMUM and the minimum', async () => {
+      const now = 1700000000;
+      const priceSource = new MockPriceSource();
+      priceSource.setPrice('USDC', {
+        usdPrice: 1_000_000n,
+        source: 'chainlink',
+        asOf: now,
+      });
+      priceSource.setPrice('PUSD', {
+        usdPrice: 1_000_000n,
+        source: 'cauldron',
+        asOf: now,
+      });
+      const quoteBuilder = new QuoteBuilder(
+        priceSource,
+        new LiquidityManager(),
+        {
+          spreadBps: 40,
+          fixedFeeUsdMicros: 0n,
+        },
+      );
+      const quote = await quoteBuilder.buildQuote({
+        quoteId: 'quote-min',
+        direction: 'EVM_TO_BCH',
+        payAsset: 'USDC',
+        receiveAsset: 'PUSD',
+        amountIn: 2_000_000n,
+        minSwapUsdMicros: 5_000_000n,
+        userAddress: '0xAlice',
+        userIp: '1.2.3.4',
+        currentInventory: 100_000_000n,
+        openExposure: 0n,
+        nowSeconds: now,
+        termsTemplate: baseTermsTemplate,
+      });
+      expect(quote.ok).toBe(false);
+      if (!quote.ok) {
+        expect(quote.reason).toBe('BELOW_MINIMUM');
+        expect(quote).toMatchObject({ minAmount: '5.00' });
+      }
+    });
+
     it('refuses quote with PEG_GUARD when reference price deviates beyond tolerance', async () => {
       const now = 1700000000;
       const priceSource = new MockPriceSource();

@@ -161,7 +161,8 @@ export class QuoteBuilder {
       const minFormatted = (Number(minSwap) / 1e6).toFixed(2);
       return {
         ok: false,
-        reason: 'ROUTE_DISABLED',
+        reason: 'BELOW_MINIMUM',
+        minAmount: minFormatted,
         asset: params.payAsset,
         message: `Amount $${amtFormatted} is below minimum swap of $${minFormatted}`,
       };

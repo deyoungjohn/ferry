@@ -158,6 +158,39 @@ describe('refusals before anything moves', () => {
     expect(world.quoteRequests).toHaveLength(0);
   });
 
+  it('asks the wallet to switch chain and goes on when it does', async () => {
+    const { world, deps } = createWorld();
+    world.walletChainId = 1;
+    const asked: number[] = [];
+    const built = deps();
+    const evmSigner = {
+      ...built.evmSigner,
+      switchChain: (chainId: number) => {
+        asked.push(chainId);
+        world.walletChainId = chainId;
+        return Promise.resolve();
+      },
+    };
+    await new UserSwapSession({ ...built, evmSigner }).quote(forward);
+    expect(asked).toEqual([forward.chainId]);
+    expect(world.quoteRequests).toHaveLength(1);
+  });
+
+  it('stops with the chain to switch to when the wallet refuses to switch', async () => {
+    const { world, deps } = createWorld();
+    world.walletChainId = 1;
+    const built = deps();
+    const evmSigner = {
+      ...built.evmSigner,
+      switchChain: () => Promise.reject(new Error('User rejected')),
+    };
+    await expectCode(
+      new UserSwapSession({ ...built, evmSigner }).quote(forward),
+      'WRONG_CHAIN',
+    );
+    expect(world.quoteRequests).toHaveLength(0);
+  });
+
   it('stops on an empty token address, a zero amount and an address for the wrong network', async () => {
     const { deps } = createWorld();
     await expectCode(

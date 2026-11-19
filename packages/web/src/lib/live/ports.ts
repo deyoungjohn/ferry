@@ -20,6 +20,9 @@ export function evmSignerFromWallet(wallet: EvmWallet): EvmSignerPort {
       wallet.chainId !== undefined
         ? Promise.resolve(wallet.chainId)
         : Promise.reject(new Error('The EVM wallet did not report a chain.')),
+    ...(wallet.switchChain
+      ? { switchChain: (chainId: number) => wallet.switchChain!(chainId) }
+      : {}),
     signTypedData: (typedData) =>
       wallet.signTypedData(
         typedData as Parameters<EvmWallet['signTypedData']>[0],

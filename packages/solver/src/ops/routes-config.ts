@@ -53,11 +53,9 @@ export function getRouteFixedFeeUsdMicros(
 }
 
 export function routeMinSwapUsdMicros(fixedFeeUsdMicros: bigint): bigint {
-  const minFromFee = fixedFeeUsdMicros * 50n; // fee is at most 2%
-  if (minFromFee >= 17_000_000n) {
-    return 20_000_000n; // Ethereum (~$20)
-  }
-  return minFromFee > 1_000_000n ? minFromFee : 1_000_000n;
+  // About fifteen times the fixed fee, in whole dollars, never below $1: Ethereum ($0.34) is $5.
+  const wholeDollars = ((fixedFeeUsdMicros * 15n) / 1_000_000n) * 1_000_000n;
+  return wholeDollars > 1_000_000n ? wholeDollars : 1_000_000n;
 }
 
 export function getViemChain(

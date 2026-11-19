@@ -284,7 +284,8 @@ describe('B4-10: Limits, Self-Check, and Refusal Reasons with Numbers', () => {
 
       expect(res.statusCode).toBe(422);
       const body = JSON.parse(res.body);
-      expect(body.reason).toBe('ROUTE_DISABLED');
+      expect(body.reason).toBe('BELOW_MINIMUM');
+      expect(body.minAmount).toBe('1.00');
       expect(body.message).toMatch(
         /Amount \$0\.50 is below minimum swap of \$1\.00/,
       );

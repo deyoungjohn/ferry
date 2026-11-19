@@ -59,6 +59,8 @@ export interface EvmWallet {
   connect(): void;
   disconnect(): Promise<void>;
   cancelPendingRequest?(): void;
+  /** Asks the wallet to switch to a chain (adds it when the wallet does not know it). */
+  switchChain?(chainId: number): Promise<void>;
   signTypedData(params: TypedDataDefinition): Promise<Hex>;
   /** Sends a transaction from the wallet (approve, lock, refund). Absent when the wallet cannot. */
   sendTransaction?(transaction: {

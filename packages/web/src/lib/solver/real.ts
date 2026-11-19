@@ -154,6 +154,7 @@ export class RealSolverClient implements SolverClient {
       const known = [
         'INSUFFICIENT_LIQUIDITY',
         'OVER_MAX_SWAP',
+        'BELOW_MINIMUM',
         'PEG_GUARD',
         'PRICE_UNAVAILABLE',
         'ROUTE_DISABLED',

@@ -53,22 +53,17 @@ describe('B4-06 Rehearsal Defects (Decimals & Route Fixed Fees)', () => {
       expect(getRouteFixedFeeUsdMicros('ethereum')).toBe(340_000n); // $0.34
     });
 
-    it('ensures fixed fee is at most 2% of minimum swap for every route', () => {
+    it('keeps the fixed fee under 7% of the minimum swap for every route', () => {
       for (const fee of Object.values(DEFAULT_ROUTE_FIXED_FEES_USD_MICROS)) {
         const minSwap = routeMinSwapUsdMicros(fee);
-        // Fee must be <= 2% of minSwap: (fee * 100) / minSwap <= 2
-        const feePercentageBps = (fee * 10_000n) / minSwap;
-        expect(feePercentageBps).toBeLessThanOrEqual(200n); // <= 2.00%
+        expect((fee * 10_000n) / minSwap).toBeLessThanOrEqual(700n);
       }
     });
 
-    it('scales Ethereum minimum swap to approximately $20 to satisfy 2% cap', () => {
+    it('sets the Ethereum minimum swap to $5', () => {
       const ethFee = getRouteFixedFeeUsdMicros('ethereum');
       expect(ethFee).toBe(340_000n);
-      const ethMinSwap = routeMinSwapUsdMicros(ethFee);
-      expect(ethMinSwap).toBe(20_000_000n); // $20.00
-      // 340,000 / 20,000,000 = 1.7%
-      expect(Number(ethFee) / Number(ethMinSwap)).toBe(0.017);
+      expect(routeMinSwapUsdMicros(ethFee)).toBe(5_000_000n);
     });
 
     it('keeps Base, Arbitrum and BNB minimum swap at standard $1.00', () => {
@@ -148,10 +143,10 @@ describe('B4-06 Rehearsal Defects (Decimals & Route Fixed Fees)', () => {
       }
     });
 
-    it('refuses Ethereum swap below route minimum ($20.00)', async () => {
+    it('refuses Ethereum swap below route minimum ($5.00)', async () => {
       const builder = new QuoteBuilder(fakePriceSource, new LiquidityManager());
       const now = Math.floor(Date.now() / 1000);
-      const tenDollars6 = 10_000_000n; // $10.00
+      const tenDollars6 = 4_000_000n; // $4.00
 
       const result = await builder.buildQuote({
         quoteId: 'quote-eth-small',
@@ -162,7 +157,7 @@ describe('B4-06 Rehearsal Defects (Decimals & Route Fixed Fees)', () => {
         inputDecimals: 6,
         outputDecimals: 2,
         fixedFeeUsdMicros: 340_000n,
-        minSwapUsdMicros: 20_000_000n, // $20.00 min swap
+        minSwapUsdMicros: 5_000_000n, // $5.00 min swap
         userAddress: '0x1111111111111111111111111111111111111111',
         userIp: '127.0.0.1',
         currentInventory: 100_000_000n,
@@ -193,8 +188,8 @@ describe('B4-06 Rehearsal Defects (Decimals & Route Fixed Fees)', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.reason).toBe('ROUTE_DISABLED');
-        expect(result.message).toContain('below minimum swap of $20.00');
+        expect(result.reason).toBe('BELOW_MINIMUM');
+        expect(result.message).toContain('below minimum swap of $5.00');
       }
     });
   });

@@ -18,6 +18,8 @@ import type { SolverClient } from '@ferry/solver-client';
 export interface EvmSignerPort {
   getAddress(): Promise<Hex>;
   getChainId(): Promise<number>;
+  /** Asks the wallet to switch to a chain; absent when the wallet cannot be asked. */
+  switchChain?(chainId: number): Promise<void>;
   /** EIP-712 signing: the permit and the lock intent. Returns the 65-byte signature. */
   signTypedData(typedData: unknown): Promise<Hex>;
   /** Used only by the approve-plus-lock path and by the user's own EVM refund. */

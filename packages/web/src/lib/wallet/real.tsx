@@ -16,6 +16,7 @@ import {
   useDisconnect,
   useSendTransaction,
   useSignTypedData,
+  useSwitchChain,
   WagmiProvider,
 } from 'wagmi';
 import { NETWORK_PROFILE, REOWN_PROJECT_ID } from '../config';
@@ -59,6 +60,7 @@ function useRealEvmWallet(): EvmWallet {
   const { open } = useAppKit();
   const { signTypedDataAsync } = useSignTypedData();
   const { sendTransactionAsync } = useSendTransaction();
+  const { switchChainAsync } = useSwitchChain();
 
   const [error, setError] = useState<string | null>(null);
   const [pendingRequest, setPendingRequest] = useState<string | null>(null);
@@ -108,6 +110,9 @@ function useRealEvmWallet(): EvmWallet {
       await revokeAccountAccess(provider);
       setPendingRequest(null);
       setPromptHelp(null);
+    },
+    switchChain: async (target: number) => {
+      await switchChainAsync({ chainId: target });
     },
     cancelPendingRequest,
     signTypedData: async (params: TypedDataDefinition) => {

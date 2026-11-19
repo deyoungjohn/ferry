@@ -1,12 +1,44 @@
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { createConfig, http } from 'wagmi';
+import { defineChain } from 'viem';
 import { base, mainnet, arbitrum, bsc } from 'wagmi/chains';
 import type { ChainAdapter } from '@reown/appkit';
 import type { AppKitNetwork } from '@reown/appkit/networks';
 import { REOWN_PROJECT_ID } from '../config';
 
-export const SUPPORTED_CHAINS = [base, mainnet, arbitrum, bsc] as const;
+// Chains wagmi does not ship: from the recorded chain facts (endpoints and explorers).
+export const arc = defineChain({
+  id: 5042,
+  name: 'Arc',
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+  rpcUrls: { default: { http: ['https://rpc.mainnet.arc.io'] } },
+  blockExplorers: {
+    default: { name: 'Arc Explorer', url: 'https://explorer.arc.io' },
+  },
+});
+
+export const robinhood = defineChain({
+  id: 4663,
+  name: 'Robinhood Chain',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: ['https://rpc.mainnet.chain.robinhood.com'] } },
+  blockExplorers: {
+    default: {
+      name: 'Blockscout',
+      url: 'https://robinhoodchain.blockscout.com',
+    },
+  },
+});
+
+export const SUPPORTED_CHAINS = [
+  base,
+  mainnet,
+  arbitrum,
+  bsc,
+  arc,
+  robinhood,
+] as const;
 
 const networks = SUPPORTED_CHAINS as unknown as [
   AppKitNetwork,
@@ -22,6 +54,8 @@ export const wagmiAdapter = REOWN_PROJECT_ID
         [mainnet.id]: http(),
         [arbitrum.id]: http(),
         [bsc.id]: http(),
+        [arc.id]: http(),
+        [robinhood.id]: http(),
       },
     })
   : null;
@@ -63,11 +97,13 @@ if (wagmiAdapter && REOWN_PROJECT_ID) {
 export const wagmiConfig =
   wagmiAdapter?.wagmiConfig ??
   createConfig({
-    chains: [base, mainnet, arbitrum, bsc],
+    chains: SUPPORTED_CHAINS,
     transports: {
       [base.id]: http(),
       [mainnet.id]: http(),
       [arbitrum.id]: http(),
       [bsc.id]: http(),
+      [arc.id]: http(),
+      [robinhood.id]: http(),
     },
   });

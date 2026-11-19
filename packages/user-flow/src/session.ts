@@ -211,10 +211,23 @@ export class UserSwapSession {
       const userEvmAddress = await this.deps.evmSigner.getAddress();
       const walletChain = await this.deps.evmSigner.getChainId();
       if (walletChain !== input.chainId) {
-        throw new UserFlowError(
-          'WRONG_CHAIN',
-          `The wallet is on chain ${walletChain}, but this swap is for chain ${input.chainId}. Switch networks and try again.`,
-        );
+        // Ask the wallet to switch, as an exchange does; only a refusal or a wallet that cannot
+        // be asked leaves the human to do it.
+        let switched = false;
+        if (this.deps.evmSigner.switchChain) {
+          try {
+            await this.deps.evmSigner.switchChain(input.chainId);
+            switched = true;
+          } catch {
+            switched = false;
+          }
+        }
+        if (!switched) {
+          throw new UserFlowError(
+            'WRONG_CHAIN',
+            `Switch your wallet to chain ${input.chainId} (it is on ${walletChain}) and try again.`,
+          );
+        }
       }
       if (
         userEvmAddress.toLowerCase() === ZERO_ADDRESS ||
