@@ -1,3 +1,4 @@
+import { clearBchTipCache } from '../lib/solver/tip';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -193,6 +194,7 @@ describe('browser Bitcoin Cash chain', () => {
   });
 
   it('prefers the solver tip and falls back to the server', async () => {
+    clearBchTipCache();
     const chain = createBrowserBchChain({
       urls: ['wss://a'],
       solverUrl: 'https://solver.test',

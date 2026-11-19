@@ -1,5 +1,10 @@
 let cached: { height: number; at: number } | null = null;
 
+/** Forgets the remembered height (tests share this module's state between files). */
+export function clearBchTipCache(): void {
+  cached = null;
+}
+
 /**
  * Current Bitcoin Cash height, used to check a quote's timing. The solver
  * reports it on /v1/health; if it does not, ask a public block explorer.

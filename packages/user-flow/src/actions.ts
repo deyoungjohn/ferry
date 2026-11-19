@@ -330,10 +330,10 @@ export function formatBchAmount(sats: bigint): string {
 export function insufficientBchMessage(builderMessage: string): string {
   const match = /required (\d+), available (\d+)/.exec(builderMessage);
   if (!match) {
-    return 'Your wallet needs a little BCH to pay the network fee. Nothing was locked.';
+    return 'Your Bitcoin Cash wallet needs a little BCH to pay the network fee. Nothing was locked.';
   }
   const required = BigInt(match[1]!);
   const available = BigInt(match[2]!);
   const missing = required > available ? required - available : 0n;
-  return `Your wallet needs a little BCH to pay the network fee. You hold ${formatBchAmount(available)} and you need ${formatBchAmount(required)} (${formatBchAmount(missing)} more). Nothing was locked.`;
+  return `Your Bitcoin Cash wallet needs a little BCH to pay the network fee. You hold ${formatBchAmount(available)} and you need ${formatBchAmount(required)} (${formatBchAmount(missing)} more). Nothing was locked.`;
 }
