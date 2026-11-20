@@ -62,7 +62,7 @@ export function footerColumns(): readonly FooterColumn[] {
       title: 'Help',
       links: [
         { label: 'User guide', to: ROUTES.guide },
-        { label: 'FAQ', to: '/features#faq' },
+        { label: 'FAQ', to: '/how-it-works#faq' },
         { label: 'Route status', to: '/status' },
         ...(SITE.repo
           ? [{ label: 'GitHub', to: SITE.repo, external: true }]
@@ -112,6 +112,16 @@ export function mainnetLinks(): {
     }
   ).chains;
   const contracts: MainnetLink[] = [];
+  // Bitcoin Cash locks are one covenant per swap (its address comes from the swap's terms), so
+  // there is no single address to show: the source is linked instead.
+  const covenant = SITE.repo
+    ? [
+        {
+          label: 'Bitcoin Cash covenant (source)',
+          href: `${SITE.repo.replace(/\/+$/, '')}/blob/main/packages/htlc-bch/contracts/FerryHTLC.cash`,
+        },
+      ]
+    : [];
   const wallets: MainnetLink[] = [
     {
       label: 'Bitcoin Cash',
@@ -126,5 +136,5 @@ export function mainnetLinks(): {
     if (htlc) contracts.push({ label, href: `${base}/address/${htlc}` });
     wallets.push({ label, href: `${base}/address/${SOLVER_WALLETS.evm}` });
   }
-  return { contracts, wallets };
+  return { contracts: [...contracts, ...covenant], wallets };
 }

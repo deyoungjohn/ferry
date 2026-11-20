@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Faq } from '../components/Faq';
 import { Link } from 'react-router';
 import {
   ArrowRight,
@@ -272,6 +273,7 @@ export function HowItWorksPage() {
           </Link>
         </div>
       </section>
+      <Faq />
     </div>
   );
 }
