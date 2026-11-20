@@ -9,12 +9,13 @@ import { BchQuorumClient } from '../src/bch/quorum-client.js';
 import type { ElectrumTransport } from '../src/bch/transport.js';
 import { MockPriceSource } from '../src/pricing/price-source.js';
 import { QuoteRateLimiter } from '../src/api/rate-limiter.js';
+import type { EvmChainAdapter } from '@ferry/chain-evm';
 
 describe('BCH Proxy Endpoints and Quorum Broadcast (B4-18)', () => {
   let app: FastifyInstance;
   let db: SolverDatabase;
-  let fakeBchClient: unknown;
-  let fakeEvmAdapter: unknown;
+  let fakeBchClient: BchQuorumClient;
+  let fakeEvmAdapter: EvmChainAdapter;
   let engine: SolverEngine;
   let priceSource: MockPriceSource;
   let rateLimiter: QuoteRateLimiter;
@@ -93,7 +94,7 @@ describe('BCH Proxy Endpoints and Quorum Broadcast (B4-18)', () => {
       broadcastAll: broadcastAllSpy,
       getTipHeader: getTipHeaderSpy,
       close: () => {},
-    };
+    } as unknown as BchQuorumClient;
 
     const solverEvmKey =
       '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' as const;
@@ -117,7 +118,7 @@ describe('BCH Proxy Endpoints and Quorum Broadcast (B4-18)', () => {
       refund: async () => '0x' as `0x${string}`,
       watchLocks: () => () => {},
       waitForFinality: async () => {},
-    };
+    } as unknown as EvmChainAdapter;
 
     const config = SolverConfigSchema.parse({
       solverEvmPrivateKey: solverEvmKey,
@@ -495,7 +496,7 @@ describe('BCH Proxy Endpoints and Quorum Broadcast (B4-18)', () => {
 
       const makeTransport = (
         url: string,
-        req: (...args: unknown[]) => Promise<unknown>,
+        req: ElectrumTransport['request'],
       ): ElectrumTransport => ({
         url,
         connect: async () => {},
@@ -534,7 +535,7 @@ describe('BCH Proxy Endpoints and Quorum Broadcast (B4-18)', () => {
 
       const makeTransport = (
         url: string,
-        req: (...args: unknown[]) => Promise<unknown>,
+        req: ElectrumTransport['request'],
       ): ElectrumTransport => ({
         url,
         connect: async () => {},
