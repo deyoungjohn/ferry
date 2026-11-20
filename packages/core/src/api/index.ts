@@ -364,6 +364,8 @@ export const QuoteRequestSchema = z.strictObject({
   fastOptIn: z.boolean().optional(),
   /** A quote that reserves nothing: for showing a price before the user commits. */
   dryRun: z.boolean().optional(),
+  /** The pay link this payment is for, so the swap is tied to it by a mark and never by a guess. */
+  payLinkId: textSchema.optional(),
 });
 
 export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
@@ -838,6 +840,8 @@ export const SendLinkDetailsResponseSchema = z.strictObject({
   note: sendLinkNoteSchema.optional(),
   /** The EVM lock the receiver claims: what the receiver's own wallet needs to send the claim. */
   lockId: hex32Schema.optional(),
+  /** Whether the solver's EVM lock is held pending receiver confirmation. */
+  isHeld: z.boolean().optional(),
   createdAt: unixTimestampSeconds,
   updatedAt: unixTimestampSeconds,
 });
@@ -986,3 +990,101 @@ export const BchUtxosResponseSchema = z.strictObject({
   asOf: z.number().int().nonnegative().optional(),
 });
 export type BchUtxosResponse = z.infer<typeof BchUtxosResponseSchema>;
+
+/**
+ * The typed data the recipient signs to ask to switch a send link's route (EIP-712).
+ * Chain-bound to the target chain so a stranger cannot forge or redirect the request.
+ */
+export function switchRouteRequestTypedData(input: {
+  readonly targetChainId: number;
+  readonly orderId: `0x${string}`;
+  readonly token: `0x${string}`;
+}) {
+  return {
+    domain: { name: 'Ferry', version: '1', chainId: input.targetChainId },
+    types: {
+      SwitchRouteRequest: [
+        { name: 'orderId', type: 'bytes32' },
+        { name: 'token', type: 'address' },
+      ],
+    },
+    primaryType: 'SwitchRouteRequest' as const,
+    message: { orderId: input.orderId, token: input.token },
+  };
+}
+
+export const SwitchSendLinkRouteRequestSchema = z.strictObject({
+  chainId: positiveUint,
+  token: evmAddressSchema,
+  signature: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{130}$/)
+    .describe('Recipient EIP-712 signature of switchRouteRequestTypedData'),
+});
+
+export type SwitchSendLinkRouteRequest = z.infer<
+  typeof SwitchSendLinkRouteRequestSchema
+>;
+
+export const SwitchSendLinkRouteResponseSchema = z.strictObject({
+  ok: z.literal(true),
+  originalOrderId: hex32Schema,
+  newOrderId: hex32Schema,
+  chainId: positiveUint,
+  token: evmAddressSchema,
+  evmAmount: uint256Json,
+  expiresAt: unixTimestampSeconds,
+  updatedAt: unixTimestampSeconds,
+});
+
+export type SwitchSendLinkRouteResponse = z.infer<
+  typeof SwitchSendLinkRouteResponseSchema
+>;
+
+/**
+ * The typed data the recipient signs to confirm a send link's route (EIP-712).
+ * Chain-bound to the target chain so a stranger cannot forge or redirect the request.
+ */
+export function confirmRouteRequestTypedData(input: {
+  readonly targetChainId: number;
+  readonly orderId: `0x${string}`;
+  readonly token: `0x${string}`;
+}) {
+  return {
+    domain: { name: 'Ferry', version: '1', chainId: input.targetChainId },
+    types: {
+      ConfirmRouteRequest: [
+        { name: 'orderId', type: 'bytes32' },
+        { name: 'token', type: 'address' },
+      ],
+    },
+    primaryType: 'ConfirmRouteRequest' as const,
+    message: { orderId: input.orderId, token: input.token },
+  };
+}
+
+export const ConfirmSendLinkRouteRequestSchema = z.strictObject({
+  chainId: positiveUint.optional(),
+  token: evmAddressSchema.optional(),
+  signature: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{130}$/)
+    .describe('Recipient EIP-712 signature'),
+});
+
+export type ConfirmSendLinkRouteRequest = z.infer<
+  typeof ConfirmSendLinkRouteRequestSchema
+>;
+
+export const ConfirmSendLinkRouteResponseSchema = z.strictObject({
+  ok: z.literal(true),
+  orderId: hex32Schema,
+  chainId: positiveUint,
+  token: evmAddressSchema,
+  status: z.string(),
+  confirmedAt: unixTimestampSeconds,
+});
+
+export type ConfirmSendLinkRouteResponse = z.infer<
+  typeof ConfirmSendLinkRouteResponseSchema
+>;

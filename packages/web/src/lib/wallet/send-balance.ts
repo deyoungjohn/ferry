@@ -101,3 +101,21 @@ export function snapPercent(percent: number): number {
   }
   return Math.round(percent);
 }
+
+/**
+ * A token amount in its smallest units as decimal text with at most `places` decimals, cut off
+ * (never rounded up): a share of a balance must never come out above the balance.
+ */
+export function floorUnitsToText(
+  units: bigint,
+  decimals: number,
+  places: number,
+): string {
+  const keep = Math.min(decimals, places);
+  const unit = 10n ** BigInt(decimals - keep);
+  const scaled = units / unit; // cut off here
+  const base = 10n ** BigInt(keep);
+  const whole = scaled / base;
+  if (keep === 0) return whole.toString();
+  return `${whole}.${(scaled % base).toString().padStart(keep, '0')}`;
+}

@@ -708,6 +708,44 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(JSON.stringify(res.json())).toContain('at least');
     });
 
+    it('a quote that names a matching open pay link marks its order; one that names a mismatched link does not', async () => {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/v1/links',
+        payload: {
+          token: 'PUSD',
+          recipientAddress:
+            'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk',
+        },
+      });
+      const link = created.json();
+      const quote = (payLinkId: string, locking: string, seed: string) =>
+        app.inject({
+          method: 'POST',
+          url: '/v1/quotes',
+          payload: {
+            direction: 'EVM_TO_BCH',
+            bchToken: 'PUSD',
+            amountIn: '25000000',
+            userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
+            userBchLockingBytecode: locking,
+            hashLock: sha256(('0x' + seed.repeat(32)) as `0x${string}`),
+            lane: 'safe',
+            payLinkId,
+          },
+        });
+      const good = await quote(link.id, link.recipientLockingBytecode, '3a');
+      expect(good.statusCode).toBe(200);
+      expect(db.getOrder(good.json().orderId)?.payLinkId).toBe(link.id);
+      const other = await quote(
+        link.id,
+        '0x76a914000000000000000000000000000000000000000088ac',
+        '3b',
+      );
+      expect(other.statusCode).toBe(200);
+      expect(db.getOrder(other.json().orderId)?.payLinkId).toBeUndefined();
+    });
+
     it('a pay link follows the swap that pays it: reserved while it runs, paid when it is done', async () => {
       const created = await app.inject({
         method: 'POST',
@@ -727,6 +765,8 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
         id: orderId,
         direction: 'EVM_TO_BCH',
         status: 'SOLVER_LOCK_SEEN',
+        // The payment names its link: a link is never tied to a swap by a guess.
+        payLinkId: link.id,
         userCounterAddress: '0x2222222222222222222222222222222222222222',
         lockId: orderId,
         termsJson: JSON.stringify({

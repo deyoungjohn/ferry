@@ -526,6 +526,13 @@ export class SolverEngine {
     if (!currentRecord) return;
     const order = orderRecordToSolverOrder(currentRecord);
 
+    if (
+      (order.status as unknown as string) === 'CANCELLED' ||
+      this.db.isOrderCancelled?.(order.id)
+    ) {
+      return;
+    }
+
     if (isForwardDirection(order.direction)) {
       await this.stepForwardOrder(order);
     } else {
@@ -866,6 +873,14 @@ export class SolverEngine {
 
     // Step 2: Solver counter-locks on EVM
     if (order.status === 'USER_LOCK_FINAL') {
+      if (this.db.isOrderCancelled?.(order.id)) {
+        return;
+      }
+      if (this.db.isSendLinkHeld?.(order.id)) {
+        // The solver's EVM lock is held until the receiver confirms the route (or switches route).
+        return;
+      }
+
       if (
         order.userLockTxId &&
         (await this.bchLockMadeAfterQuoteExpiry(order, order.userLockTxId, now))

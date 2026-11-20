@@ -30,13 +30,19 @@ import {
   StatsResponseSchema,
   CancelSendLinkQuotaSchema,
   CancelSendLinkResponseSchema,
+  ConfirmSendLinkRouteRequestSchema,
+  ConfirmSendLinkRouteResponseSchema,
   DeletePayLinkResponseSchema,
+  SwitchSendLinkRouteRequestSchema,
+  SwitchSendLinkRouteResponseSchema,
   type CancelPayLinkRequest,
   type CancelPayLinkResponse,
   type CancelSendLinkQuota,
   type CancelSendLinkRequest,
   type CancelSendLinkResponse,
   type ChainsResponse,
+  type ConfirmSendLinkRouteRequest,
+  type ConfirmSendLinkRouteResponse,
   type CreatePayLinkRequest,
   type CreatePayLinkResponse,
   type DeletePayLinkResponse,
@@ -60,6 +66,8 @@ import {
   type SendLinkDetailsResponse,
   type SendQuoteRequest,
   type StatsResponse,
+  type SwitchSendLinkRouteRequest,
+  type SwitchSendLinkRouteResponse,
 } from '@ferry/core/api';
 import type { z } from 'zod';
 import {
@@ -422,6 +430,36 @@ export class SolverClient {
       `/v1/send-links/${encodeURIComponent(id)}/cancel-quota`,
       CancelSendLinkQuotaSchema,
       undefined,
+      options,
+    );
+  }
+
+  async switchSendLinkRoute(
+    id: string,
+    request: SwitchSendLinkRouteRequest,
+    options?: RequestCallOptions,
+  ): Promise<SwitchSendLinkRouteResponse> {
+    const body = SwitchSendLinkRouteRequestSchema.parse(request);
+    return this.requestJson(
+      'POST',
+      `/v1/send-links/${encodeURIComponent(id)}/switch-route`,
+      SwitchSendLinkRouteResponseSchema,
+      body,
+      options,
+    );
+  }
+
+  async confirmSendLinkRoute(
+    id: string,
+    request: ConfirmSendLinkRouteRequest,
+    options?: RequestCallOptions,
+  ): Promise<ConfirmSendLinkRouteResponse> {
+    const body = ConfirmSendLinkRouteRequestSchema.parse(request);
+    return this.requestJson(
+      'POST',
+      `/v1/send-links/${encodeURIComponent(id)}/confirm`,
+      ConfirmSendLinkRouteResponseSchema,
+      body,
       options,
     );
   }

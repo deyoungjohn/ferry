@@ -129,7 +129,10 @@ export function payLinkSteps(
       id: 'solver',
       label: `The solver locks ${token} on Bitcoin Cash`,
       state: states[2]!,
-      note: `Waiting for the solver’s ${token} lock on Bitcoin Cash`,
+      note:
+        chainId === 4663
+          ? 'Robinhood Chain must finalize your lock first, which takes about 15 to 20 minutes. Nothing is wrong: your funds are locked and can be refunded.'
+          : `Waiting for the solver’s ${token} lock on Bitcoin Cash`,
       at: timeOf(snapshot, T.solverLock),
       txs: bch("Solver's lock", t.bchLock),
     },

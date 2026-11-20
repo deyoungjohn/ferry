@@ -318,6 +318,8 @@ export function PayLinkPage() {
           bchTokenDecimals: 2,
           lane: 'fast' as const,
           fastOptIn: true,
+          // Marks the swap as this link's payment (the server never guesses it).
+          ...(id ? { payLinkId: id } : {}),
         };
         // A fixed link: find what to send so the recipient gets exactly the amount. An open link:
         // the payer pays exactly what they typed, fees and spread included.
@@ -389,7 +391,8 @@ export function PayLinkPage() {
         >
           ← All Pay Links
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <LinkHowItWorks kind="pay" />
           <button
             type="button"
             onClick={handleShare}
@@ -462,9 +465,6 @@ export function PayLinkPage() {
                 {chainNameFromId(summary.chainId)}
               </p>
             )}
-            <div className="mt-1 print:hidden">
-              <LinkHowItWorks kind="pay" />
-            </div>
             {note && (
               <p
                 data-testid="pay-link-note"

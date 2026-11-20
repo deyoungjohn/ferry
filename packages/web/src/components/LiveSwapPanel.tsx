@@ -172,6 +172,27 @@ export function LiveSwapPanel({
     }
   }
 
+  /**
+   * One confirmation: with a wallet that can recover the swap on any device the recovery data is
+   * prepared and the lock started in the same step. (A smart contract wallet, or no EVM wallet,
+   * must keep a downloaded file first, so those still get the second step.)
+   */
+  async function handleStartNow() {
+    setError(null);
+    setPhase('preparing');
+    try {
+      const prepared = await services.prepare(deps(), input);
+      sessionRef.current = prepared.session;
+      recoveryRef.current = prepared.recovery;
+      setFileSaved(false);
+    } catch (cause) {
+      setError(messageOf(cause));
+      setPhase('failed');
+      return;
+    }
+    await handleLock();
+  }
+
   function handleDownload() {
     const file = recoveryRef.current;
     if (!file) return;
@@ -264,18 +285,38 @@ export function LiveSwapPanel({
 
         {phase === 'preview' && quote && (
           <>
-            <p className="text-text-dim" data-testid="live-preview-note">
-              This is a price only. Nothing is reserved or locked yet. The next
-              step creates your recovery file; keep it safe.
-            </p>
-            <button
-              type="button"
-              className="h-10 w-full rounded-pill bg-olive font-semibold"
-              onClick={handleContinue}
-              data-testid="live-continue"
-            >
-              Continue
-            </button>
+            {requiresFileDownload ? (
+              <>
+                <p className="text-text-dim" data-testid="live-preview-note">
+                  This is a price only. Nothing is reserved or locked yet. The
+                  next step creates your recovery file; keep it safe.
+                </p>
+                <button
+                  type="button"
+                  className="h-10 w-full rounded-pill bg-olive font-semibold"
+                  onClick={handleContinue}
+                  data-testid="live-continue"
+                >
+                  Continue
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-text-dim" data-testid="live-preview-note">
+                  This swap can be recovered with your wallet on any device. If
+                  anything stops, your refund stays available. Nothing is locked
+                  until you confirm in your wallet.
+                </p>
+                <button
+                  type="button"
+                  className="h-10 w-full rounded-pill bg-olive font-semibold"
+                  onClick={handleStartNow}
+                  data-testid="live-start"
+                >
+                  Start swap
+                </button>
+              </>
+            )}
           </>
         )}
 
