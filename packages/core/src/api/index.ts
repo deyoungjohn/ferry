@@ -770,7 +770,14 @@ export type SendQuoteRequest = z.infer<typeof SendQuoteRequestSchema>;
 export const SendLinkDetailsResponseSchema = z.strictObject({
   id: textSchema,
   orderId: hex32Schema.optional(),
-  status: z.enum(['pending_lock', 'locked', 'claimed', 'refunded', 'expired']),
+  status: z.enum([
+    'pending_lock',
+    'locked',
+    'claimed',
+    'refunded',
+    'expired',
+    'cancelled',
+  ]),
   token: z.enum(['PUSD', 'MUSD']),
   chainId: positiveUint,
   evmToken: evmAddressSchema,
@@ -790,6 +797,41 @@ export const SendLinkDetailsResponseSchema = z.strictObject({
 
 export type SendLinkDetailsResponse = z.infer<
   typeof SendLinkDetailsResponseSchema
+>;
+
+export const CancelSendLinkQuotaSchema = z.strictObject({
+  dailyUsed: z.number().int().nonnegative(),
+  dailyLimit: z.number().int().positive(),
+  dailyRemaining: z.number().int().nonnegative(),
+  monthlyUsed: z.number().int().nonnegative(),
+  monthlyLimit: z.number().int().positive(),
+  monthlyRemaining: z.number().int().nonnegative(),
+  nextAllowedAt: unixTimestampSeconds.nullable().optional(),
+});
+export type CancelSendLinkQuota = z.infer<typeof CancelSendLinkQuotaSchema>;
+
+export const CancelSendLinkRequestSchema = z.strictObject({
+  /** Recovery root key derived from wallet signature (swapHashLockAt(recoveryRoot, n) == terms.hashLock). */
+  recoveryRoot: hex32Schema.optional(),
+  swapIndex: z.number().int().nonnegative().optional(),
+  /** Signature from the BCH key that created userBchLockingBytecode. */
+  bchSignature: z.string().optional(),
+  bchPublicKey: z.string().optional(),
+  /** EIP-712 or personal-sign signature from sender wallet. */
+  evmSignature: z.string().optional(),
+  signerAddress: z.string().optional(),
+});
+export type CancelSendLinkRequest = z.infer<typeof CancelSendLinkRequestSchema>;
+
+export const CancelSendLinkResponseSchema = z.strictObject({
+  success: z.boolean(),
+  orderId: hex32Schema,
+  status: z.literal('cancelled'),
+  refundTxId: z.string().optional(),
+  quota: CancelSendLinkQuotaSchema,
+});
+export type CancelSendLinkResponse = z.infer<
+  typeof CancelSendLinkResponseSchema
 >;
 
 /** Maximum number of blinded view tags a client can query in one request. */
