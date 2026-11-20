@@ -1336,3 +1336,30 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
     });
   });
 });
+
+describe('GET /v1/evm/balance', () => {
+  it('refuses a chain or token that is not a recorded one, so it is no general RPC proxy', async () => {
+    const config = SolverConfigSchema.parse({});
+    const app = buildServer({
+      config,
+      db: new SolverDatabase(':memory:'),
+      evmAdapter: {} as never,
+      bchClient: {} as never,
+      engine: { isQuotingEnabled: () => true } as never,
+      priceSource: new MockPriceSource(),
+      publicClient: { readContract: async () => 1n } as never,
+    } as never);
+    await app.ready();
+    const owner = '0x12DC0000000000000000000000000000001Da841';
+    const unknownToken = await app.inject({
+      method: 'GET',
+      url: `/v1/evm/balance?chainId=8453&token=0x1111111111111111111111111111111111111111&owner=${owner}`,
+    });
+    expect(unknownToken.statusCode).toBe(422);
+    const badInput = await app.inject({
+      method: 'GET',
+      url: '/v1/evm/balance?chainId=abc&token=x&owner=y',
+    });
+    expect(badInput.statusCode).toBe(400);
+  });
+});

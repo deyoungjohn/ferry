@@ -34,8 +34,6 @@ import { useOptionalNavigate } from '../lib/useOptionalNavigate';
 import { ROUTES } from '../lib/routes';
 import { buildCoreQuoteRequest, farTokenFacts } from '../lib/solver/core-quote';
 import { LiveSwapPanel } from './LiveSwapPanel';
-import { UnfinishedSwaps } from './UnfinishedSwaps';
-import { createLiveDependencies } from '../lib/live/ports';
 import type { QuoteInput } from '@ferry/user-flow';
 import { readBchTipHeight } from '../lib/solver/tip';
 import { LIVE_EXECUTION_MESSAGE } from '../lib/solver/real';
@@ -500,6 +498,7 @@ export function SwapCard({
             Number(selectedChain.id),
             far.address,
             sendEvmAddress as `0x${string}`,
+            { solverUrl: solverUrls[0] },
           );
           if (active) setWalletBalance(balance);
         } else {
@@ -865,22 +864,6 @@ export function SwapCard({
               Available: unknown
             </div>
           )}
-
-          {solver.isLive() &&
-            LIVE_EXECUTION_ENABLED &&
-            walletContext?.bch.address && (
-              <UnfinishedSwaps
-                solverUrl={solverUrls[0] ?? ''}
-                evmAddress={walletContext.evm.address ?? null}
-                createDeps={() =>
-                  createLiveDependencies({
-                    wallets: { evm: walletContext.evm, bch: walletContext.bch },
-                    solverUrl: solverUrls[0] ?? '',
-                    chainId: walletContext.evm.chainId ?? 8453,
-                  })
-                }
-              />
-            )}
 
           <div
             role="radiogroup"

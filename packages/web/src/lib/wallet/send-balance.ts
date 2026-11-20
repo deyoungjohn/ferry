@@ -7,8 +7,8 @@ const BCH_CATEGORIES: Readonly<Record<string, string>> = {
   MUSD: 'b38a33f750f84c5c169a6f23cb873e6e79605021585d4f3408789689ed87f366',
 };
 
-/** A token balance in the token's smallest units, read from the chain (never guessed). */
-export async function readEvmTokenBalance(
+/** A token balance read straight from the chain through a public endpoint. */
+async function readEvmTokenBalanceDirect(
   chainId: number,
   token: Address,
   owner: Address,
@@ -20,6 +20,45 @@ export async function readEvmTokenBalance(
     functionName: 'balanceOf',
     args: [owner],
   })) as bigint;
+}
+
+/**
+ * A token balance in the token's smallest units: from the solver first (its own paid endpoints,
+ * so a busy public one does not matter), and from a public endpoint only when the solver does not
+ * answer. A refusal by the solver (a 4xx) is an answer, not a reason to fall back.
+ */
+export async function readEvmTokenBalance(
+  chainId: number,
+  token: Address,
+  owner: Address,
+  options: { solverUrl?: string | undefined; fetchFn?: typeof fetch } = {},
+): Promise<bigint> {
+  const fetchFn = options.fetchFn ?? fetch;
+  if (options.solverUrl) {
+    try {
+      const url = `${options.solverUrl.replace(/\/+$/, '')}/v1/evm/balance?chainId=${chainId}&token=${token}&owner=${owner}`;
+      const res = await fetchFn(url);
+      if (res.ok) {
+        const body = (await res.json()) as { balance?: string };
+        if (typeof body.balance === 'string' && /^\d+$/.test(body.balance)) {
+          return BigInt(body.balance);
+        }
+      } else if (res.status < 500) {
+        throw new Error(
+          `The Ferry server refused the balance read (${res.status}).`,
+        );
+      }
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /refused the balance read/.test(error.message)
+      ) {
+        throw error;
+      }
+      // A network error or a 5xx: read the chain directly below.
+    }
+  }
+  return readEvmTokenBalanceDirect(chainId, token, owner);
 }
 
 interface TokenUtxo {

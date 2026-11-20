@@ -1,4 +1,4 @@
-import { snapPercent } from '../../lib/wallet/send-balance';
+import { BubbleSlider } from './range-slider-bubble';
 
 /**
  * Picks a share of the connected wallet's balance, snapping to 25, 50, 75 and 100 percent. Not
@@ -17,7 +17,8 @@ export function AmountSlider({
   symbol: string;
 }) {
   return (
-    <div className="px-1 pt-1" data-testid="amount-slider">
+    // mb-5: the flip button below overlaps its neighbours by 16px; the marks stay clear of it.
+    <div className="mb-5 px-1 pt-1" data-testid="amount-slider">
       <div className="flex items-center justify-between text-[11px] text-text-muted">
         <span>
           Balance:{' '}
@@ -27,15 +28,15 @@ export function AmountSlider({
         </span>
         <span className="tabular-nums">{percent}%</span>
       </div>
-      <input
-        type="range"
+      <BubbleSlider
         min={0}
         max={100}
         step={1}
         value={percent}
+        onValueChange={onPercent}
+        snapPoints={[0, 25, 50, 75, 100]}
+        format={(v) => `${Math.round(v)}%`}
         aria-label={`Share of your ${symbol} balance to swap`}
-        onChange={(e) => onPercent(snapPercent(Number(e.target.value)))}
-        className="mt-1 h-1.5 w-full cursor-pointer accent-[#c6f219]"
       />
       <div className="mt-1 flex justify-between text-[10px] text-text-dim">
         {[0, 25, 50, 75, 100].map((mark) => (

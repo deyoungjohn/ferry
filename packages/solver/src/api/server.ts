@@ -2230,6 +2230,72 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   );
 
   // GET /v1/bch/tip: returns tip header information { height, hash, timestamp }. 2s cache.
+  // GET /v1/evm/balance?chainId=&token=&owner=: the balance of one verified token on one enabled
+  // chain for an address, read with the solver's own (paid) RPC. Not an RPC proxy: the chain and
+  // token must be in the recorded facts, it makes one balanceOf call, answers cache for 5 seconds
+  // and each IP has a limit. The page asks here first and reads the chain itself only as a fallback.
+  const evmBalanceCache = new Map<string, { value: string; at: number }>();
+  app.get('/v1/evm/balance', async (req, reply) => {
+    if (!checkBchRateLimit(req, reply)) return;
+    const q = (req.query ?? {}) as Record<string, string | undefined>;
+    const chainId = Number(q.chainId);
+    const token = String(q.token ?? '');
+    const owner = String(q.owner ?? '');
+    if (
+      !Number.isInteger(chainId) ||
+      !/^0x[0-9a-fA-F]{40}$/.test(token) ||
+      !/^0x[0-9a-fA-F]{40}$/.test(owner)
+    ) {
+      return reply.status(400).send({
+        error: 'chainId, token and owner (0x addresses) are required',
+      });
+    }
+    const routes = options.routesContext ?? buildActiveRoutes(config);
+    const chainFact = routes.chainConfig.facts.find(
+      (c) => c.chainId === chainId,
+    );
+    const asset = chainFact?.assets.find(
+      (a) => a.verified && a.address?.toLowerCase() === token.toLowerCase(),
+    );
+    if (!chainFact || !asset) {
+      return reply
+        .status(422)
+        .send({ error: 'That chain or token is not one Ferry supports' });
+    }
+    const key = `${chainId}:${token.toLowerCase()}:${owner.toLowerCase()}`;
+    const cached = evmBalanceCache.get(key);
+    if (cached && Date.now() - cached.at < 5_000) {
+      return reply.status(200).send({ balance: cached.value });
+    }
+    try {
+      const client =
+        options.evmClients?.get(chainFact.id as never) ?? options.publicClient;
+      if (!client)
+        throw new Error('No RPC client is configured for this chain');
+      const balance = (await client.readContract({
+        address: token as `0x${string}`,
+        abi: [
+          {
+            type: 'function',
+            name: 'balanceOf',
+            stateMutability: 'view',
+            inputs: [{ name: 'account', type: 'address' }],
+            outputs: [{ name: '', type: 'uint256' }],
+          },
+        ] as const,
+        functionName: 'balanceOf',
+        args: [owner as `0x${string}`],
+      })) as bigint;
+      if (evmBalanceCache.size > 5000) evmBalanceCache.clear();
+      evmBalanceCache.set(key, { value: balance.toString(), at: Date.now() });
+      return reply.status(200).send({ balance: balance.toString() });
+    } catch (error) {
+      return reply.status(503).send({
+        error: `Balance read failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  });
+
   app.get('/v1/bch/tip', async (req, reply) => {
     if (!checkBchRateLimit(req, reply)) return;
     const now = Date.now();

@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AmountSlider } from '../components/swap-block/AmountSlider';
 import {
+  readEvmTokenBalance,
   readBchTokenBalance,
   shareOfBalance,
   snapPercent,
@@ -53,9 +54,41 @@ describe('AmountSlider', () => {
       />,
     );
     expect(screen.getByTestId('amount-slider')).toHaveTextContent('38.04 USDC');
-    fireEvent.change(screen.getByRole('slider'), { target: { value: '49' } });
-    expect(onPercent).toHaveBeenCalledWith(50);
+    // The thumb is a slider: keys move it, the marks below jump to a share.
+    fireEvent.keyDown(screen.getByRole('slider'), { key: 'ArrowRight' });
+    expect(onPercent).toHaveBeenCalledWith(1);
+    fireEvent.keyDown(screen.getByRole('slider'), { key: 'End' });
+    expect(onPercent).toHaveBeenCalledWith(100);
     fireEvent.click(screen.getByRole('button', { name: '75%' }));
     expect(onPercent).toHaveBeenCalledWith(75);
+  });
+});
+
+describe('the EVM balance read', () => {
+  const token = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+  const owner = '0x12DC0000000000000000000000000000001Da841';
+
+  it('uses the solver first and reads no public endpoint when it answers', async () => {
+    const fetchFn = vi.fn(async () =>
+      Response.json({ balance: '38040000' }),
+    ) as unknown as typeof fetch;
+    const balance = await readEvmTokenBalance(8453, token, owner, {
+      solverUrl: 'https://solver.test',
+      fetchFn,
+    });
+    expect(balance).toBe(38_040_000n);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a solver refusal as the answer and does not fall back', async () => {
+    const fetchFn = vi.fn(
+      async () => new Response('{}', { status: 422 }),
+    ) as unknown as typeof fetch;
+    await expect(
+      readEvmTokenBalance(8453, token, owner, {
+        solverUrl: 'https://solver.test',
+        fetchFn,
+      }),
+    ).rejects.toThrow(/refused/);
   });
 });
