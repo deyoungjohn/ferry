@@ -386,6 +386,15 @@ export interface WalletTransaction {
  * zero first (USDT refuses to change a non-zero allowance directly), then the
  * exact amount is approved, then the lock is sent.
  */
+/** Tokens that reject approve(x) while the allowance is non-zero, by chain id. */
+const ALLOWANCE_RESET_TOKENS: Readonly<Record<number, readonly string[]>> = {
+  1: ['0xdac17f958d2ee523a2206206994597c13d831ec7'],
+};
+
+export function needsAllowanceReset(chainId: number, token: string): boolean {
+  return (ALLOWANCE_RESET_TOKENS[chainId] ?? []).includes(token.toLowerCase());
+}
+
 export function planApproveAndLock(input: {
   terms: OrderTerms;
   allowance: bigint;
@@ -395,7 +404,9 @@ export function planApproveAndLock(input: {
   const htlc = requireAddress(terms.evmHtlc, 'Contract address');
   const plan: WalletTransaction[] = [];
   if (allowance < terms.evmAmount) {
-    if (allowance > 0n) {
+    // Only Ethereum's USDT refuses to change a non-zero allowance; every other token
+    // (BNB Chain's USDT included) takes the new amount directly, so no reset is asked for.
+    if (allowance > 0n && needsAllowanceReset(terms.evmChainId, token)) {
       plan.push({
         kind: 'reset-approval',
         to: token,

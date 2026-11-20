@@ -41,6 +41,8 @@
 
   --font-body: var(--font-sans);
   --font-accent: var(--font-serif);
+  /* One typeface everywhere: figures and hashes use Inter with tabular numbers. */
+  --font-mono: var(--font-sans);
 
   --shadow-card: var(--shadow-elev-card);
   --shadow-pill: var(--shadow-elev-pill);

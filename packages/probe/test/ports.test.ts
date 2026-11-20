@@ -138,7 +138,7 @@ describe('@ferry/probe default ports and formatters', () => {
     expect(writes).toEqual(['approve', 'lock', 'claim', 'refund']);
   });
 
-  it('a USDT-style token with a smaller non-zero allowance is reset, approved, then locked', async () => {
+  it('a token with a smaller non-zero allowance is approved, then locked (no reset outside Ethereum USDT)', async () => {
     const sent: { data: Hex }[] = [];
     const publicClient = {
       readContract: async () => 500_000n,
@@ -160,13 +160,11 @@ describe('@ferry/probe default ports and formatters', () => {
 
     await port.lock(SAMPLE_TERMS, {} as never);
 
-    expect(sent).toHaveLength(3);
-    // approve(spender, 0), approve(spender, amount), lock(...)
+    expect(sent).toHaveLength(2);
+    // approve(spender, amount), lock(...)
     expect(sent[0]!.data.startsWith('0x095ea7b3')).toBe(true);
-    expect(sent[0]!.data.endsWith('0'.repeat(64))).toBe(true);
-    expect(sent[1]!.data.startsWith('0x095ea7b3')).toBe(true);
-    expect(sent[1]!.data.endsWith('0'.repeat(64))).toBe(false);
-    expect(sent[2]!.data.startsWith('0x095ea7b3')).toBe(false);
+    expect(sent[0]!.data.endsWith('0'.repeat(64))).toBe(false);
+    expect(sent[1]!.data.startsWith('0x095ea7b3')).toBe(false);
   });
 
   it('locks with a permit through the real adapter payload: two signatures, then the relay', async () => {

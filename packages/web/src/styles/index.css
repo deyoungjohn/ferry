@@ -14,6 +14,9 @@
     background-color: var(--bg);
     color: var(--text);
     font-family: var(--font-sans);
+    /* Body text is 500; captions go lighter, headings and controls heavier. */
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     padding-top: env(safe-area-inset-top, 0px);
@@ -35,6 +38,28 @@
     .print\:hidden {
       display: none !important;
     }
+  }
+
+  /* Captions: the small sizes, lighter than body text. Utilities still win (base layer). */
+  .text-xs,
+  .text-\[9px\],
+  .text-\[10px\],
+  .text-\[11px\] {
+    font-weight: 400;
+  }
+
+  /* Every other text group sits above the body weight. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  button,
+  th,
+  label,
+  dt {
+    font-weight: 600;
   }
 
   ::selection {

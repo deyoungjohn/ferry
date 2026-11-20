@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { verifyQuote } from '@ferry/solver-client';
@@ -145,7 +145,7 @@ describe('Quote row with evidence (FR-17) & PriceReader', () => {
     ).rejects.toThrow();
   });
 
-  it('renders reference price line and evidence wording in SwapCard', async () => {
+  it('shows the rate and the fee, and no pricing line, in the SwapCard', async () => {
     render(
       <MemoryRouter>
         <SolverProvider client={new MockSolverClient()}>
@@ -154,17 +154,12 @@ describe('Quote row with evidence (FR-17) & PriceReader', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          'every quote shows its reference price and you can check it',
-        ),
-      ).toBeInTheDocument();
-    });
-
-    // The visible line is short and never shows more than 2 decimals; the sources are in its hover text.
-    const line = screen.getByTestId('quote-evidence-line');
-    expect(line.textContent ?? '').not.toMatch(/\d\.\d{3,}/);
-    expect(line.getAttribute('title') ?? '').toMatch(/Cauldron/i);
+    expect(await screen.findByTestId('quote-rate')).toBeInTheDocument();
+    expect(screen.queryByTestId('quote-evidence-line')).toBeNull();
+    expect(
+      screen.queryByText(
+        'every quote shows its reference price and you can check it',
+      ),
+    ).toBeNull();
   });
 });

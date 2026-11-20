@@ -1851,11 +1851,15 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       let evmAmount = '';
       let bchTokenAmount = '';
       let bchToken = '';
+      let evmChainId = 0;
+      let evmToken = '';
       try {
         const terms = JSON.parse(o.termsJson) as Record<string, unknown>;
         evmAmount = String(terms.evmAmount ?? '').replace(/n$/, '');
         bchTokenAmount = String(terms.bchTokenAmount ?? '').replace(/n$/, '');
         bchToken = String(terms.bchToken ?? '');
+        evmChainId = Number(terms.evmChainId ?? 0);
+        evmToken = String(terms.evmToken ?? '');
       } catch {
         // terms unreadable: still list the order
       }
@@ -1870,6 +1874,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         evmAmount,
         bchTokenAmount,
         bchToken,
+        // The chain and token, so a list shows USDT or USDG with its own decimals.
+        evmChainId,
+        evmToken,
       };
     });
     return reply

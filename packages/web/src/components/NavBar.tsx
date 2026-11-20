@@ -1,14 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
 import { isInternalPath } from './Footer';
-import { NETWORK_LABEL, IS_MAINNET } from '../lib/config';
 import { APP_NAV, PUBLIC_NAV } from '../lib/site-config';
 import { OPEN_WALLETS_EVENT } from '../lib/site';
 import { useScrolled } from '../lib/useScrolled';
 import { Brand } from './Brand';
-import { GlassPopover } from './GlassPopover';
 import { WalletMenu } from './WalletMenu';
-import { InfoIcon } from './icons';
 
 /**
  * Floating navigation pill: clear at the top of the page, glass once the page
@@ -53,7 +50,7 @@ export function NavBar() {
 
         <nav
           aria-label="Main"
-          className="mx-auto hidden items-center gap-1 lg:flex"
+          className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-1 lg:flex"
         >
           {links.map((item) => (
             <NavLink
@@ -73,35 +70,7 @@ export function NavBar() {
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2 lg:ml-0">
-          {internal && (
-            <GlassPopover
-              label="Network details"
-              trigger={
-                <button
-                  type="button"
-                  className="hidden items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 py-1.5 text-[11px] text-text-muted transition-colors hover:text-text sm:inline-flex"
-                >
-                  <span
-                    className="size-1.5 rounded-full bg-ok"
-                    aria-hidden="true"
-                  />
-                  {NETWORK_LABEL}
-                  <InfoIcon className="size-3 text-text-muted" />
-                </button>
-              }
-            >
-              <p className="font-medium text-text">
-                Network Profile: {NETWORK_LABEL}
-              </p>
-              <p className="mt-1">
-                {IS_MAINNET
-                  ? 'Mainnet. Balances, signatures and transactions use real funds and cannot be reversed.'
-                  : 'This environment runs on test networks only. Balances and addresses here do not use real funds.'}
-              </p>
-            </GlassPopover>
-          )}
-
+        <div className="ml-auto flex items-center gap-2">
           {/* Public pages carry no network or wallet state: one way into the app. */}
           {!internal && (
             <Link

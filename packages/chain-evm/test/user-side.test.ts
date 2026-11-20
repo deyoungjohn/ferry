@@ -162,8 +162,15 @@ describe('approve, claim and refund transactions (pure)', () => {
     expect(approve.args).toEqual([getAddress(terms.evmHtlc), terms.evmAmount]);
   });
 
-  it('resets a smaller non-zero allowance to zero first (USDT)', () => {
-    const plan = planApproveAndLock({ terms, allowance: 5n });
+  it('resets a smaller non-zero allowance to zero first (Ethereum USDT only)', () => {
+    const plan = planApproveAndLock({
+      terms: {
+        ...terms,
+        evmChainId: 1,
+        evmToken: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+      },
+      allowance: 5n,
+    });
     expect(plan.map((t) => t.kind)).toEqual([
       'reset-approval',
       'approve',
@@ -493,7 +500,7 @@ describe('against a local chain', () => {
     expect(refunded.secret).toBeNull();
   });
 
-  it('plans a reset first when a smaller allowance exists', async () => {
+  it('approves directly over a smaller allowance for a token that allows it (no reset)', async () => {
     const hash = await user.writeContract({
       address: plainToken,
       abi: tokenAbi,
@@ -505,11 +512,7 @@ describe('against a local chain', () => {
     await pub.waitForTransactionReceipt({ hash });
     const terms = makeTerms('plain-reset', htlc, plainToken);
     const plan = await prepareApproveAndLock({ client: pub, terms });
-    expect(plan.map((t) => t.kind)).toEqual([
-      'reset-approval',
-      'approve',
-      'lock',
-    ]);
+    expect(plan.map((t) => t.kind)).toEqual(['approve', 'lock']);
   });
 
   it('reports an unknown lock as absent', async () => {
@@ -521,5 +524,17 @@ describe('against a local chain', () => {
       fromBlock: 0n,
     });
     expect(status.state).toBe('absent');
+  });
+});
+
+describe('allowance reset rule', () => {
+  it('applies to Ethereum USDT only, never to BNB Chain USDT', async () => {
+    const { needsAllowanceReset } = await import('../src/user-side.js');
+    expect(
+      needsAllowanceReset(1, '0xdAC17F958D2ee523a2206206994597C13D831ec7'),
+    ).toBe(true);
+    expect(
+      needsAllowanceReset(56, '0x55d398326f99059fF775485246999027B3197955'),
+    ).toBe(false);
   });
 });

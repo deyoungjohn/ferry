@@ -534,7 +534,11 @@ export function LiveOrderView({
             state || snap
               ? index < current || done
               : fileJson !== null && index < 2;
-          const active = state || snap ? index === current && !done : false;
+          // A swap the solver returned or that was refunded has no step in progress any more.
+          const active =
+            (state || snap) && !isReleased && !isKeeperRefund
+              ? index === current && !done
+              : false;
           return (
             <li
               key={item.id}
@@ -642,7 +646,7 @@ export function LiveOrderView({
         </p>
       )}
 
-      {error && !mustRestart && (
+      {error && !mustRestart && !isReleased && !isKeeperRefund && (
         <p
           role="alert"
           className="mt-4 text-sm text-danger"

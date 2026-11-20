@@ -1,3 +1,4 @@
+import { evmTokenInfo } from '../explorer';
 import type { ActivityEntry } from './types';
 
 interface ListedOrder {
@@ -8,6 +9,8 @@ interface ListedOrder {
   readonly evmAmount: string;
   readonly bchToken: string;
   readonly bchTokenAmount: string;
+  readonly evmChainId?: number;
+  readonly evmToken?: string;
 }
 
 const LABEL: Record<string, string> = {
@@ -19,6 +22,7 @@ const LABEL: Record<string, string> = {
   DONE: 'Completed',
   REFUNDED: 'Refunded',
   SOLVER_REFUNDED: 'Refunded',
+  RELEASED: 'Returned by the solver',
 };
 
 /** An amount in base units as a decimal with exactly 2 places, rounded down: never more. */
@@ -46,10 +50,17 @@ export async function loadLiveActivity(
   const body = (await res.json()) as { orders?: ListedOrder[] };
   return (body.orders ?? []).map((order) => {
     const forward = order.direction === 'EVM_TO_BCH';
-    const usdc = `${decimal(order.evmAmount, 6)} USDC`;
+    // The token and its decimals from the chain facts (BNB's USDT has 18); USDC only if unknown.
+    const token =
+      order.evmChainId && order.evmToken
+        ? evmTokenInfo(order.evmChainId, order.evmToken)
+        : null;
+    const usdc = `${decimal(order.evmAmount, token?.decimals ?? 6)} ${token?.symbol ?? 'USDC'}`;
     const bch = `${decimal(order.bchTokenAmount, 2)} ${order.bchToken || 'PUSD'}`;
     const refunded =
-      order.status === 'REFUNDED' || order.status === 'SOLVER_REFUNDED';
+      order.status === 'REFUNDED' ||
+      order.status === 'SOLVER_REFUNDED' ||
+      order.status === 'RELEASED';
     return {
       key: order.orderId,
       createdAt: order.createdAt,

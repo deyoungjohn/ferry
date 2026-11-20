@@ -88,7 +88,7 @@ function makeTerms(token: Address): OrderTerms {
     bchTokenAmount: 2500n,
     evmAmount: 25_000_000n,
     evmToken: token,
-    evmChainId: 8453,
+    evmChainId: token === USDT ? 1 : 8453,
     evmHtlc: HTLC,
     userEvmAddress: USER,
     userBchLockingBytecode:
@@ -148,12 +148,14 @@ describe('buildUserLock builds the same typed data the browser entry does', () =
   });
 
   it('adds the full wallet transaction list for a token without permit', async () => {
+    // Ethereum's USDT, the one token that needs its allowance reset first.
+    const ethConfig = { ...config, chainId: 1 };
     const none = await new EvmChainAdapter({
-      config,
+      config: ethConfig,
       client: stubClient({ separator: domainSeparator('2'), allowance: 0n }),
     }).buildUserLock(makeTerms(USDT));
     const reset = await new EvmChainAdapter({
-      config,
+      config: ethConfig,
       client: stubClient({ separator: domainSeparator('2'), allowance: 5n }),
     }).buildUserLock(makeTerms(USDT));
     const kinds = (unsigned: { payload: unknown }) =>

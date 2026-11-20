@@ -20,11 +20,6 @@ import { LIVE_EXECUTION_ENABLED, NETWORK_PROFILE } from '../lib/config';
 import { useSolver } from '../lib/solver/useSolver';
 import { WalletContext } from '../lib/wallet/context';
 import { RealPriceReader } from '../lib/pricing/real';
-import {
-  formatPricingEvidence,
-  formatPricingSummary,
-  CHECKABLE_QUOTE_WORDING,
-} from '../lib/solver/pricing-display';
 import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
 import { useReducedMotion } from 'motion/react';
@@ -1313,21 +1308,6 @@ export function SwapCard({
               </div>
             )}
 
-            {/* Pricing Evidence Line */}
-            <div className="flex items-center justify-between gap-1 text-[11px]">
-              <span className="text-text-dim shrink-0">Pricing</span>
-              <span
-                data-testid="quote-evidence-line"
-                className="font-mono text-text text-right truncate"
-                title={
-                  quote?.formattedPricingEvidence ??
-                  formatPricingEvidence(bestSolverQuote?.quote.terms.pricing)
-                }
-              >
-                {formatPricingSummary(bestSolverQuote?.quote.terms.pricing)}
-              </span>
-            </div>
-
             <div className="flex items-center justify-between">
               <span className="text-text-dim">Est. settlement</span>
               <span className="text-ok">
@@ -1335,11 +1315,6 @@ export function SwapCard({
                   ? '< 1 minute (Fast lane)'
                   : '≈ 1–2 minutes (Safe lane)'}
               </span>
-            </div>
-
-            {/* Transparent pricing claim wording */}
-            <div className="pt-1 border-t border-hairline/50 text-center text-xs text-text-dim">
-              <span>{CHECKABLE_QUOTE_WORDING}</span>
             </div>
           </div>
         )}
