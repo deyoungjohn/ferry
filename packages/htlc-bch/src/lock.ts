@@ -23,6 +23,7 @@ import {
 } from './contract.js';
 import type { ElectrumUtxo } from './electrum.js';
 import { verifyBchTransactionWithVm } from './spends.js';
+import { encodeTermsOutput, KNOWN_TOKEN_CATEGORIES } from './terms-output.js';
 import type {
   BchHtlcParameters,
   CashAddressNetwork,
@@ -108,6 +109,8 @@ export interface SelectLockInputsOptions {
   feeRateSatPerByte?: number | undefined;
   userLockingBytecode?: Uint8Array | string | undefined;
   userAddress?: string | undefined;
+  hasTermsOutput?: boolean | undefined;
+  termsOutputBytes?: number | undefined;
 }
 
 export interface SelectedLockInputs {
@@ -138,6 +141,8 @@ export interface BuildLockTxOptions {
   network?: CashAddressNetwork | undefined;
   provider?: NetworkProvider | undefined;
   userPrompt?: string | undefined;
+  recoveryTag?: string | Uint8Array | undefined;
+  includeTermsOutput?: boolean | undefined;
 }
 
 export interface BuildLockTxResult {
@@ -147,6 +152,7 @@ export interface BuildLockTxResult {
   htlcP2sh32Address: string;
   htlcTokenAddress: string;
   htlcLockingBytecode: Uint8Array;
+  termsOutput?: Output | undefined;
   feeSats: bigint;
   tokenChangeAmount: bigint;
   bchChangeSats: bigint;
@@ -229,8 +235,10 @@ export function estimateLockFee(
   outputCount: number,
   feeRateSatPerByte = 1.2,
   marginSats = 150n,
+  extraBytes = 0,
 ): bigint {
-  const vbytes = 10 + inputCount * 148 + 77 + Math.max(0, outputCount - 1) * 50;
+  const vbytes =
+    10 + inputCount * 148 + 77 + Math.max(0, outputCount - 1) * 50 + extraBytes;
   return BigInt(Math.ceil(vbytes * feeRateSatPerByte)) + marginSats;
 }
 
@@ -316,11 +324,14 @@ export function selectLockInputs(
     0n,
   );
 
-  const expectedOutputsCount = 1 + (hasTokenChange ? 1 : 0) + 1;
+  const expectedOutputsCount =
+    1 + (options.hasTermsOutput ? 1 : 0) + (hasTokenChange ? 1 : 0) + 1;
   const estimatedInitialFee = estimateLockFee(
     selectedTokenInputs.length + 1,
     expectedOutputsCount,
     feeRate,
+    150n,
+    options.termsOutputBytes ?? (options.hasTermsOutput ? 100 : 0),
   );
   const baseRequiredSats =
     bchCarrySats +
@@ -451,6 +462,44 @@ export function buildLockTransaction(
     canonicalParams.tokenCategory,
   ).toLowerCase();
 
+  const shouldIncludeTerms = Boolean(
+    options.includeTermsOutput ??
+    (options.recoveryTag !== undefined ||
+      (options.params &&
+        'direction' in options.params &&
+        (options.params.direction === 'BCH_TO_EVM' ||
+          (options.params.direction as string) === 'BCH_TO_COUNTER'))),
+  );
+
+  let termsOutput: Output | undefined;
+  if (shouldIncludeTerms) {
+    const isOrderTerms = 'direction' in options.params;
+    const token =
+      isOrderTerms && 'bchToken' in options.params
+        ? options.params.bchToken
+        : displayCategory ===
+              KNOWN_TOKEN_CATEGORIES.chipnet.MUSD.toLowerCase() ||
+            displayCategory ===
+              KNOWN_TOKEN_CATEGORIES.mainnet.MUSD.toLowerCase()
+          ? 'MUSD'
+          : 'PUSD';
+
+    const termsLocking = encodeTermsOutput({
+      tag: options.recoveryTag,
+      token,
+      tokenAmount: canonicalParams.tokenAmount,
+      refundHeight: canonicalParams.refundHeight,
+      maxFee: Number(canonicalParams.maxFee),
+      recipientLockingBytecode: canonicalParams.recipientLockingBytecode,
+      refundLockingBytecode: canonicalParams.refundLockingBytecode,
+    });
+
+    termsOutput = {
+      lockingBytecode: termsLocking,
+      valueSatoshis: 0n,
+    };
+  }
+
   let selected: SelectedLockInputs;
   if (options.selectedInputs) {
     selected = options.selectedInputs;
@@ -471,6 +520,10 @@ export function buildLockTransaction(
         ? { feeRateSatPerByte: options.feeRateSatPerByte }
         : {}),
       userLockingBytecode: changeLockingBytecode,
+      hasTermsOutput: shouldIncludeTerms,
+      termsOutputBytes: termsOutput
+        ? termsOutput.lockingBytecode.length + 9
+        : 0,
     });
   }
 
@@ -548,6 +601,10 @@ export function buildLockTransaction(
       },
     },
   ];
+
+  if (termsOutput) {
+    outputs.push(termsOutput);
+  }
 
   if (hasTokenChange) {
     outputs.push({
@@ -683,6 +740,7 @@ export function buildLockTransaction(
     htlcP2sh32Address: htlcDerivation.p2sh32Address,
     htlcTokenAddress: htlcDerivation.tokenAddress,
     htlcLockingBytecode: htlcDerivation.lockingBytecode,
+    ...(termsOutput ? { termsOutput } : {}),
     feeSats,
     tokenChangeAmount,
     bchChangeSats,

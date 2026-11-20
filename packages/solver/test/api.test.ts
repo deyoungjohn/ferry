@@ -399,6 +399,63 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(badRes.statusCode).toBe(400);
       expect(badRes.json().error.code).toBe('BAD_REQUEST');
     });
+
+    it('GET /v1/orders/by-hash-lock/:hashLock returns order status and public terms, 404 when unknown', async () => {
+      const secret = ('0x' + '99'.repeat(32)) as `0x${string}`;
+      const hashLock = sha256(secret);
+
+      const quoteRes = await app.inject({
+        method: 'POST',
+        url: '/v1/quotes',
+        payload: {
+          direction: 'EVM_TO_BCH',
+          bchToken: 'PUSD',
+          amountIn: '10000000',
+          userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
+          userBchLockingBytecode:
+            '0x76a914000000000000000000000000000000000000000088ac',
+          hashLock,
+          lane: 'safe',
+        },
+      });
+      const { orderId } = quoteRes.json();
+
+      // Lookup by hash lock with 0x
+      const resWithPrefix = await app.inject({
+        method: 'GET',
+        url: `/v1/orders/by-hash-lock/${hashLock}`,
+      });
+      expect(resWithPrefix.statusCode).toBe(200);
+      const dataWithPrefix = resWithPrefix.json();
+      expect(dataWithPrefix.orderId).toBe(orderId);
+      expect(dataWithPrefix.state).toBe('QUOTED');
+      expect(dataWithPrefix.direction).toBe('EVM_TO_BCH');
+      expect(dataWithPrefix.bchRefundHeight).toBeGreaterThan(0);
+      expect(dataWithPrefix.summary).toBeDefined();
+      expect(dataWithPrefix.summary.bchToken).toBe('PUSD');
+      // Verify nothing secret is exposed
+      expect(
+        (dataWithPrefix as Record<string, unknown>).secret,
+      ).toBeUndefined();
+
+      // Lookup by hash lock without 0x
+      const cleanHash = hashLock.slice(2);
+      const resWithoutPrefix = await app.inject({
+        method: 'GET',
+        url: `/v1/orders/by-hash-lock/${cleanHash}`,
+      });
+      expect(resWithoutPrefix.statusCode).toBe(200);
+      expect(resWithoutPrefix.json().orderId).toBe(orderId);
+
+      // Unknown hash lock returns 404
+      const unknownHash = '0x' + '12'.repeat(32);
+      const unknownRes = await app.inject({
+        method: 'GET',
+        url: `/v1/orders/by-hash-lock/${unknownHash}`,
+      });
+      expect(unknownRes.statusCode).toBe(404);
+      expect(unknownRes.json().error.code).toBe('ORDER_NOT_FOUND');
+    });
   });
 
   describe('3. Relay endpoints (POST /v1/orders/:id/relay-lock & relay-claim)', () => {

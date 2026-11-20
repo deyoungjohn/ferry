@@ -87,6 +87,9 @@ export interface UserSwapDependencies {
   readonly sleep?: (ms: number) => Promise<void>;
   /** 32 random bytes. Defaults to the platform's `crypto.getRandomValues`. */
   readonly secretGenerator?: () => Hex32;
+  /** Optional recovery tag for the on-chain terms output (e.g. from swapTagAt(root, n)). */
+  readonly recoveryTag?:
+    string | Uint8Array | (() => string | Uint8Array | undefined) | undefined;
 }
 
 export interface QuoteInput {
@@ -588,6 +591,10 @@ export class UserSwapSession {
   }
 
   private lockOnBch(terms: OrderTerms): Promise<string> {
+    const tag =
+      typeof this.deps.recoveryTag === 'function'
+        ? this.deps.recoveryTag()
+        : this.deps.recoveryTag;
     return lockUserOnBch(
       {
         bchSigner: this.deps.bchSigner,
@@ -598,6 +605,7 @@ export class UserSwapSession {
         ...(this.deps.feeRateSatPerByte !== undefined
           ? { feeRateSatPerByte: this.deps.feeRateSatPerByte }
           : {}),
+        ...(tag !== undefined ? { recoveryTag: tag } : {}),
       },
       terms,
     );

@@ -930,25 +930,14 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     return reply.status(200).send(response);
   });
 
-  // 2. GET /v1/orders/:id
-  app.get<{ Params: { id: string } }>('/v1/orders/:id', async (req, reply) => {
-    const { id } = req.params;
-    const order = db.getOrder(id);
-    if (!order) {
-      return sendApiError(reply, 'ORDER_NOT_FOUND', `Order ${id} not found`);
-    }
-
+  function formatOrderStatusResponse(order: OrderRecord) {
     let terms: OrderTerms;
     try {
       terms = JSON.parse(order.termsJson, (_k, v) =>
         typeof v === 'string' && /^\d+n$/.test(v) ? BigInt(v.slice(0, -1)) : v,
       );
     } catch {
-      return sendApiError(
-        reply,
-        'INTERNAL_ERROR',
-        'Failed to parse stored order terms',
-      );
+      throw new Error('Failed to parse stored order terms');
     }
 
     const txids: Record<string, Hex32> = {};
@@ -1068,9 +1057,74 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       },
     };
 
-    OrderStatusResponseSchema.parse(response);
-    return reply.status(200).send(response);
+    return OrderStatusResponseSchema.parse(response);
+  }
+
+  // 2. GET /v1/orders/:id
+  app.get<{ Params: { id: string } }>('/v1/orders/:id', async (req, reply) => {
+    const { id } = req.params;
+    const order = db.getOrder(id);
+    if (!order) {
+      return sendApiError(reply, 'ORDER_NOT_FOUND', `Order ${id} not found`);
+    }
+
+    try {
+      const response = formatOrderStatusResponse(order);
+      return reply.status(200).send(response);
+    } catch {
+      return sendApiError(
+        reply,
+        'INTERNAL_ERROR',
+        'Failed to parse stored order terms',
+      );
+    }
   });
+
+  // 2b. GET /v1/orders/by-hash-lock/:hashLock
+  app.get<{ Params: { hashLock: string } }>(
+    '/v1/orders/by-hash-lock/:hashLock',
+    async (req, reply) => {
+      let clientIp: string;
+      try {
+        clientIp = extractClientIp(req, config.trustedProxy, config.network);
+      } catch (err) {
+        if (err instanceof UntrustedProxyHeaderError) {
+          return sendApiError(reply, 'UNAUTHORIZED', err.message);
+        }
+        clientIp = '127.0.0.1';
+      }
+
+      const rateCheck = rateLimiter.checkIp(clientIp);
+      if (!rateCheck.allowed) {
+        return sendApiError(
+          reply,
+          'RATE_LIMITED',
+          `Rate limit exceeded for ${clientIp}`,
+        );
+      }
+
+      const { hashLock } = req.params;
+      const order = db.getOrderByHashLock(hashLock);
+      if (!order) {
+        return sendApiError(
+          reply,
+          'ORDER_NOT_FOUND',
+          `Order with hash lock ${hashLock} not found`,
+        );
+      }
+
+      try {
+        const response = formatOrderStatusResponse(order);
+        return reply.status(200).send(response);
+      } catch {
+        return sendApiError(
+          reply,
+          'INTERNAL_ERROR',
+          'Failed to parse stored order terms',
+        );
+      }
+    },
+  );
 
   // 3. POST /v1/orders/:id/secret
   app.post<{ Params: { id: string } }>(

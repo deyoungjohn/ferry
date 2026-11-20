@@ -530,6 +530,22 @@ export class SolverDatabase {
     return this.mapOrderRow(row);
   }
 
+  getOrderByHashLock(hashLock: string): OrderRecord | null {
+    const raw = hashLock.toLowerCase();
+    const clean = raw.startsWith('0x') ? raw.slice(2) : raw;
+    const withPrefix = `0x${clean}`;
+    const stmt = this.db.prepare(`
+      SELECT * FROM orders
+      WHERE LOWER(hash_lock) = ? OR LOWER(hash_lock) = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `);
+    const row = stmt.get(clean, withPrefix) as
+      Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.mapOrderRow(row);
+  }
+
   markNeedsAttention(orderId: string, reason?: string): void {
     const now = Math.floor(Date.now() / 1000);
     const stmt = this.db.prepare(`

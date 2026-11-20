@@ -6,6 +6,7 @@ import {
   type Transaction,
 } from '@bitauth/libauth';
 import type { Hex32 } from '@ferry/core';
+import { parseTermsOutput } from '@ferry/htlc-bch';
 import {
   UserFlowError,
   UserSwapSession,
@@ -112,6 +113,50 @@ describe('funding outputs that carry more than the stablecoin', () => {
     const { context, terms, requests } = await lockContext([utxo]);
     await lockUserOnBch(context, terms);
     expect(requests[0]!.inputPaths).toEqual([[0, 'change', 7]]);
+  });
+
+  it('includes terms OP_RETURN output with recoveryTag', async () => {
+    const utxo: BchUtxo = {
+      txid: 'dd'.repeat(32),
+      vout: 0,
+      satoshis: 80_000n,
+      token: { category: BCH_CATEGORY, amount: 1_000n },
+    };
+    const tag = '0x1122334455667788' as const;
+    const { context, terms, broadcasts } = await lockContext([utxo]);
+    await lockUserOnBch({ ...context, recoveryTag: tag }, terms);
+
+    const tx = decodeTransaction(hexToBin(broadcasts[0]!)) as Transaction;
+    const dataOutput = tx.outputs.find(
+      (out) => out.lockingBytecode[0] === 0x6a,
+    );
+    expect(dataOutput).toBeDefined();
+    expect(dataOutput!.valueSatoshis).toBe(0n);
+
+    const parsed = parseTermsOutput(dataOutput!.lockingBytecode);
+    expect(parsed.tag).toBe(tag);
+    expect(parsed.token).toBe(terms.bchToken);
+    expect(parsed.tokenAmount).toBe(terms.bchTokenAmount);
+  });
+
+  it('includes terms OP_RETURN output with 8 zero bytes when recoveryTag is omitted', async () => {
+    const utxo: BchUtxo = {
+      txid: 'ee'.repeat(32),
+      vout: 0,
+      satoshis: 80_000n,
+      token: { category: BCH_CATEGORY, amount: 1_000n },
+    };
+    const { context, terms, broadcasts } = await lockContext([utxo]);
+    await lockUserOnBch(context, terms);
+
+    const tx = decodeTransaction(hexToBin(broadcasts[0]!)) as Transaction;
+    const dataOutput = tx.outputs.find(
+      (out) => out.lockingBytecode[0] === 0x6a,
+    );
+    expect(dataOutput).toBeDefined();
+
+    const parsed = parseTermsOutput(dataOutput!.lockingBytecode);
+    expect(parsed.tag).toBe('0x0000000000000000');
   });
 });
 

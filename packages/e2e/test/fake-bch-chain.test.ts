@@ -166,6 +166,48 @@ describe('the simulated Bitcoin Cash chain accepts real flows', () => {
     );
   });
 
+  it('accepts a lock transaction carrying a terms OP_RETURN output, finds the covenant UTXO, and allows claim', () => {
+    const chain = setup();
+    const utxos = chain.rpc('blockchain.scripthash.listunspent', [
+      scriptHashOf(USER_LOCKING),
+    ]);
+    const lock = buildLockTransaction({
+      params,
+      utxos: utxos as unknown[],
+      changeAddress: USER_ADDRESS,
+      privateKey: USER_KEY,
+      network: 'chipnet',
+      includeTermsOutput: true,
+      recoveryTag: '0xa1b2c3d4e5f60718',
+    });
+
+    const decoded = decodeTransaction(
+      hexToBin(lock.signed!.txHex),
+    ) as Transaction;
+    const opReturnOutput = decoded.outputs.find(
+      (o) => o.lockingBytecode[0] === 0x6a,
+    );
+    expect(opReturnOutput).toBeDefined();
+
+    const txid = chain.broadcast(lock.signed!.txHex);
+    expect(chain.acceptedBroadcasts()).toContain(txid);
+
+    const utxo = {
+      txid,
+      vout: lock.htlcOutputIndex,
+      satoshis: decoded.outputs[lock.htlcOutputIndex]!.valueSatoshis,
+    };
+    const claim = buildClaimTransaction({
+      params,
+      utxo,
+      secret: SECRET,
+      network: 'chipnet',
+    });
+    const claimId = chain.broadcast(claim.txHex);
+    expect(chain.acceptedBroadcasts()).toContain(claimId);
+    expect(chain.isSpent(utxo.txid, utxo.vout)).toBe(true);
+  });
+
   it('refuses the refund before its locktime and accepts it afterwards', () => {
     const chain = setup();
     const utxo = lockAndGetUtxo(chain);
@@ -210,6 +252,16 @@ describe('the simulated chain refuses what a real node would refuse', () => {
     const bad = tamper(lock.signed!.txHex, (tx) => {
       const unlocking = tx.inputs[0]!.unlockingBytecode;
       unlocking[10] = unlocking[10]! ^ 0xff;
+    });
+    expect(() => chain.broadcast(bad)).toThrow(BroadcastRejectedError);
+    expect(chain.acceptedBroadcasts()).toHaveLength(0);
+  });
+
+  it('refuses a lock transaction when the covenant output is tampered with', () => {
+    const chain = setup();
+    const lock = buildLock(chain);
+    const bad = tamper(lock.signed!.txHex, (tx) => {
+      tx.outputs[lock.htlcOutputIndex]!.token!.amount = 999999n;
     });
     expect(() => chain.broadcast(bad)).toThrow(BroadcastRejectedError);
     expect(chain.acceptedBroadcasts()).toHaveLength(0);
