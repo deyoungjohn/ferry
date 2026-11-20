@@ -71,6 +71,9 @@ import {
   SendLinksQueryResponseSchema,
   SendQuoteRequestSchema,
   StatsResponseSchema,
+  confirmRouteRequestTypedData,
+  ConfirmSendLinkRouteRequestSchema,
+  ConfirmSendLinkRouteResponseSchema,
   switchRouteRequestTypedData,
   SwitchSendLinkRouteRequestSchema,
   SwitchSendLinkRouteResponseSchema,
@@ -3778,6 +3781,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       updatedAt: now,
     });
     db.markSendLinkOrder(orderIdHex);
+    // The hold marker is kept beside the order, never inside signed terms.
+    db.markSendLinkHeld(orderIdHex, now);
     // The note is kept beside the order, not inside its signed terms.
     if (request.note !== undefined) {
       db.saveSendLinkNote(orderIdHex, request.note, now);
@@ -3882,6 +3887,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       ...(/^0x[0-9a-fA-F]{64}$/.test(order.lockId)
         ? { lockId: order.lockId.toLowerCase() as Hex32 }
         : {}),
+      isHeld: db.isSendLinkHeld(order.id),
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
     };
@@ -4632,6 +4638,13 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         );
       }
 
+      if (engine && typeof engine.stepOrder === 'function') {
+        const replacementOrder = db.getOrder(newOrderIdHex);
+        if (replacementOrder) {
+          void engine.stepOrder(replacementOrder).catch(() => {});
+        }
+      }
+
       const response = {
         ok: true as const,
         originalOrderId: (order.id.startsWith('0x')
@@ -4648,6 +4661,194 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       };
 
       SwitchSendLinkRouteResponseSchema.parse(response);
+      return reply.status(200).send(response);
+    },
+  );
+
+  // 25. POST /v1/send-links/:id/confirm
+  app.post<{ Params: { id: string } }>(
+    '/v1/send-links/:id/confirm',
+    async (req, reply) => {
+      const { id } = req.params;
+      const activeId = db.resolveSendLinkOrderId(id);
+      const order = db.getOrder(activeId);
+      if (!order) {
+        return sendApiError(
+          reply,
+          'LINK_NOT_FOUND',
+          `Send link ${id} not found`,
+        );
+      }
+
+      // Check if send link was cancelled
+      if (order.status === 'CANCELLED' || db.isOrderCancelled(activeId)) {
+        return sendApiError(
+          reply,
+          'CONFLICT',
+          'Cannot confirm route: send link has been cancelled',
+        );
+      }
+
+      // Check if order is already locked or in a post-lock status
+      if (
+        order.solverLockTxId ||
+        order.status === 'SOLVER_LOCK_BROADCAST' ||
+        order.status === 'SOLVER_LOCK_SEEN' ||
+        order.status === 'SECRET_KNOWN' ||
+        order.status === 'USER_CLAIM_SEEN' ||
+        order.status === 'SOLVER_CLAIM_BROADCAST' ||
+        order.status === 'SOLVER_CLAIM_FINAL' ||
+        order.status === 'DONE' ||
+        order.status === 'RELEASED' ||
+        order.status === 'REFUNDED' ||
+        order.status === 'SOLVER_REFUNDED'
+      ) {
+        return sendApiError(
+          reply,
+          'CONFLICT',
+          'Cannot confirm route: the solver has already locked funds on the destination chain',
+        );
+      }
+
+      const parseResult = ConfirmSendLinkRouteRequestSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return sendApiError(
+          reply,
+          'VALIDATION_ERROR',
+          'Invalid confirm route request payload',
+          { issues: parseResult.error.issues },
+        );
+      }
+
+      const request = parseResult.data;
+
+      let currentOrderTerms: OrderTerms;
+      try {
+        currentOrderTerms = JSON.parse(order.termsJson, (_k, v) =>
+          typeof v === 'string' && /^\d+n$/.test(v)
+            ? BigInt(v.slice(0, -1))
+            : v,
+        ) as OrderTerms;
+      } catch {
+        return sendApiError(
+          reply,
+          'INTERNAL_ERROR',
+          'Failed to parse current order terms',
+        );
+      }
+
+      if (
+        request.chainId !== undefined &&
+        request.chainId !== currentOrderTerms.evmChainId
+      ) {
+        return sendApiError(
+          reply,
+          'VALIDATION_ERROR',
+          `Chain ID ${request.chainId} does not match send link route chain ${currentOrderTerms.evmChainId}`,
+        );
+      }
+
+      if (
+        request.token !== undefined &&
+        request.token.toLowerCase() !== currentOrderTerms.evmToken.toLowerCase()
+      ) {
+        return sendApiError(
+          reply,
+          'VALIDATION_ERROR',
+          `Token ${request.token} does not match send link route token ${currentOrderTerms.evmToken}`,
+        );
+      }
+
+      // Time safety check: invariant R
+      const now = Math.floor(Date.now() / 1000);
+      const quorum = bchClient.getQuorumStatus();
+
+      const timingCheck = invariantR(
+        {
+          evmDeadlineSeconds: currentOrderTerms.evmDeadline,
+          bchRefundHeight: currentOrderTerms.bchRefundHeight,
+        },
+        {
+          unixSeconds: now,
+          bchTipHeight: quorum.quorumTip,
+        },
+        DEFAULT_TIMING_CONFIG,
+      );
+
+      if (!timingCheck.allowed) {
+        return sendApiError(
+          reply,
+          'TIMING_INVARIANT_FAILED',
+          'This send link can no longer be claimed in time. The sender will receive a refund on Bitcoin Cash.',
+        );
+      }
+
+      // Authorization: Verify EIP-712 recipient signature
+      const orderIdHex = (
+        order.id.startsWith('0x') ? order.id : `0x${order.id}`
+      ) as `0x${string}`;
+
+      const typedConfirm = confirmRouteRequestTypedData({
+        targetChainId: currentOrderTerms.evmChainId,
+        orderId: orderIdHex,
+        token: currentOrderTerms.evmToken as `0x${string}`,
+      });
+      const typedSwitch = switchRouteRequestTypedData({
+        targetChainId: currentOrderTerms.evmChainId,
+        orderId: orderIdHex,
+        token: currentOrderTerms.evmToken as `0x${string}`,
+      });
+
+      let signedByRecipient: boolean;
+      try {
+        signedByRecipient = await verifyTypedData({
+          address: currentOrderTerms.userEvmAddress as `0x${string}`,
+          ...typedConfirm,
+          signature: request.signature as `0x${string}`,
+        });
+      } catch {
+        signedByRecipient = false;
+      }
+
+      if (!signedByRecipient) {
+        try {
+          signedByRecipient = await verifyTypedData({
+            address: currentOrderTerms.userEvmAddress as `0x${string}`,
+            ...typedSwitch,
+            signature: request.signature as `0x${string}`,
+          });
+        } catch {
+          signedByRecipient = false;
+        }
+      }
+
+      if (!signedByRecipient) {
+        return sendApiError(
+          reply,
+          'UNAUTHORIZED',
+          `Only ${currentOrderTerms.userEvmAddress} can confirm this route: sign the confirm request with that wallet`,
+        );
+      }
+
+      db.confirmSendLinkHold(activeId, now);
+
+      if (engine && typeof engine.stepOrder === 'function') {
+        const currentOrderRecord = db.getOrder(activeId);
+        if (currentOrderRecord) {
+          void engine.stepOrder(currentOrderRecord).catch(() => {});
+        }
+      }
+
+      const response = {
+        ok: true as const,
+        orderId: orderIdHex,
+        chainId: currentOrderTerms.evmChainId,
+        token: currentOrderTerms.evmToken,
+        status: 'confirmed',
+        confirmedAt: now,
+      };
+
+      ConfirmSendLinkRouteResponseSchema.parse(response);
       return reply.status(200).send(response);
     },
   );

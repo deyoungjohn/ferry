@@ -202,6 +202,14 @@ export class SolverDatabase {
           created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
         );
         CREATE INDEX IF NOT EXISTS idx_send_link_cancel_hashes_hash ON send_link_cancel_hashes(cancel_hash);
+
+        CREATE TABLE IF NOT EXISTS send_link_holds (
+          order_id TEXT PRIMARY KEY,
+          confirmed INTEGER NOT NULL DEFAULT 0,
+          confirmed_at INTEGER,
+          created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+        );
+        CREATE INDEX IF NOT EXISTS idx_send_link_holds_confirmed ON send_link_holds(confirmed);
       `);
 
       this.db.pragma(`user_version = ${SUPPORTED_SCHEMA_VERSION}`);
@@ -286,6 +294,14 @@ export class SolverDatabase {
         created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
       );
       CREATE INDEX IF NOT EXISTS idx_send_link_cancel_hashes_hash ON send_link_cancel_hashes(cancel_hash);
+
+      CREATE TABLE IF NOT EXISTS send_link_holds (
+        order_id TEXT PRIMARY KEY,
+        confirmed INTEGER NOT NULL DEFAULT 0,
+        confirmed_at INTEGER,
+        created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_send_link_holds_confirmed ON send_link_holds(confirmed);
     `);
 
     try {
@@ -311,6 +327,53 @@ export class SolverDatabase {
     this.db
       .prepare('INSERT OR IGNORE INTO send_link_orders (order_id) VALUES (?)')
       .run(orderId);
+  }
+
+  /** Marks a send link order as held pending receiver confirmation. */
+  markSendLinkHeld(orderId: string, createdAt: number): void {
+    assertSecondsTimestamp(createdAt, 'created_at');
+    this.db
+      .prepare(
+        'INSERT OR IGNORE INTO send_link_holds (order_id, confirmed, created_at) VALUES (?, 0, ?)',
+      )
+      .run(orderId, createdAt);
+  }
+
+  /** Confirms a held send link order so the runner can proceed to counter-lock. */
+  confirmSendLinkHold(orderId: string, confirmedAt: number): void {
+    assertSecondsTimestamp(confirmedAt, 'confirmed_at');
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      this.db
+        .prepare(
+          `INSERT INTO send_link_holds (order_id, confirmed, confirmed_at, created_at)
+           VALUES (?, 1, ?, ?)
+           ON CONFLICT(order_id) DO UPDATE SET confirmed = 1, confirmed_at = excluded.confirmed_at`,
+        )
+        .run(id, confirmedAt, confirmedAt);
+    }
+  }
+
+  /** Returns true if the send link order is held pending receiver confirmation. */
+  isSendLinkHeld(orderId: string): boolean {
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      const row = this.db
+        .prepare('SELECT confirmed FROM send_link_holds WHERE order_id = ?')
+        .get(id) as { confirmed: number } | undefined;
+      if (row !== undefined) {
+        return row.confirmed === 0;
+      }
+    }
+    return false;
   }
 
   getSendLinkNote(orderId: string): string | null {
@@ -541,6 +604,10 @@ export class SolverDatabase {
           params.switchedAt,
         );
       }
+
+      // 11. Confirm hold for the send link route switch
+      this.confirmSendLinkHold(params.currentOrderId, params.switchedAt);
+      this.confirmSendLinkHold(params.newOrder.id, params.switchedAt);
 
       return {
         ok: true as const,
@@ -1064,7 +1131,7 @@ export class SolverDatabase {
   listNonTerminalOrders(): OrderRecord[] {
     const stmt = this.db.prepare(`
       SELECT * FROM orders 
-      WHERE status NOT IN ('DONE', 'EXPIRED', 'REJECTED', 'RELEASED', 'REFUNDED', 'SOLVER_REFUNDED', 'SUPERSEDED')
+      WHERE status NOT IN ('DONE', 'EXPIRED', 'REJECTED', 'RELEASED', 'REFUNDED', 'SOLVER_REFUNDED', 'SUPERSEDED', 'CANCELLED')
       ORDER BY created_at ASC
     `);
     const rows = stmt.all() as Array<Record<string, unknown>>;
@@ -1074,7 +1141,7 @@ export class SolverDatabase {
   listOrdersForKeeper(): OrderRecord[] {
     const stmt = this.db.prepare(`
       SELECT * FROM orders
-      WHERE status NOT IN ('DONE', 'RELEASED', 'SOLVER_REFUNDED', 'SUPERSEDED')
+      WHERE status NOT IN ('DONE', 'RELEASED', 'SOLVER_REFUNDED', 'SUPERSEDED', 'CANCELLED')
       ORDER BY created_at ASC
     `);
     const rows = stmt.all() as Array<Record<string, unknown>>;
