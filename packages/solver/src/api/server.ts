@@ -434,6 +434,13 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         })
       : undefined);
 
+  /** Why quoting is off, for the refusal text (never reveals more than which condition holds). */
+  const quotingPausedMessage = (): string =>
+    !config.quotingEnabled
+      ? 'Quoting is switched off in the solver settings.'
+      : (engine.quotingBlockReason?.() ??
+        'Quoting is currently disabled on the solver');
+
   const quoteBuilder = new QuoteBuilder(
     priceSource,
     liquidityManager,
@@ -600,7 +607,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       return reply.status(422).send({
         reason: 'QUOTING_PAUSED',
         asset: request.bchToken,
-        message: 'Quoting is currently disabled on the solver',
+        message: quotingPausedMessage(),
       });
     }
 
@@ -2780,7 +2787,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       return reply.status(422).send({
         reason: 'QUOTING_PAUSED',
         asset: body.token,
-        message: 'Quoting is currently disabled on the solver',
+        message: quotingPausedMessage(),
       });
     }
 
@@ -3010,7 +3017,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         return reply.status(422).send({
           reason: 'QUOTING_PAUSED',
           asset: link.token,
-          message: 'Quoting is currently disabled on the solver',
+          message: quotingPausedMessage(),
         });
       }
 
@@ -3391,7 +3398,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       return reply.status(422).send({
         reason: 'QUOTING_PAUSED',
         asset: request.token,
-        message: 'Quoting is currently disabled on the solver',
+        message: quotingPausedMessage(),
       });
     }
 
@@ -3542,6 +3549,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       createdAt: now,
       updatedAt: now,
     });
+    db.markSendLinkOrder(orderIdHex);
     // The note is kept beside the order, not inside its signed terms.
     if (request.note !== undefined) {
       db.saveSendLinkNote(orderIdHex, request.note, now);

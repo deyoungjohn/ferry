@@ -39,6 +39,13 @@ const DEMO_LINK: PayLinkDetails = {
   status: 'open',
 };
 
+/** A number typed by a person: digits and one dot, at most two decimals. */
+function cleanAmountInput(raw: string): string {
+  const cleaned = raw.replace(/[^0-9.]/g, '');
+  const [whole = '', ...rest] = cleaned.split('.');
+  return rest.length > 0 ? `${whole}.${rest.join('').slice(0, 2)}` : whole;
+}
+
 export function PayLinkPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -105,9 +112,10 @@ export function PayLinkPage() {
   const recipientCashaddr = ready?.recipientAddress ?? '';
   const token: 'PUSD' | 'MUSD' = ready?.token ?? 'PUSD';
   const [payerAmount, setPayerAmount] = useState('');
-  const requestedAmount =
-    ready?.amount ??
-    (Number.parseFloat(payerAmount) > 0 ? Number.parseFloat(payerAmount) : 0);
+  // An open link: the payer types what they pay and sees what the recipient gets (priced by the
+  // solver as the swap card does); a fixed link says what the recipient gets.
+  const [openReceive, setOpenReceive] = useState<number | null>(null);
+  const requestedAmount = ready?.amount ?? openReceive ?? 0;
   const note = ready?.note ?? '';
   const verified = ready?.verified ?? false;
   const [copiedShare, setCopiedShare] = useState(false);
@@ -134,6 +142,8 @@ export function PayLinkPage() {
     : (selectedChain?.tokenSymbols[0] ?? 'USDC');
 
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
+  // Why there is no price (the solver's refusal in plain words), or null.
+  const [quoteProblem, setQuoteProblem] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   // The payment runs on this page: the swap is built here, the person signs in their wallet, and
@@ -151,12 +161,73 @@ export function PayLinkPage() {
   const walletsRef = useRef(walletContext);
   walletsRef.current = walletContext;
   const youPayText =
-    requestedAmount > 0 ? (quote ? quote.fromAmount.toFixed(2) : '…') : '0.00';
+    requestedAmount > 0
+      ? quote
+        ? quote.fromAmount.toFixed(2)
+        : quoteProblem
+          ? '—'
+          : '…'
+      : '0.00';
 
   // Exact-output quote: recipient receives exact amount
+  const isOpen = ready?.amount === undefined;
+  const typedPay = Number.parseFloat(payerAmount);
+
+  // An open link: price what the payer types, after a short pause in typing.
   useEffect(() => {
-    if (!ready || requestedAmount <= 0) {
+    if (!ready || !isOpen) return;
+    if (!(typedPay > 0)) {
+      setOpenReceive(null);
       setQuote(null);
+      return;
+    }
+    let active = true;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await solver.getQuote({
+            fromToken: selectedPayerToken,
+            toToken: token,
+            fromChain: selectedChain.name,
+            toChain: NETWORK_PROFILE.bch.name,
+            fromAmount: typedPay,
+            lane: 'fast' as const,
+          });
+          if (!active) return;
+          setQuoteProblem(
+            result.toAmount && result.toAmount > 0
+              ? null
+              : (result.refusal?.message ?? null),
+          );
+          setQuote(result);
+          setOpenReceive(
+            result.toAmount && result.toAmount > 0
+              ? Math.floor(result.toAmount * 100) / 100
+              : null,
+          );
+        } catch {
+          if (active) setOpenReceive(null);
+        }
+      })();
+    }, 400);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [
+    ready,
+    isOpen,
+    typedPay,
+    selectedPayerToken,
+    selectedChain,
+    token,
+    solver,
+  ]);
+
+  // A fixed link: the price for the recipient to get exactly the amount.
+  useEffect(() => {
+    if (!ready || isOpen || requestedAmount <= 0) {
+      if (!isOpen) setQuote(null);
       return;
     }
     let active = true;
@@ -176,9 +247,14 @@ export function PayLinkPage() {
         const first = await solver.getQuote(request(requestedAmount * 1.02));
         if (!active) return;
         if (!first.toAmount || first.toAmount <= 0) {
-          setQuote(first);
+          // Refused: never show the page's own first guess as a price.
+          setQuote(null);
+          setQuoteProblem(
+            first.refusal?.message ?? 'No price is available right now.',
+          );
           return;
         }
+        setQuoteProblem(null);
         const guess = (first.fromAmount * requestedAmount) / first.toAmount;
         const second = await solver.getQuote(request(guess));
         if (!active) return;
@@ -199,6 +275,7 @@ export function PayLinkPage() {
     };
   }, [
     ready,
+    isOpen,
     requestedAmount,
     selectedPayerToken,
     selectedChain,
@@ -416,70 +493,22 @@ export function PayLinkPage() {
 
               {/* Two rows that together are as tall as the QR card: the recipient, then the amounts */}
               <div className="grid grid-rows-[2fr_3fr] gap-3">
-                <div className="overflow-hidden rounded-well border border-hairline bg-surface-2 p-3 text-xs print:border-black/20 print:bg-white">
-                  <span className="mb-1 block text-text-dim print:text-black/60">
+                <div className="overflow-hidden rounded-well border border-hairline bg-surface-2 px-3 pb-3 pt-4 text-xs print:border-black/20 print:bg-white">
+                  <span className="mb-2 block text-text-dim print:text-black/60">
                     Recipient address
                   </span>
-                  <p
-                    data-testid="chunked-address"
-                    className="break-all font-mono text-xs font-semibold text-text print:text-black"
-                  >
-                    {chunkCashaddr(recipientCashaddr)}
-                  </p>
+                  <div className="rounded-lg bg-surface-0 px-3 py-3 print:bg-black/5">
+                    <p
+                      data-testid="chunked-address"
+                      className="break-all font-mono text-xs font-semibold text-text print:text-black"
+                    >
+                      {chunkCashaddr(recipientCashaddr)}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {/* They receive */}
-                  <div className="rounded-well border border-hairline bg-surface-2 p-3 print:border-black/20 print:bg-white">
-                    <div className="mb-1 flex items-center justify-between text-xs text-text-muted print:text-black/60">
-                      <span>{copy.receiveLabel}</span>
-                      <span className="text-xs text-text-dim print:text-black/60">
-                        Bitcoin Cash
-                      </span>
-                    </div>
-                    {ready.amount === undefined ? (
-                      <div className="flex flex-col items-start gap-3">
-                        {pusdIconUrl(token) && (
-                          <img
-                            src={pusdIconUrl(token)!}
-                            alt=""
-                            className="size-16 rounded-full"
-                          />
-                        )}
-                        <div className="flex w-full items-center gap-2">
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            inputMode="decimal"
-                            aria-label="Amount to pay"
-                            value={payerAmount}
-                            onChange={(e) => setPayerAmount(e.target.value)}
-                            placeholder="0.00"
-                            className="w-full rounded-well border border-hairline bg-surface-1 px-3 py-2 text-lg font-semibold text-text focus:border-lime focus:outline-none"
-                          />
-                          <span className="flex shrink-0 items-center gap-2 text-lg font-semibold text-text">
-                            {token}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-start gap-3 text-xl font-semibold text-text print:text-black">
-                        {pusdIconUrl(token) && (
-                          <img
-                            src={pusdIconUrl(token)!}
-                            alt=""
-                            className="size-16 rounded-full"
-                          />
-                        )}
-                        <span>
-                          {requestedAmount.toFixed(2)} {token}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* You pay: the label, then the chain across the card's width, then the amount */}
+                  {/* You pay: the label, the chain and stablecoin, then the amount at the bottom */}
                   <div className="flex flex-col gap-2 rounded-well border border-hairline bg-surface-2 p-3 print:hidden">
                     <span className="text-xs text-text-muted">
                       {copy.sendLabel}
@@ -513,8 +542,50 @@ export function PayLinkPage() {
                       className="w-full"
                       triggerClassName="w-full py-1 text-xs"
                     />
-                    <div className="text-xl font-semibold text-text">
-                      {youPayText} {selectedPayerToken}
+                    {ready.amount === undefined ? (
+                      <div className="mt-auto flex items-center gap-2 pt-2">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          aria-label="Amount you pay"
+                          value={payerAmount}
+                          onChange={(e) =>
+                            setPayerAmount(cleanAmountInput(e.target.value))
+                          }
+                          placeholder="0.00"
+                          className="w-full min-w-0 rounded-well border border-hairline bg-surface-1 px-3 py-2 text-xl font-semibold text-text focus:border-lime focus:outline-none"
+                        />
+                        <span className="shrink-0 text-xl font-semibold text-text">
+                          {selectedPayerToken}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="mt-auto pt-2 text-xl font-semibold text-text">
+                        {youPayText} {selectedPayerToken}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* They receive: the icon with room above and below, the amount at the bottom */}
+                  <div className="flex flex-col rounded-well border border-hairline bg-surface-2 p-3 print:border-black/20 print:bg-white">
+                    <div className="flex items-center justify-between text-xs text-text-muted print:text-black/60">
+                      <span>{copy.receiveLabel}</span>
+                      <span className="text-xs text-text-dim print:text-black/60">
+                        Bitcoin Cash
+                      </span>
+                    </div>
+                    {pusdIconUrl(token) && (
+                      <img
+                        src={pusdIconUrl(token)!}
+                        alt=""
+                        className="my-4 size-16 rounded-full"
+                      />
+                    )}
+                    <div className="mt-auto text-xl font-semibold text-text print:text-black">
+                      {ready.amount === undefined
+                        ? `${openReceive !== null ? openReceive.toFixed(2) : '0.00'} ${token}`
+                        : `${requestedAmount.toFixed(2)} ${token}`}
                     </div>
                   </div>
                 </div>
@@ -543,6 +614,15 @@ export function PayLinkPage() {
             </div>
           )}
 
+          {quoteProblem && !showSteps && !run && (
+            <p
+              className="mt-3 text-center text-xs text-warn print:hidden"
+              role="status"
+              data-testid="quote-problem"
+            >
+              {quoteProblem}
+            </p>
+          )}
           {payError && (
             <p
               className="mt-3 text-center text-sm text-danger"

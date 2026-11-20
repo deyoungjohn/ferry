@@ -169,6 +169,9 @@ export class SolverDatabase {
           created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
         );
         CREATE INDEX IF NOT EXISTS idx_send_link_tags_order_id ON send_link_tags(order_id);
+        CREATE TABLE IF NOT EXISTS send_link_orders (
+          order_id TEXT PRIMARY KEY
+        );
       `);
 
       this.db.pragma(`user_version = ${SUPPORTED_SCHEMA_VERSION}`);
@@ -225,6 +228,9 @@ export class SolverDatabase {
         created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
       );
       CREATE INDEX IF NOT EXISTS idx_send_link_tags_order_id ON send_link_tags(order_id);
+        CREATE TABLE IF NOT EXISTS send_link_orders (
+          order_id TEXT PRIMARY KEY
+        );
     `);
   }
 
@@ -237,6 +243,13 @@ export class SolverDatabase {
          ON CONFLICT(order_id) DO UPDATE SET note = excluded.note`,
       )
       .run(orderId, note, createdAt);
+  }
+
+  /** Marks an order as one made for a send link, so the public list of swaps leaves it out. */
+  markSendLinkOrder(orderId: string): void {
+    this.db
+      .prepare('INSERT OR IGNORE INTO send_link_orders (order_id) VALUES (?)')
+      .run(orderId);
   }
 
   getSendLinkNote(orderId: string): string | null {
@@ -872,6 +885,10 @@ export class SolverDatabase {
     const stmt = this.db.prepare(`
       SELECT * FROM orders 
       WHERE status = 'DONE' 
+        AND pay_link_id IS NULL
+        AND id NOT IN (SELECT order_id FROM send_link_orders)
+        AND id NOT IN (SELECT order_id FROM send_link_notes)
+        AND id NOT IN (SELECT order_id FROM send_link_tags)
       ORDER BY updated_at DESC 
       LIMIT ?
     `);

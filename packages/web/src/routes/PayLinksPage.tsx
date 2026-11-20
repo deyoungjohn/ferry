@@ -12,7 +12,11 @@ import {
   type PayLinkData,
 } from '../lib/paylink/link';
 import { useToast } from '../lib/toast/ToastContext';
-import { listPayLinks, savePayLink } from '../lib/paylink/pay-store';
+import {
+  listPayLinks,
+  removePayLink,
+  savePayLink,
+} from '../lib/paylink/pay-store';
 import {
   createPayLinkOnSolver,
   readPayLinkState,
@@ -62,6 +66,8 @@ export function PayLinksPage() {
   );
   const [activeCreated, setActiveCreated] = useState<PayLinkData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A required detail the person has not given yet, shown in yellow under the button.
+  const [missing, setMissing] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -79,6 +85,8 @@ export function PayLinksPage() {
         if (link.status !== 'open' && link.status !== 'reserved') continue;
         const state = await readPayLinkState(solverUrl, link.id);
         if (!state || cancelled) continue;
+        // Deleted while this was reading: do not bring it back.
+        if (!listPayLinks().some((item) => item.id === link.id)) continue;
         if (state.status !== link.status || state.paidAt !== link.paidAt) {
           savePayLink({ ...link, ...state });
         }
@@ -100,9 +108,14 @@ export function PayLinksPage() {
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setMissing(null);
 
     if (!recipientCheck.ok) {
-      setError(recipientCheck.message);
+      setMissing(
+        activeRecipient === ''
+          ? 'Enter the Bitcoin Cash address that should receive the payment.'
+          : recipientCheck.message,
+      );
       return;
     }
 
@@ -113,11 +126,11 @@ export function PayLinksPage() {
 
     const amountNum = isFixed ? parseFloat(fixedAmount) : undefined;
     if (isFixed && (!amountNum || amountNum <= 0)) {
-      setError('Please enter a valid amount');
+      setMissing('Enter the amount to request.');
       return;
     }
     if (isFixed && amountNum !== undefined && amountNum < MIN_TRANSACTION_USD) {
-      setError('The minimum is $' + MIN_TRANSACTION_USD.toFixed(2) + '.');
+      setMissing('The minimum is $' + MIN_TRANSACTION_USD.toFixed(2) + '.');
       return;
     }
 
@@ -355,11 +368,19 @@ export function PayLinksPage() {
 
               <button
                 type="submit"
-                disabled={creating || !recipientCheck.ok}
+                disabled={creating}
                 className="w-full rounded-pill bg-olive py-3 font-semibold text-text transition-colors"
               >
                 {creating ? 'Creating…' : 'Generate Pay Link'}
               </button>
+              {/* Reserved height: the prompt appears without moving anything else. */}
+              <p
+                className="-mt-2 min-h-4 text-center text-[11px] text-warn"
+                role="status"
+                data-testid="missing-detail"
+              >
+                {missing ?? ''}
+              </p>
             </form>
           </div>
         }
@@ -429,6 +450,28 @@ export function PayLinksPage() {
             completedLabel="Payment date"
             emptyText="Pay links you create appear here."
             rows={createdLinks.map(toRow)}
+            renderAction={(row) =>
+              row.status === 'Paid' ||
+              row.status === 'Payment started' ? null : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        'Delete this pay link from your list? Anyone who already has the link could still open it.',
+                      ) &&
+                      removePayLink(row.id)
+                    ) {
+                      setCreatedLinks(listPayLinks());
+                      if (activeCreated?.id === row.id) setActiveCreated(null);
+                    }
+                  }}
+                  className="text-[11px] text-text-muted underline hover:text-danger"
+                >
+                  Delete
+                </button>
+              )
+            }
           />
         }
       />

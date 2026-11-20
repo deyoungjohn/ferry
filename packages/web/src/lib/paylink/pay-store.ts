@@ -35,3 +35,24 @@ export function savePayLink(link: PayLinkData): void {
     // Storage can be blocked; the link still works for this session.
   }
 }
+
+/**
+ * Takes a link off this browser's list. Only for links nobody has paid: a paid link's proof is on
+ * the chain and stays on the list.
+ */
+export function removePayLink(id: string): boolean {
+  try {
+    const all = readAll();
+    const link = all.find((item) => item.id === id);
+    if (!link || link.status === 'paid' || link.status === 'reserved') {
+      return false;
+    }
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify(all.filter((item) => item.id !== id)),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}

@@ -82,7 +82,7 @@ describe('Pay Links & Send Links Pages (Task B3-03)', () => {
       target: { value: '0.5' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Generate Pay Link/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
+    expect(await screen.findByTestId('missing-detail')).toHaveTextContent(
       'The minimum is $1.00',
     );
   });
