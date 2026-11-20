@@ -423,7 +423,7 @@ export function createBchReader(options: BchReaderOptions = {}): BchReader {
           };
           if (body.error?.message) reason = body.error.message;
         } catch {
-          // Keep the status when the refusal body is not JSON.
+          // ignored
         }
         throw new BchAnswerError(
           `The Ferry server refused the Bitcoin Cash transaction: ${reason}`,
@@ -434,7 +434,7 @@ export function createBchReader(options: BchReaderOptions = {}): BchReader {
         const body = (await response.json()) as { txid?: string };
         if (body.txid) return body.txid;
       } catch {
-        // Look the transaction up before deciding what happened.
+        // ignored
       }
       return recoverBeforeRetry(txid, txHex, 'the answer had no txid');
     },
@@ -507,7 +507,7 @@ export function createBchReader(options: BchReaderOptions = {}): BchReader {
             : null;
           if (typeof raw === 'string') return txid;
         } catch {
-          // The transaction could not be confirmed either.
+          // ignored
         }
         throw new BchReadError(BCH_BROADCAST_UNCERTAIN_MESSAGE, [
           ...errors,

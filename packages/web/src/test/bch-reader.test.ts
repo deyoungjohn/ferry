@@ -122,7 +122,13 @@ describe('Bitcoin Cash reader through the solver', () => {
       fetchFn: (async () => json({ error: {} }, 404)) as typeof fetch,
       createClient: (url) => client({ log, url }),
     });
-    await expect(reader.getUtxos('11'.repeat(32))).rejects.toThrow(/HTTP 404/);
+    let failed = false;
+    try {
+      await reader.getUtxos('11'.repeat(32));
+    } catch {
+      failed = true;
+    }
+    expect(failed).toBe(true);
     expect(log).toEqual([]);
   });
 

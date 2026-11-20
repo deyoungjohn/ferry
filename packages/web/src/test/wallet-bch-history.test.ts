@@ -5,8 +5,8 @@ import { encodeTermsOutput } from '@ferry/htlc-bch';
 import {
   readBchWalletTransactions,
   scanBchWalletHistory,
-  type BchHistoryClient,
 } from '../lib/live/wallet-bch-history';
+import type { BchServerClient } from '../lib/live/bch-reader';
 
 const ROOT = deriveRecoveryRoot(`0x${'22'.repeat(64)}`);
 const TAG = swapTagAt(ROOT, 0);
@@ -33,16 +33,25 @@ function rawTransaction(script: Uint8Array): string {
   return `0x${binToHex(bytes)}`;
 }
 
-function fakeClient(): BchHistoryClient {
+function fakeClient(): BchServerClient {
   const raw = rawTransaction(TERMS);
   return {
     async connect() {},
     close() {},
+    async listUnspent() {
+      return [];
+    },
     async getHistory() {
-      return [{ tx_hash: 'aa'.repeat(32) }];
+      return [{ tx_hash: 'aa'.repeat(32), height: 1 }];
     },
     async getTransaction() {
       return raw;
+    },
+    async broadcast() {
+      return 'aa'.repeat(32);
+    },
+    async getTipHeight() {
+      return 1;
     },
   };
 }
