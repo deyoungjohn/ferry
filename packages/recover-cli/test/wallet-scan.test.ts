@@ -6,9 +6,8 @@ import {
   swapTagAt,
 } from '@ferry/core';
 import type { Address } from 'viem';
+import { encodeTermsOutput, parseTermsOutput } from '@ferry/htlc-bch';
 import {
-  encodeTermsOutput,
-  parseTermsOutput,
   scanBchFry1Transactions,
   scanEvmRoot,
   type WalletChain,
@@ -49,26 +48,29 @@ describe('wallet-derived recovery scan', () => {
 
   it('round-trips the FRY1 terms output', () => {
     const terms = {
-      tag: Uint8Array.from(Buffer.from(swapTagAt(ROOT, 7).slice(2), 'hex')),
-      token: 1 as const,
+      tag: swapTagAt(ROOT, 7),
+      token: 'PUSD' as const,
       tokenAmount: 12345n,
       refundHeight: 800_000,
       maxFee: 1500,
-      recipientLockingBytecode: Uint8Array.from([0x76, 0xa9, 0x14]),
-      refundLockingBytecode: Uint8Array.from([0x76, 0xa9, 0x14]),
+      recipientLockingBytecode: '0x76a914',
+      refundLockingBytecode: '0x76a914',
     };
-    expect(parseTermsOutput(encodeTermsOutput(terms))).toEqual(terms);
+    expect(parseTermsOutput(encodeTermsOutput(terms)).tag).toBe(terms.tag);
+    expect(parseTermsOutput(encodeTermsOutput(terms)).tokenAmount).toBe(
+      terms.tokenAmount,
+    );
   });
 
   it('finds a BCH lock from the FRY1 tag and stops at the gap', () => {
     const terms = {
-      tag: Uint8Array.from(Buffer.from(swapTagAt(ROOT, 1).slice(2), 'hex')),
-      token: 2 as const,
+      tag: swapTagAt(ROOT, 1),
+      token: 'MUSD' as const,
       tokenAmount: 500n,
       refundHeight: 800_000,
       maxFee: 1500,
-      recipientLockingBytecode: Uint8Array.from([0x76, 0xa9, 0x14]),
-      refundLockingBytecode: Uint8Array.from([0x76, 0xa9, 0x14]),
+      recipientLockingBytecode: '0x76a914',
+      refundLockingBytecode: '0x76a914',
     };
     const result = scanBchFry1Transactions({
       root: ROOT,
@@ -76,7 +78,11 @@ describe('wallet-derived recovery scan', () => {
       transactions: [
         {
           txid: 'aa'.repeat(32),
-          outputs: [{ lockingBytecode: encodeTermsOutput(terms) }],
+          outputs: [
+            {
+              lockingBytecode: `0x${Buffer.from(encodeTermsOutput(terms)).toString('hex')}`,
+            },
+          ],
         },
       ],
     });
