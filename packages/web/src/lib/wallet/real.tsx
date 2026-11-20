@@ -116,11 +116,18 @@ function useRealEvmWallet(): EvmWallet {
     },
     cancelPendingRequest,
     signTypedData: async (params: TypedDataDefinition) => {
-      setPendingRequest(
-        params.primaryType === 'Permit'
-          ? 'Sign the token permit'
-          : 'Sign the lock intent',
-      );
+      if (params.primaryType === 'RecoveryKey') {
+        setPendingRequest('Sign the Ferry recovery message');
+        setPromptHelp(
+          'Sign the Ferry recovery message to enable key-based swap recovery on any device without files',
+        );
+      } else {
+        setPendingRequest(
+          params.primaryType === 'Permit'
+            ? 'Sign the token permit'
+            : 'Sign the lock intent',
+        );
+      }
       const controller = new AbortController();
       evmAbortRef.current = controller;
 

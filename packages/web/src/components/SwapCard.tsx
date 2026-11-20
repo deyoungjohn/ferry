@@ -43,6 +43,7 @@ import { TokenPicker } from './swap-block/token-picker';
 import type { Chain, Token, TokenSide } from './swap-block/types';
 import { CopyDiagnosticsButton } from './CopyDiagnosticsButton';
 import { useToast } from '../lib/toast/ToastContext';
+import { RescueKeyPrompt } from './RescueKeyPrompt';
 
 function formatSolverName(url: string): string {
   try {
@@ -1390,6 +1391,9 @@ export function SwapCard({
             </span>
           </button>
         )}
+
+        {/* Reverse swaps without connected EVM wallet: Rescue key prompt */}
+        {isReverse && !evm.address && <RescueKeyPrompt />}
 
         {/* Primary Action Button */}
         <button

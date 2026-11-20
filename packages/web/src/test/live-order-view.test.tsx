@@ -322,4 +322,16 @@ describe('the order page', () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
+
+  it('says plainly that the swap can be recovered with the wallet on any device', async () => {
+    const session = fakeSession('done');
+    vi.spyOn(UserSwapSession, 'resume').mockResolvedValue(session as never);
+    renderPage(false);
+    await screen.findByTestId('order-done');
+    expect(
+      screen.getByText(
+        /This swap can be recovered with your wallet on any device\. If anything stops, your refund stays available\./i,
+      ),
+    ).toBeInTheDocument();
+  });
 });

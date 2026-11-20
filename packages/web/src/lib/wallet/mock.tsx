@@ -119,11 +119,18 @@ export function MockWalletProvider({
       },
       cancelPendingRequest: cancelEvmPending,
       signTypedData: async (params: TypedDataDefinition) => {
-        setEvmPending(
-          params.primaryType === 'Permit'
-            ? 'Sign the USDC permit'
-            : 'Sign the lock intent',
-        );
+        if (params.primaryType === 'RecoveryKey') {
+          setEvmPending('Sign the Ferry recovery message');
+          setEvmPromptHelp(
+            'Sign the Ferry recovery message to enable key-based swap recovery on any device without files',
+          );
+        } else {
+          setEvmPending(
+            params.primaryType === 'Permit'
+              ? 'Sign the USDC permit'
+              : 'Sign the lock intent',
+          );
+        }
         const controller = new AbortController();
         evmAbortRef.current = controller;
 

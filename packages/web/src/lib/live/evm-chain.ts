@@ -5,7 +5,9 @@ import { EvmChainAdapter } from '@ferry/chain-evm';
 import type { EvmChainPort } from '@ferry/user-flow';
 
 /** EVM reads for one chain, from the bundled mainnet facts and its public RPC endpoints. */
-export function createBrowserEvmChain(chainId: number): EvmChainPort {
+export function createBrowserEvmChain(chainId: number): EvmChainPort & {
+  readonly client: EvmChainAdapter['client'];
+} {
   const config = loadChainConfig({
     env: { FERRY_NETWORK: 'mainnet' },
     network: 'mainnet',
@@ -17,6 +19,7 @@ export function createBrowserEvmChain(chainId: number): EvmChainPort {
   }
   const adapter = new EvmChainAdapter({ config });
   return {
+    client: adapter.client,
     buildUserLock: (terms) => adapter.buildUserLock(terms),
     getLock: (lockId: Hex32) => adapter.getLock(lockId),
     waitForReceipt: async (hash) => {
@@ -26,4 +29,17 @@ export function createBrowserEvmChain(chainId: number): EvmChainPort {
     getBlockTimestamp: async () =>
       Number((await adapter.client.getBlock()).timestamp),
   };
+}
+
+export function getAllBrowserEvmChainIds(): number[] {
+  const config = loadChainConfig({
+    env: { FERRY_NETWORK: 'mainnet' },
+    network: 'mainnet',
+    data: chainsData,
+  });
+  return config.coreChains.map((c) => c.chainId);
+}
+
+export function createAllBrowserEvmChains(): EvmChainPort[] {
+  return getAllBrowserEvmChainIds().map((id) => createBrowserEvmChain(id));
 }
