@@ -1,4 +1,8 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, {
+  type FastifyInstance,
+  type FastifyRequest,
+  type FastifyReply,
+} from 'fastify';
 import cors from '@fastify/cors';
 import { timingSafeEqual } from 'node:crypto';
 import type pino from 'pino';
@@ -62,6 +66,9 @@ import {
   SendQuoteRequestSchema,
   StatsResponseSchema,
   type ApiErrorCode,
+  type BchFirstUseResponse,
+  type BchHistoryResponse,
+  type BchTipResponse,
   type SendLinkDetailsResponse,
   type SendLinkQueryMatch,
 } from '@ferry/core/api';
@@ -147,6 +154,7 @@ export interface BuildServerOptions {
   priceSource: PriceSource;
   logger?: pino.Logger | undefined;
   rateLimiter?: QuoteRateLimiter | undefined;
+  bchProxyLimiter?: QuoteRateLimiter | undefined;
   publicClient?: PublicClient | undefined;
   inventoryReader?: InventoryReader | undefined;
   costModelReader?: LiveCostModelReader | undefined;
@@ -318,6 +326,31 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     maxPerAddress: config.rateLimitMaxPerAddress * 10,
     maxPerIp: config.rateLimitMaxPerIp * 10,
   });
+
+  // Allowance for Bitcoin Cash reads/broadcast proxy: generous to allow 2,000-address scans
+  const bchProxyLimiter =
+    options.bchProxyLimiter ??
+    new QuoteRateLimiter({
+      windowMs: 60_000,
+      maxPerAddress: 10_000,
+      maxPerIp: 3_000,
+    });
+
+  interface BchProxyCacheEntry<T> {
+    data: T;
+    cachedAt: number;
+  }
+  const historyCache = new Map<
+    string,
+    BchProxyCacheEntry<BchHistoryResponse>
+  >();
+  const firstUseCache = new Map<
+    string,
+    BchProxyCacheEntry<BchFirstUseResponse>
+  >();
+  const txCache = new Map<string, string>();
+  let tipCache: BchProxyCacheEntry<BchTipResponse> | null = null;
+  const MAX_BCH_HISTORY_ENTRIES = 1000;
 
   const solverAccount = privateKeyToAccount(
     config.solverEvmPrivateKey as `0x${string}`,
@@ -1705,6 +1738,14 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         bchSeconds,
         evmSeconds,
       },
+      bchRoutes: [
+        'GET /v1/bch/utxos/:scriptHash',
+        'GET /v1/bch/history/:scriptHash',
+        'GET /v1/bch/first-use/:scriptHash',
+        'GET /v1/bch/tx/:txid',
+        'POST /v1/bch/broadcast',
+        'GET /v1/bch/tip',
+      ],
       ...(costFeeds ? { costFeeds } : {}),
     };
 
@@ -1948,19 +1989,59 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       .send({ orders, asOf: Math.floor(Date.now() / 1000) });
   });
 
+  function checkBchRateLimit(
+    req: FastifyRequest,
+    reply: FastifyReply,
+  ): boolean {
+    let clientIp: string;
+    try {
+      clientIp = extractClientIp(req, config.trustedProxy, config.network);
+    } catch (err) {
+      if (err instanceof UntrustedProxyHeaderError) {
+        sendApiError(reply, 'UNAUTHORIZED', err.message);
+        return false;
+      }
+      clientIp = '127.0.0.1';
+    }
+
+    const rateCheck = bchProxyLimiter.checkIp(clientIp);
+    if (!rateCheck.allowed) {
+      sendApiError(
+        reply,
+        'RATE_LIMITED',
+        `Rate limit exceeded for ${clientIp}`,
+      );
+      return false;
+    }
+    return true;
+  }
+
+  function checkBchQuorum(reply: FastifyReply): boolean {
+    if (typeof bchClient.getQuorumStatus === 'function') {
+      const quorum = bchClient.getQuorumStatus();
+      if (!quorum.isQuorumHealthy) {
+        reply.status(503).send({
+          error: `Bitcoin Cash read failed: BCH quorum unhealthy (${quorum.quotingState})`,
+        });
+        return false;
+      }
+    }
+    return true;
+  }
+
   // GET /v1/bch/utxos/:scriptHash: the solver's own (quorum) view of the unspent outputs at a
-  // script hash, so the page and the solver look at the same chain. Public chain data only. The
-  // page never relies on it alone: it merges this with its own reads, and a wrong answer can
-  // only make a claim fail, never lose funds (the refund does not use it).
+  // script hash, so the page and the solver look at the same chain. Public chain data only.
   app.get<{ Params: { scriptHash: string } }>(
     '/v1/bch/utxos/:scriptHash',
     async (req, reply) => {
+      if (!checkBchRateLimit(req, reply)) return;
       const { scriptHash } = req.params;
       if (!/^[0-9a-fA-F]{64}$/.test(scriptHash)) {
         return reply
           .status(400)
           .send({ error: 'scriptHash must be 64 hex characters' });
       }
+      if (!checkBchQuorum(reply)) return;
       try {
         const utxos = await bchClient.listUnspent(scriptHash, 'include_tokens');
         return reply
@@ -1973,6 +2054,199 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       }
     },
   );
+
+  // GET /v1/bch/history/:scriptHash: transaction history for a script hash, capped at 1,000 entries. 5s cache.
+  app.get<{ Params: { scriptHash: string } }>(
+    '/v1/bch/history/:scriptHash',
+    async (req, reply) => {
+      if (!checkBchRateLimit(req, reply)) return;
+      const { scriptHash } = req.params;
+      if (!/^[0-9a-fA-F]{64}$/.test(scriptHash)) {
+        return reply
+          .status(400)
+          .send({ error: 'scriptHash must be 64 hex characters' });
+      }
+      const now = Date.now();
+      const cached = historyCache.get(scriptHash.toLowerCase());
+      if (cached && now - cached.cachedAt < 5_000) {
+        return reply.status(200).send(cached.data);
+      }
+      if (!checkBchQuorum(reply)) return;
+      try {
+        const rawHistory = await bchClient.getHistory(scriptHash);
+        const history = rawHistory
+          .slice(0, MAX_BCH_HISTORY_ENTRIES)
+          .map((h) => ({
+            tx_hash: h.tx_hash,
+            height: h.height,
+          }));
+        const payload: BchHistoryResponse = { history };
+        historyCache.set(scriptHash.toLowerCase(), {
+          data: payload,
+          cachedAt: now,
+        });
+        return reply.status(200).send(payload);
+      } catch (error) {
+        return reply.status(503).send({
+          error: `Bitcoin Cash read failed: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    },
+  );
+
+  // GET /v1/bch/first-use/:scriptHash: earliest confirmed history entry (lowest block height > 0,
+  // or first unconfirmed if none confirmed; nulls if empty). 5s cache.
+  app.get<{ Params: { scriptHash: string } }>(
+    '/v1/bch/first-use/:scriptHash',
+    async (req, reply) => {
+      if (!checkBchRateLimit(req, reply)) return;
+      const { scriptHash } = req.params;
+      if (!/^[0-9a-fA-F]{64}$/.test(scriptHash)) {
+        return reply
+          .status(400)
+          .send({ error: 'scriptHash must be 64 hex characters' });
+      }
+      const now = Date.now();
+      const cached = firstUseCache.get(scriptHash.toLowerCase());
+      if (cached && now - cached.cachedAt < 5_000) {
+        return reply.status(200).send(cached.data);
+      }
+      if (!checkBchQuorum(reply)) return;
+      try {
+        const rawHistory = await bchClient.getHistory(scriptHash);
+        let payload: BchFirstUseResponse = { txHash: null, height: null };
+        if (rawHistory.length > 0) {
+          const confirmed = rawHistory.filter((h) => h.height > 0);
+          if (confirmed.length > 0) {
+            confirmed.sort((a, b) => a.height - b.height);
+            payload = {
+              txHash: confirmed[0]!.tx_hash,
+              height: confirmed[0]!.height,
+            };
+          } else {
+            payload = {
+              txHash: rawHistory[0]!.tx_hash,
+              height: rawHistory[0]!.height,
+            };
+          }
+        }
+        firstUseCache.set(scriptHash.toLowerCase(), {
+          data: payload,
+          cachedAt: now,
+        });
+        return reply.status(200).send(payload);
+      } catch (error) {
+        return reply.status(503).send({
+          error: `Bitcoin Cash read failed: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    },
+  );
+
+  // GET /v1/bch/tx/:txid: returns raw transaction hex. Cached forever if confirmed; not cached if unconfirmed.
+  app.get<{ Params: { txid: string } }>(
+    '/v1/bch/tx/:txid',
+    async (req, reply) => {
+      if (!checkBchRateLimit(req, reply)) return;
+      const { txid } = req.params;
+      if (!/^[0-9a-fA-F]{64}$/.test(txid)) {
+        return reply
+          .status(400)
+          .send({ error: 'txid must be 64 hex characters' });
+      }
+      const cachedHex = txCache.get(txid.toLowerCase());
+      if (cachedHex) {
+        return reply.status(200).send({ hex: cachedHex });
+      }
+      if (!checkBchQuorum(reply)) return;
+      try {
+        const tx = (await bchClient.getTransaction(txid, true)) as unknown as
+          Record<string, unknown> | string;
+        let hex: string | undefined;
+        let confirmations = 0;
+        if (typeof tx === 'string') {
+          hex = tx;
+        } else if (tx && typeof tx.hex === 'string') {
+          hex = tx.hex;
+          confirmations =
+            typeof tx.confirmations === 'number' ? tx.confirmations : 0;
+        }
+        if (!hex) {
+          return reply.status(404).send({ error: 'Transaction not found' });
+        }
+        if (confirmations > 0) {
+          txCache.set(txid.toLowerCase(), hex);
+        }
+        return reply.status(200).send({ hex });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (/not found|no such mempool/i.test(msg)) {
+          return reply.status(404).send({ error: 'Transaction not found' });
+        }
+        return reply.status(503).send({
+          error: `Bitcoin Cash read failed: ${msg}`,
+        });
+      }
+    },
+  );
+
+  // POST /v1/bch/broadcast: broadcast transaction to all quorum servers in parallel. Max 100 kB body limit.
+  app.post<{ Body: { hex: string } }>(
+    '/v1/bch/broadcast',
+    {
+      bodyLimit: 100 * 1024,
+    },
+    async (req, reply) => {
+      if (!checkBchRateLimit(req, reply)) return;
+      const { hex } = req.body ?? {};
+      if (
+        typeof hex !== 'string' ||
+        hex.length === 0 ||
+        hex.length % 2 !== 0 ||
+        !/^[0-9a-fA-F]+$/.test(hex)
+      ) {
+        return reply.status(400).send({
+          error: 'hex must be a valid non-empty hexadecimal transaction string',
+        });
+      }
+      if (hex.length / 2 > 100 * 1024) {
+        return reply.status(400).send({
+          error: 'Transaction exceeds 100 kB limit',
+        });
+      }
+      try {
+        const txid = await bchClient.broadcastAll(hex);
+        return reply.status(200).send({ txid });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (/All servers rejected/i.test(msg)) {
+          return reply.status(400).send({ error: msg });
+        }
+        return reply.status(503).send({
+          error: `Bitcoin Cash broadcast failed: ${msg}`,
+        });
+      }
+    },
+  );
+
+  // GET /v1/bch/tip: returns tip header information { height, hash, timestamp }. 2s cache.
+  app.get('/v1/bch/tip', async (req, reply) => {
+    if (!checkBchRateLimit(req, reply)) return;
+    const now = Date.now();
+    if (tipCache && now - tipCache.cachedAt < 2_000) {
+      return reply.status(200).send(tipCache.data);
+    }
+    if (!checkBchQuorum(reply)) return;
+    try {
+      const tip = await bchClient.getTipHeader();
+      tipCache = { data: tip, cachedAt: now };
+      return reply.status(200).send(tip);
+    } catch (error) {
+      return reply.status(503).send({
+        error: `Bitcoin Cash read failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  });
 
   app.get('/v1/orders/recent', async (_req, reply) => {
     const recent = db.getRecentSwaps(50);

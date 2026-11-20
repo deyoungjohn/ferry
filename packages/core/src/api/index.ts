@@ -225,6 +225,7 @@ export const HealthResponseSchema = z.strictObject({
     .optional(),
   inventory: z.record(z.string(), z.string()).optional(),
   costFeeds: z.record(z.string(), CostFeedStatusSchema).optional(),
+  bchRoutes: z.array(z.string()).optional(),
 });
 
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
@@ -820,3 +821,73 @@ export const SendLinksQueryResponseSchema = z.strictObject({
 export type SendLinksQueryResponse = z.infer<
   typeof SendLinksQueryResponseSchema
 >;
+
+// -- Bitcoin Cash Proxy Schemas ---------------------------------------------
+
+export const BchHistoryEntrySchema = z.strictObject({
+  tx_hash: z.string().regex(/^[0-9a-fA-F]{64}$/),
+  height: z.number().int(),
+});
+export type BchHistoryEntry = z.infer<typeof BchHistoryEntrySchema>;
+
+export const BchHistoryResponseSchema = z.strictObject({
+  history: z.array(BchHistoryEntrySchema),
+});
+export type BchHistoryResponse = z.infer<typeof BchHistoryResponseSchema>;
+
+export const BchFirstUseResponseSchema = z.strictObject({
+  txHash: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/)
+    .nullable(),
+  height: z.number().int().nullable(),
+});
+export type BchFirstUseResponse = z.infer<typeof BchFirstUseResponseSchema>;
+
+export const BchTxResponseSchema = z.strictObject({
+  hex: z.string().regex(/^[0-9a-fA-F]+$/),
+});
+export type BchTxResponse = z.infer<typeof BchTxResponseSchema>;
+
+export const BchBroadcastRequestSchema = z.strictObject({
+  hex: z.string().regex(/^[0-9a-fA-F]+$/),
+});
+export type BchBroadcastRequest = z.infer<typeof BchBroadcastRequestSchema>;
+
+export const BchBroadcastResponseSchema = z.strictObject({
+  txid: z.string().regex(/^[0-9a-fA-F]{64}$/),
+});
+export type BchBroadcastResponse = z.infer<typeof BchBroadcastResponseSchema>;
+
+export const BchTipResponseSchema = z.strictObject({
+  height: z.number().int().nonnegative(),
+  hash: z.string().regex(/^[0-9a-fA-F]{64}$/),
+  timestamp: z.number().int().nonnegative(),
+});
+export type BchTipResponse = z.infer<typeof BchTipResponseSchema>;
+
+export const BchUtxoTokenDataSchema = z.strictObject({
+  category: z.string().regex(/^[0-9a-fA-F]{64}$/),
+  amount: z.string(),
+  nft: z
+    .strictObject({
+      capability: z.enum(['none', 'mutable', 'minting']).optional(),
+      commitment: z.string().optional(),
+    })
+    .optional(),
+});
+
+export const BchUtxoItemSchema = z.strictObject({
+  tx_hash: z.string().regex(/^[0-9a-fA-F]{64}$/),
+  tx_pos: z.number().int().nonnegative(),
+  value: z.number().int().nonnegative(),
+  height: z.number().int(),
+  token_data: BchUtxoTokenDataSchema.optional(),
+});
+export type BchUtxoItem = z.infer<typeof BchUtxoItemSchema>;
+
+export const BchUtxosResponseSchema = z.strictObject({
+  utxos: z.array(BchUtxoItemSchema),
+  asOf: z.number().int().nonnegative().optional(),
+});
+export type BchUtxosResponse = z.infer<typeof BchUtxosResponseSchema>;

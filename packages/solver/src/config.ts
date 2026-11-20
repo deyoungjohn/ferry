@@ -12,7 +12,7 @@ export const KNOWN_DEV_EVM_KEYS: readonly string[] = [
 ];
 
 export const MAINNET_BCH_ELECTRUM_URLS =
-  'wss://blackie.c3-soft.com:50004,wss://bch.imaginary.cash:50004';
+  'wss://blackie.c3-soft.com:50004,wss://bch.imaginary.cash:50004,wss://electron.jochen-hoenicke.de:51004';
 export const CHIPNET_BCH_ELECTRUM_URLS =
   'wss://chipnet.imaginary.cash:50004,wss://blackie.c3-soft.com:64004';
 

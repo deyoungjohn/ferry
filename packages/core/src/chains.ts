@@ -14,6 +14,15 @@ export const EVM_CHAIN_IDS = [
 
 export type EvmChainId = (typeof EVM_CHAIN_IDS)[number];
 
+/**
+ * Three independent mainnet Fulcrum servers for Bitcoin Cash fallback reads.
+ */
+export const DEFAULT_MAINNET_FULCRUM = [
+  'wss://bch.imaginary.cash:50004',
+  'wss://blackie.c3-soft.com:50004',
+  'wss://electron.jochen-hoenicke.de:51004',
+] as const;
+
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 const nonZeroEvmAddress = z

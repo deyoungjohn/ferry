@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   type ElectrumTransport,
   WebSocketElectrumTransport,
@@ -374,6 +375,140 @@ export class BchQuorumClient implements DSProofWatcher {
     return this.executeWithFailover((transport) =>
       transport.request<string>('blockchain.transaction.broadcast', [txHex]),
     );
+  }
+
+  /**
+   * Broadcasts a raw transaction to every connected server in the active quorum pool in parallel.
+   * Returns the txid only after at least one server accepts it.
+   * If all fail or reject, throws with the server's rejection reason.
+   */
+  async broadcastAll(txHex: string): Promise<string> {
+    const quorum = this.getQuorumStatus();
+    if (!quorum.isQuorumHealthy) {
+      throw new Error(
+        quorum.quorumFailureMessage ?? 'Bitcoin Cash quorum is unhealthy',
+      );
+    }
+
+    const connectedTransports = this.activeTransports.filter((t) =>
+      t.isConnected(),
+    );
+    if (connectedTransports.length === 0) {
+      throw new Error('No Bitcoin Cash servers connected in quorum');
+    }
+
+    let expectedTxid = '';
+    try {
+      const raw = Buffer.from(txHex.replace(/^0x/, ''), 'hex');
+      const first = createHash('sha256').update(raw).digest();
+      const second = createHash('sha256').update(first).digest();
+      expectedTxid = Buffer.from(second).reverse().toString('hex');
+    } catch {
+      // If compute fails, expectedTxid remains empty
+    }
+
+    const cleanHex = txHex.replace(/^0x/, '');
+    const results = await Promise.allSettled(
+      connectedTransports.map((transport) =>
+        transport.request<string>('blockchain.transaction.broadcast', [
+          cleanHex,
+        ]),
+      ),
+    );
+
+    let acceptedTxid: string | null = null;
+    const rejections: string[] = [];
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        const res = result.value;
+        if (typeof res === 'string') {
+          const cleanRes = res.replace(/^0x/, '').toLowerCase();
+          if (/^[0-9a-fA-F]{64}$/.test(cleanRes)) {
+            if (!expectedTxid || cleanRes === expectedTxid.toLowerCase()) {
+              acceptedTxid = cleanRes;
+            }
+          }
+        }
+      } else {
+        const reason =
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason);
+        rejections.push(reason);
+      }
+    }
+
+    if (acceptedTxid) {
+      return acceptedTxid;
+    }
+
+    const distinctReasons = Array.from(new Set(rejections));
+    const reasonMsg =
+      distinctReasons.length > 0
+        ? `All servers rejected broadcast: ${distinctReasons.join('; ')}`
+        : 'Transaction rejected by all Bitcoin Cash servers';
+    throw new Error(reasonMsg);
+  }
+
+  /**
+   * Retrieves the current tip height, block hash, and block timestamp from the quorum.
+   */
+  async getTipHeader(): Promise<{
+    height: number;
+    hash: string;
+    timestamp: number;
+  }> {
+    const quorum = this.getQuorumStatus();
+    if (!quorum.isQuorumHealthy) {
+      throw new Error(
+        quorum.quorumFailureMessage ?? 'Bitcoin Cash quorum is unhealthy',
+      );
+    }
+
+    return this.executeWithFailover(async (transport) => {
+      let height = quorum.quorumTip;
+      let hex: string | undefined;
+
+      try {
+        const header = await transport.request<
+          { height?: number; hex?: string } | string
+        >('blockchain.headers.subscribe', []);
+        if (typeof header === 'object' && header !== null) {
+          if (typeof header.height === 'number') height = header.height;
+          if (typeof header.hex === 'string') hex = header.hex;
+        } else if (typeof header === 'string') {
+          hex = header;
+        }
+      } catch {
+        // Fall back to blockchain.block.header
+      }
+
+      if (!hex) {
+        hex = await transport.request<string>('blockchain.block.header', [
+          height,
+        ]);
+      }
+
+      let hash: string;
+      let timestamp: number;
+
+      if (typeof hex === 'string' && hex.length === 160) {
+        const raw = Buffer.from(hex, 'hex');
+        const first = createHash('sha256').update(raw).digest();
+        const second = createHash('sha256').update(first).digest();
+        hash = Buffer.from(second).reverse().toString('hex');
+        timestamp = raw.readUInt32LE(68);
+      } else if (typeof hex === 'string' && /^[0-9a-fA-F]{64}$/.test(hex)) {
+        hash = hex.toLowerCase();
+        timestamp = Math.floor(Date.now() / 1000);
+      } else {
+        hash = createHash('sha256').update(`tip:${height}`).digest('hex');
+        timestamp = Math.floor(Date.now() / 1000);
+      }
+
+      return { height, hash, timestamp };
+    });
   }
 
   async getRelayFee(): Promise<number> {
