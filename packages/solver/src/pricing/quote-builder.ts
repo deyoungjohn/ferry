@@ -194,6 +194,8 @@ export class QuoteBuilder {
     // 3. Price fetch and freshness check
     let payReading: AssetPriceReading;
     let receiveReading: AssetPriceReading;
+    // The asset being read when a failure happens, so the refusal names the right one.
+    let reading = params.payAsset;
     try {
       // Only the EVM stablecoin has a per-chain feed; the Bitcoin Cash side ignores the chain.
       const payChain =
@@ -203,13 +205,16 @@ export class QuoteBuilder {
       payReading = this.priceSource.getDetailedPrice
         ? await this.priceSource.getDetailedPrice(params.payAsset, payChain)
         : await this.priceSource.getPrice(params.payAsset, payChain);
+      reading = params.receiveAsset;
       receiveReading = this.priceSource.getDetailedPrice
         ? await this.priceSource.getDetailedPrice(
             params.receiveAsset,
             receiveChain,
           )
         : await this.priceSource.getPrice(params.receiveAsset, receiveChain);
+      reading = params.payAsset;
       assertFreshPrice(payReading, params.nowSeconds);
+      reading = params.receiveAsset;
       assertFreshPrice(receiveReading, params.nowSeconds);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -228,7 +233,7 @@ export class QuoteBuilder {
       return {
         ok: false,
         reason: 'PRICE_UNAVAILABLE',
-        asset: params.payAsset,
+        asset: reading,
         message: `Reference price unavailable: ${msg}`,
       };
     }

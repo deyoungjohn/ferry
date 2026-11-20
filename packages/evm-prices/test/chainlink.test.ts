@@ -116,3 +116,20 @@ describe('ChainlinkPriceSource', () => {
     );
   });
 });
+
+describe('USDG on Robinhood Chain', () => {
+  it('reads the USDG/USD feed (the live price source uses this reader)', async () => {
+    const robinhood = loadChainConfig({ env: {} }).facts.find(
+      (item) => item.id === 'robinhood',
+    )!;
+    const usdg = new ChainlinkPriceSource({
+      chain: robinhood,
+      reader: reader(round({ answer: 100_001_000n })),
+      nowSeconds: () => NOW,
+    });
+    await expect(usdg.getPrice('USDG')).resolves.toMatchObject({
+      usdPrice: 1_000_010n,
+      source: 'chainlink:robinhood:usdg/usd',
+    });
+  });
+});
