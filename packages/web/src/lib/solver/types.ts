@@ -6,6 +6,8 @@ import type {
   QuoteRefusal,
 } from '@ferry/core';
 import type {
+  ConfirmSendLinkRouteRequest,
+  ConfirmSendLinkRouteResponse,
   SwitchSendLinkRouteRequest,
   SwitchSendLinkRouteResponse,
 } from '@ferry/core/api';
@@ -178,6 +180,7 @@ export interface SendLinkView {
   readonly orderId?: string | undefined;
   readonly bchRefundHeight?: number | undefined;
   readonly evmToken?: string | undefined;
+  readonly isHeld?: boolean | undefined;
 }
 
 export interface SolverClient {
@@ -196,6 +199,10 @@ export interface SolverClient {
     id: string,
     request: SwitchSendLinkRouteRequest,
   ): Promise<SwitchSendLinkRouteResponse>;
+  confirmSendLinkRoute?(
+    id: string,
+    request: ConfirmSendLinkRouteRequest,
+  ): Promise<ConfirmSendLinkRouteResponse>;
   createOrder?(quote: SignedQuote, userAddress?: string): Promise<SwapOrder>;
   submitLock?(orderId: string, txHash: string): Promise<SwapOrder>;
   getHealth?(): Promise<SolverHealthResponse>;

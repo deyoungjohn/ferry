@@ -1,5 +1,7 @@
 import type { Hex32 } from '@ferry/core';
 import type {
+  ConfirmSendLinkRouteRequest,
+  ConfirmSendLinkRouteResponse,
   QuoteResponse,
   RelayClaimRequest,
   RelayClaimResponse,
@@ -31,6 +33,10 @@ export interface SendLinkSolverPort {
     id: string,
     request: SwitchSendLinkRouteRequest,
   ): Promise<SwitchSendLinkRouteResponse>;
+  confirmSendLinkRoute?(
+    id: string,
+    request: ConfirmSendLinkRouteRequest,
+  ): Promise<ConfirmSendLinkRouteResponse>;
 }
 
 export interface SendLinkDependencies {

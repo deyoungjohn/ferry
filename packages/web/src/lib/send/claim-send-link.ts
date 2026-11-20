@@ -27,7 +27,7 @@ export interface ClaimSendLinkDependencies {
  * The chain the claim is made on: the link's own chain. A wallet on another network is asked to
  * switch first; when it refuses or cannot, the person is told which network to choose.
  */
-async function ensureLinkChain(
+export async function ensureLinkChain(
   signer: EvmSignerPort,
   wanted: number | undefined,
 ): Promise<number> {

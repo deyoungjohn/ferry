@@ -15,8 +15,11 @@ import type {
 } from './types';
 import { orderTermsFromJson, type LiquidityResponse } from '@ferry/core';
 import {
+  ConfirmSendLinkRouteResponseSchema,
   SendLinkDetailsResponseSchema,
   SwitchSendLinkRouteResponseSchema,
+  type ConfirmSendLinkRouteRequest,
+  type ConfirmSendLinkRouteResponse,
   type SwitchSendLinkRouteRequest,
   type SwitchSendLinkRouteResponse,
 } from '@ferry/core/api';
@@ -399,10 +402,38 @@ export class RealSolverClient implements SolverClient {
         orderId: body.orderId,
         bchRefundHeight: body.bchRefundHeight,
         evmToken: body.evmToken,
+        isHeld: body.isHeld,
       };
     } catch {
       return null;
     }
+  }
+
+  async confirmSendLinkRoute(
+    id: string,
+    request: ConfirmSendLinkRouteRequest,
+  ): Promise<ConfirmSendLinkRouteResponse> {
+    if (!this.baseUrl) {
+      throw new Error('No solver URL configured');
+    }
+    const res = await this.fetchFn(
+      `${this.baseUrl}/v1/send-links/${encodeURIComponent(id)}/confirm`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(request),
+      },
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(
+        (err as { message?: string; error?: { message?: string } }).error
+          ?.message ||
+          (err as { message?: string }).message ||
+          `Route confirmation failed with status ${res.status}`,
+      );
+    }
+    return ConfirmSendLinkRouteResponseSchema.parse(await res.json());
   }
 
   async switchSendLinkRoute(

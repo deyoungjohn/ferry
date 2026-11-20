@@ -71,6 +71,14 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
         expiresAt: Math.floor(Date.now() / 1000) + 7200,
         updatedAt: Math.floor(Date.now() / 1000),
       })),
+      confirmSendLinkRoute: vi.fn(async (_id, req) => ({
+        ok: true,
+        orderId,
+        chainId: req.chainId ?? 8453,
+        token: req.token ?? '0x' + 'aa'.repeat(20),
+        status: 'confirmed',
+        confirmedAt: Math.floor(Date.now() / 1000),
+      })),
       relayClaim: vi.fn(async () => ({
         ok: true,
         orderId,
@@ -124,6 +132,7 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
       id: orderId,
       orderId,
       status: 'pending_lock',
+      isHeld: true,
       amount: 20,
       token: 'USDC',
       chain: 'Base',
@@ -176,6 +185,9 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
 
     const switchBtn = await screen.findByTestId('switch-route-arbitrum');
     fireEvent.click(switchBtn);
+
+    const claimBtn = screen.getByTestId('send-link-submit-button');
+    fireEvent.click(claimBtn);
 
     await waitFor(() => {
       expect(signTypedDataMock).toHaveBeenCalledTimes(1);
@@ -362,6 +374,81 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
     await waitFor(() => {
       // Wallet was prompted to switch to Arbitrum (42161)
       expect(switchChainMock).toHaveBeenCalledWith(42161);
+    });
+  });
+
+  it('the page flow signs once and claims for held default route', async () => {
+    const view: SendLinkView = {
+      id: orderId,
+      orderId,
+      lockId: ('0x' + '22'.repeat(32)) as Hex32,
+      chainId: 8453,
+      status: 'pending_lock',
+      isHeld: true,
+      amount: 20,
+      token: 'USDC',
+      chain: 'Base',
+      recipientEvmAddress: recipientAddress,
+      expiresAt: Math.floor(Date.now() / 1000) + 7200,
+    };
+
+    const solver = createMockSolver(view);
+    const signTypedDataMock = vi.fn(
+      async () => ('0x' + '99'.repeat(65)) as Hex,
+    );
+
+    const mockWallets = {
+      evm: {
+        status: 'connected' as const,
+        address: recipientAddress,
+        chainId: 8453,
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+        switchChain: vi.fn(),
+        signTypedData: signTypedDataMock,
+      },
+      bch: null,
+    };
+
+    render(
+      <WalletContext.Provider value={mockWallets as never}>
+        <SolverProvider client={solver}>
+          <MemoryRouter
+            initialEntries={[`/s/${orderId}#${dummySecret.slice(2)}`]}
+          >
+            <Routes>
+              <Route
+                path="/s/:id"
+                element={
+                  <SendLinkPage
+                    isLive={true}
+                    initialSecret={dummySecret}
+                    dependencies={{
+                      solver: solver as unknown as SendLinkSolverPort,
+                    }}
+                  />
+                }
+              />
+            </Routes>
+          </MemoryRouter>
+        </SolverProvider>
+      </WalletContext.Provider>,
+    );
+
+    const claimBtn = await screen.findByTestId('send-link-submit-button');
+    expect(claimBtn).toHaveTextContent(/Connect and claim/i);
+    fireEvent.click(claimBtn);
+
+    await waitFor(() => {
+      // Signed once for route confirmation
+      expect(signTypedDataMock).toHaveBeenCalledTimes(1);
+      expect(solver.confirmSendLinkRoute).toHaveBeenCalledWith(
+        orderId,
+        expect.objectContaining({
+          chainId: 8453,
+          signature: expect.stringMatching(/^0x/),
+        }),
+      );
     });
   });
 });
