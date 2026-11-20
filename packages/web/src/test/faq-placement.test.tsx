@@ -1,17 +1,17 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router';
-import { FeaturesPage } from '../routes/FeaturesPage';
+import { HowItWorksPage } from '../routes/HowItWorksPage';
 import { Faq } from '../components/Faq';
 import { SolverProvider } from '../lib/solver/SolverProvider';
 import { MockSolverClient } from '../lib/solver/mock';
 
 describe('FAQ', () => {
-  it('is on the features page, as an accordion that opens on click', () => {
+  it('is on the how it works page, as an accordion that opens on click', () => {
     render(
       <MemoryRouter>
         <SolverProvider client={new MockSolverClient()}>
-          <FeaturesPage />
+          <HowItWorksPage />
         </SolverProvider>
       </MemoryRouter>,
     );
