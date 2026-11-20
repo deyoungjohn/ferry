@@ -47,13 +47,13 @@ describe('Swap Flow Integration', () => {
 
     // Initial (Judge path): send tPUSD, receive USDC
     await waitFor(() => {
-      expect(screen.getByText(/1 tPUSD ≈/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 tPUSD =/i)).toBeInTheDocument();
     });
 
     fireEvent.click(flipBtn);
     // After flip: send USDC, receive tPUSD
     await waitFor(() => {
-      expect(screen.getByText(/1 USDC ≈/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 USDC =/i)).toBeInTheDocument();
     });
   });
 
@@ -139,7 +139,7 @@ describe('swap card defaults', () => {
     );
     expect(screen.getByLabelText(/You send/i)).toHaveValue('5.00');
     await waitFor(() => {
-      expect(screen.getByText(/1 USDC ≈/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 USDC =/i)).toBeInTheDocument();
     });
   });
 });

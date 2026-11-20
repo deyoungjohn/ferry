@@ -602,16 +602,33 @@ export function SwapCard({
   }
 
   // Calculated displayed receive amount
+  // The EVM token's own decimals (6 for most, 18 for BNB Chain's USDT and USDC).
+  const farDecimals =
+    farTokenFacts(selectedChain.name, selectedFarToken)?.decimals ?? 6;
   const displayedReceiveAmount = useMemo(() => {
     if (bestSolverQuote) {
       const units = Number(bestSolverQuote.quote.receiveAmount);
-      return (isReverse ? units / 1_000_000 : units / 100).toFixed(2);
+      return (isReverse ? units / 10 ** farDecimals : units / 100).toFixed(2);
     }
     if (quote) {
       return quote.toAmount.toFixed(2);
     }
     return '0.00';
-  }, [bestSolverQuote, quote, isReverse]);
+  }, [bestSolverQuote, quote, isReverse, farDecimals]);
+
+  // What the person really gets for each unit sent, and what the swap costs them, from the amounts
+  // on screen (both stablecoins count as one dollar here; the pricing line shows the references).
+  const sentNumber = parseFloat(sendAmount) || 0;
+  const receivedNumber = parseFloat(displayedReceiveAmount) || 0;
+  const effectiveRate =
+    sentNumber > 0 && receivedNumber > 0 ? receivedNumber / sentNumber : null;
+  const feeShown =
+    sentNumber > 0 && receivedNumber > 0 && sentNumber > receivedNumber
+      ? `$${(sentNumber - receivedNumber).toFixed(2)} (${(
+          ((sentNumber - receivedNumber) / sentNumber) *
+          100
+        ).toFixed(2)}%)`
+      : null;
 
   // Swap block adapters: Ferry's chains and tokens expressed as the block's types.
   const reduceMotion = useReducedMotion();
@@ -991,7 +1008,7 @@ export function SwapCard({
                             Receive:{' '}
                             {(
                               Number(q.quote.receiveAmount) /
-                              (isReverse ? 1_000_000 : 100)
+                              (isReverse ? 10 ** farDecimals : 100)
                             ).toFixed(2)}{' '}
                             · {q.latencyMs}ms
                           </span>
@@ -1277,12 +1294,24 @@ export function SwapCard({
           <div className="mt-2.5 space-y-1 rounded-xl bg-surface-2/60 p-2 text-xs text-text-muted">
             <div className="flex items-center justify-between">
               <span className="text-text-dim">Rate</span>
-              <span className="font-mono text-text">
-                1 {sendTokenSymbol} ≈{' '}
-                {quote?.exchangeRate ? quote.exchangeRate.toFixed(2) : '1.00'}{' '}
+              <span className="font-mono text-text" data-testid="quote-rate">
+                1 {sendTokenSymbol} ={' '}
+                {effectiveRate !== null
+                  ? effectiveRate.toFixed(4)
+                  : quote?.exchangeRate
+                    ? quote.exchangeRate.toFixed(4)
+                    : '—'}{' '}
                 {receiveTokenSymbol}
               </span>
             </div>
+            {feeShown && (
+              <div className="flex items-center justify-between">
+                <span className="text-text-dim">Fee</span>
+                <span className="font-mono text-text" data-testid="quote-fee">
+                  {feeShown}
+                </span>
+              </div>
+            )}
 
             {/* Pricing Evidence Line */}
             <div className="flex items-center justify-between gap-1 text-[11px]">
