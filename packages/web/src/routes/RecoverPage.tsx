@@ -1,5 +1,6 @@
 import {
   listDeployedContracts,
+  loadChainConfig,
   PREDICTED_FERRY_HTLC_ADDRESS,
   PREVIOUS_FERRY_HTLC_ADDRESS,
 } from '@ferry/chain-config/browser';
@@ -16,8 +17,21 @@ import {
   type RecoveryPlan,
   formatDuration,
   evmLockId,
+  EVM_RECOVERY_KEY_TYPED_DATA,
   type Hex32,
 } from '@ferry/core';
+import {
+  scanEvmSignature,
+  type BchWalletSwap,
+  type WalletEvmSwap,
+} from '@ferry/recover-cli/wallet-scan';
+import { scanBchWalletHistory } from '../lib/live/wallet-bch-history';
+import {
+  getOrCreateRescueRoot,
+  getOrDeriveRecoveryRoot,
+} from '../lib/recovery/recovery-key-service';
+import { DEFAULT_MAINNET_FULCRUM } from '../lib/live/bch-chain';
+import { RescueKeyPrompt } from '../components/RescueKeyPrompt';
 import {
   getEvmWalletRecoveryActions,
   inspectEvmWalletRecovery,
@@ -36,6 +50,26 @@ import { useToast } from '../lib/toast/ToastContext';
 import { readOrderTxids, type OrderSnapshot } from '../lib/paylink/order-steps';
 
 const deployed = listDeployedContracts(chainsData);
+const walletRecoveryChains = loadChainConfig({
+  data: chainsData,
+  network: 'mainnet',
+}).facts.map((chain) => ({
+  chainId: chain.chainId,
+  name: chain.name,
+  rpcUrls: chain.rpcUrls,
+  htlcAddresses: [
+    PREDICTED_FERRY_HTLC_ADDRESS,
+    PREVIOUS_FERRY_HTLC_ADDRESS,
+    ...deployed
+      .filter((item) => item.chain === chain.id)
+      .map((item) => item.address),
+  ].filter(
+    (address, index, all) =>
+      all.findIndex(
+        (candidate) => candidate.toLowerCase() === address.toLowerCase(),
+      ) === index,
+  ),
+}));
 
 export function RecoverPage() {
   const walletContext = useContext(WalletContext);
@@ -53,6 +87,19 @@ export function RecoverPage() {
   const [orderSnapshot, setOrderSnapshot] = useState<OrderSnapshot | null>(
     null,
   );
+  const [walletSwaps, setWalletSwaps] = useState<readonly WalletEvmSwap[]>([]);
+  const [walletBusy, setWalletBusy] = useState(false);
+  const [walletError, setWalletError] = useState<string | null>(null);
+  const [bchSwaps, setBchSwaps] = useState<readonly BchWalletSwap[]>([]);
+  const [bchBusy, setBchBusy] = useState(false);
+  const [bchError, setBchError] = useState<string | null>(null);
+  const [bchProgress, setBchProgress] = useState<string | null>(null);
+  const [walletOrders, setWalletOrders] = useState<
+    ReadonlyMap<
+      string,
+      { orderId: string; state: string; bchTokenAmount: string | null }
+    >
+  >(new Map());
 
   /** The contract's lock id for this file's EVM lock (not the order id). */
   function evmLockIdOf(file: RecoveryFile): Hex32 {
@@ -273,6 +320,152 @@ export function RecoverPage() {
     }
   }
 
+  async function recoverWithEvmWallet() {
+    setWalletError(null);
+    setWalletSwaps([]);
+    setWalletOrders(new Map());
+    const evm = walletContext?.evm;
+    if (!evm || evm.status !== 'connected' || !evm.address) {
+      evm?.connect();
+      setWalletError(
+        'Connect your EVM wallet in the dialog that opened, then press Recover with wallet again.',
+      );
+      return;
+    }
+    setWalletBusy(true);
+    try {
+      const signature = await evm.signTypedData(
+        EVM_RECOVERY_KEY_TYPED_DATA as Parameters<typeof evm.signTypedData>[0],
+      );
+      const result = await scanEvmSignature({
+        signature,
+        owner: evm.address,
+        chains: walletRecoveryChains,
+        gap: 20,
+      });
+      setWalletSwaps(result.swaps);
+      const solverUrl = (
+        import.meta.env?.VITE_SOLVER_URLS as string | undefined
+      )
+        ?.split(',')[0]
+        ?.trim();
+      if (solverUrl && result.swaps.length > 0) {
+        const found = new Map<
+          string,
+          { orderId: string; state: string; bchTokenAmount: string | null }
+        >();
+        await Promise.all(
+          result.swaps.map(async (swap) => {
+            try {
+              const response = await fetch(
+                `${solverUrl.replace(/\/+$/, '')}/v1/orders/by-hash-lock/${swap.hashLock}`,
+              );
+              if (!response.ok) return;
+              const body = (await response.json()) as {
+                orderId?: string;
+                state?: string;
+                summary?: { bchTokenAmount?: string };
+              };
+              if (body.state && body.orderId) {
+                found.set(swap.lockId, {
+                  orderId: body.orderId,
+                  state: body.state,
+                  bchTokenAmount: body.summary?.bchTokenAmount ?? null,
+                });
+              }
+            } catch {
+              return;
+            }
+          }),
+        );
+        setWalletOrders(found);
+      } else {
+        setWalletOrders(new Map());
+      }
+      if (result.errors.length > 0) {
+        setWalletError(
+          `Some chains could not be read: ${result.errors.map((item) => item.chain).join(', ')}.`,
+        );
+      } else if (result.swaps.length === 0) {
+        setWalletError('No Ferry locks were found for this wallet.');
+      }
+    } catch (err) {
+      setWalletError(
+        err instanceof Error ? err.message : 'The wallet scan did not finish.',
+      );
+    } finally {
+      setWalletBusy(false);
+    }
+  }
+
+  function walletAction(swap: WalletEvmSwap): string {
+    if (swap.status === 'refunded') return 'Already refunded';
+    if (swap.status === 'claimed') return 'Already claimed';
+    if (swap.evmDeadline === null) return 'Locked';
+    const now = Math.floor(Date.now() / 1000);
+    return BigInt(now) >= swap.evmDeadline
+      ? 'Refund is available'
+      : `Refund after ${new Date(Number(swap.evmDeadline) * 1000).toUTCString()}`;
+  }
+
+  async function recoverWithBchWallet() {
+    setBchError(null);
+    setBchSwaps([]);
+    const wallet = walletContext;
+    if (!wallet) {
+      setBchError('The wallet context is not ready.');
+      return;
+    }
+    if (wallet.bch.status !== 'connected') {
+      wallet.bch.connect();
+      setBchError(
+        'Connect your Bitcoin Cash wallet in the dialog that opened, then press Scan Bitcoin Cash wallet again.',
+      );
+      return;
+    }
+    if (!wallet.bch.listFundingAddresses) {
+      setBchError('This Bitcoin Cash wallet cannot list its addresses.');
+      return;
+    }
+    setBchBusy(true);
+    try {
+      const addresses = await wallet.bch.listFundingAddresses();
+      let root;
+      if (wallet.evm.status === 'connected' && wallet.evm.address) {
+        const derived = await getOrDeriveRecoveryRoot(wallet.evm);
+        root = derived.root ?? (await getOrCreateRescueRoot());
+      } else {
+        root = await getOrCreateRescueRoot();
+      }
+      const swaps = await scanBchWalletHistory({
+        root,
+        addresses,
+        urls: DEFAULT_MAINNET_FULCRUM,
+        network: 'mainnet',
+        onProgress: ({ message }) => setBchProgress(message),
+      });
+      setBchSwaps(swaps);
+      if (swaps.length === 0) {
+        setBchError(
+          'No Ferry terms output was found in the scanned Bitcoin Cash addresses.',
+        );
+      }
+    } catch (err) {
+      setBchError(
+        err instanceof Error
+          ? err.message
+          : 'The Bitcoin Cash history scan did not finish.',
+      );
+    } finally {
+      setBchBusy(false);
+      setBchProgress(null);
+    }
+  }
+
+  function bchAction(swap: BchWalletSwap): string {
+    return `Refund at Bitcoin Cash block ${swap.terms.refundHeight.toLocaleString('en-US')}`;
+  }
+
   function handleFileUpload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -487,6 +680,119 @@ export function RecoverPage() {
         >
           ← Back to Swap
         </Link>
+      </div>
+
+      {/* Wallet recovery */}
+      <div
+        data-testid="recover-with-wallet"
+        className="mb-6 rounded-card border border-lime/30 bg-lime/5 p-5 shadow-elev-card"
+      >
+        <h2 className="text-sm font-semibold text-text mb-1">
+          Recover with your wallet
+        </h2>
+        <p className="text-xs text-text-muted leading-relaxed mb-3">
+          Sign one fixed message with your EVM wallet. Ferry derives the swap
+          secrets locally and scans every chain; the signature cannot move
+          funds.
+        </p>
+        <button
+          type="button"
+          onClick={() => void recoverWithEvmWallet()}
+          disabled={walletBusy}
+          className="rounded-pill bg-lime px-4 py-1.5 text-xs font-semibold text-bg hover:bg-lime/90 transition-colors disabled:opacity-60"
+        >
+          {walletBusy ? 'Scanning…' : 'Recover with wallet'}
+        </button>
+        {walletError && (
+          <p className="mt-3 text-xs text-warn" role="status">
+            {walletError}
+          </p>
+        )}
+        {walletSwaps.length > 0 && (
+          <ul className="mt-4 divide-y divide-hairline/60">
+            {walletSwaps.map((swap) => (
+              <li
+                key={`${swap.chainId}-${swap.index}-${swap.lockId}`}
+                className="py-2 text-xs"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium text-text">
+                    {swap.chainName} · {swap.status} · index {swap.index}
+                  </span>
+                  <span className="text-text-muted">
+                    {walletOrders.get(swap.lockId)
+                      ? `Solver order ${walletOrders.get(swap.lockId)!.state}${
+                          walletOrders.get(swap.lockId)!.bchTokenAmount
+                            ? ` · BCH ${walletOrders.get(swap.lockId)!.bchTokenAmount}`
+                            : ''
+                        }`
+                      : walletAction(swap)}
+                  </span>
+                </div>
+                <div className="mt-1 font-mono text-[10px] text-text-dim break-all">
+                  {swap.lockId}
+                </div>
+                {walletOrders.get(swap.lockId) && (
+                  <Link
+                    to={ROUTES.swapOrder(
+                      walletOrders.get(swap.lockId)!.orderId,
+                    )}
+                    className="mt-1 inline-flex text-[11px] font-semibold text-lime hover:underline"
+                  >
+                    Open solver order to claim or refund
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-5 border-t border-lime/20 pt-4">
+          <h3 className="text-xs font-semibold text-text">
+            Recover from your Bitcoin Cash wallet
+          </h3>
+          <p className="mt-1 text-xs text-text-muted leading-relaxed">
+            Uses the wallet&apos;s rotating address history and the FRY1 terms
+            output to find reverse swaps. The root comes from the EVM signature
+            when connected, or the browser rescue key otherwise.
+          </p>
+          {walletContext?.evm.address === null && <RescueKeyPrompt />}
+          <button
+            type="button"
+            onClick={() => void recoverWithBchWallet()}
+            disabled={bchBusy}
+            className="mt-2 rounded-pill border border-lime/40 bg-transparent px-4 py-1.5 text-xs font-semibold text-lime hover:bg-lime/10 transition-colors disabled:opacity-60"
+          >
+            {bchBusy ? 'Scanning…' : 'Scan Bitcoin Cash wallet'}
+          </button>
+          {bchProgress && (
+            <p className="mt-3 text-xs text-text-muted" role="status">
+              {bchProgress}
+            </p>
+          )}
+          {bchError && (
+            <p className="mt-3 text-xs text-warn" role="status">
+              {bchError}
+            </p>
+          )}
+          {bchSwaps.length > 0 && (
+            <ul className="mt-4 divide-y divide-hairline/60">
+              {bchSwaps.map((swap) => (
+                <li key={`${swap.txid}-${swap.index}`} className="py-2 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium text-text">
+                      {swap.terms.token} · {swap.terms.tokenAmount.toString()} ·
+                      index {swap.index}
+                    </span>
+                    <span className="text-text-muted">{bchAction(swap)}</span>
+                  </div>
+                  <div className="mt-1 break-all font-mono text-[10px] text-text-dim">
+                    {swap.address}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       {/* Upload Well */}

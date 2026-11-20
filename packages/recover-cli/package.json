@@ -9,6 +9,11 @@
       "ferry-source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./wallet-scan": {
+      "ferry-source": "./src/wallet-scan.ts",
+      "types": "./dist/wallet-scan.d.ts",
+      "import": "./dist/wallet-scan.js"
     }
   },
   "bin": {
@@ -21,7 +26,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --cache src test",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "wallet-scan": "tsx src/wallet-cli.ts"
   },
   "dependencies": {
     "@ferry/chain-config": "workspace:*",

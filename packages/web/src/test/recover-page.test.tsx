@@ -98,6 +98,7 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
     expect(
       screen.getByRole('heading', { name: /Recover a Swap/i }),
     ).toBeInTheDocument();
+    expect(screen.getByTestId('recover-with-wallet')).toBeInTheDocument();
     expect(screen.getByText(/Choose recovery JSON file/i)).toBeInTheDocument();
     expect(
       screen.getByLabelText(/Or paste recovery file JSON:/i),

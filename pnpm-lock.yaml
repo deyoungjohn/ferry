@@ -589,6 +589,9 @@ importers:
       '@ferry/htlc-bch':
         specifier: workspace:*
         version: link:../htlc-bch
+      '@ferry/recover-cli':
+        specifier: workspace:*
+        version: link:../recover-cli
       '@ferry/solver-client':
         specifier: workspace:*
         version: link:../solver-client
