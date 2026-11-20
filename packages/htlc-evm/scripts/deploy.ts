@@ -14,6 +14,7 @@ import {
 import type { Address, Hex, PublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { loadChainConfig } from '@ferry/chain-config';
+import { execFileSync } from 'node:child_process';
 import { envFileCandidates, findSetting } from './env-file.js';
 import type { ChainId, Network } from '@ferry/chain-config';
 
@@ -281,6 +282,18 @@ function parseCliArgs(argv: string[]): {
 
 async function main(): Promise<void> {
   const args = parseCliArgs(process.argv.slice(2));
+  // The address and init code hash come from the compiled output, so compile first: a stale build
+  // would print (or deploy) the previous contract.
+  try {
+    execFileSync('forge', ['build'], {
+      cwd: resolve(fileURLToPath(import.meta.url), '../..'),
+      stdio: 'ignore',
+    });
+  } catch {
+    console.error(
+      'forge build failed or forge is not installed; using the existing build in out/.',
+    );
+  }
   let rpcUrl = args.rpcUrl;
   let factory: Address = CANONICAL_CREATE2_FACTORY;
 
