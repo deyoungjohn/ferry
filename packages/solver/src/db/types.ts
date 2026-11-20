@@ -53,7 +53,8 @@ export interface PayLinkRecord {
   reference?: string | undefined;
   expiresAt?: number | undefined;
   verified: boolean;
-  status: 'open' | 'reserved' | 'paid' | 'expired' | 'cancelled';
+  status: 'open' | 'reserved' | 'paid' | 'expired' | 'cancelled' | 'closed';
+  ownerSecretHash?: string | undefined;
   orderId?: string | undefined;
   createdAt: number;
   updatedAt: number;

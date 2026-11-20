@@ -18,6 +18,7 @@ export async function createPayLinkOnSolver(
     /** In cents (2 decimals), when the amount is fixed. */
     readonly amountCents?: number | undefined;
     readonly note?: string | undefined;
+    readonly ownerSecretHash?: string | undefined;
   },
   fetchFn: typeof fetch = fetch,
 ): Promise<{ id: string; createdAt: number }> {
@@ -31,6 +32,9 @@ export async function createPayLinkOnSolver(
         ? { amountOut: String(input.amountCents) }
         : {}),
       ...(input.note ? { memo: input.note } : {}),
+      ...(input.ownerSecretHash
+        ? { ownerSecretHash: input.ownerSecretHash }
+        : {}),
     }),
   });
   const body = (await res
@@ -73,6 +77,31 @@ export async function readPayLinkState(
   } catch {
     return null;
   }
+}
+
+export async function deletePayLinkOnSolver(
+  solverUrl: string,
+  id: string,
+  secret: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<{ ok: boolean; id: string; status: string }> {
+  const res = await fetchFn(
+    `${solverUrl.replace(/\/+$/, '')}/v1/links/${encodeURIComponent(id)}`,
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret }),
+    },
+  );
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as {
+      error?: { message?: string };
+    };
+    throw new Error(
+      err.error?.message ?? `Failed to delete pay link (${res.status})`,
+    );
+  }
+  return res.json() as Promise<{ ok: boolean; id: string; status: string }>;
 }
 
 export interface PayLinkDetails {

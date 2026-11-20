@@ -34,15 +34,20 @@ import {
   type Hex32,
   type OrderTerms,
 } from '@ferry/core';
+import * as libauth from '@bitauth/libauth';
 import {
   API_ERROR_CODES,
   API_ERROR_HTTP_STATUS,
   ApiErrorResponseSchema,
   CancelPayLinkRequestSchema,
   CancelPayLinkResponseSchema,
+  CancelSendLinkQuotaSchema,
+  CancelSendLinkRequestSchema,
+  CancelSendLinkResponseSchema,
   ChainsResponseSchema,
   CreatePayLinkRequestSchema,
   CreatePayLinkResponseSchema,
+  DeletePayLinkResponseSchema,
   HealthResponseSchema,
   LiquidityResponseSchema,
   ListPayLinksQuerySchema,
@@ -70,6 +75,9 @@ import {
   type BchFirstUseResponse,
   type BchHistoryResponse,
   type BchTipResponse,
+  type CancelSendLinkRequest,
+  type CancelSendLinkResponse,
+  type DeletePayLinkResponse,
   type SendLinkDetailsResponse,
   type SendLinkQueryMatch,
 } from '@ferry/core/api';
@@ -96,6 +104,11 @@ import type { SolverDatabase } from '../db/database.js';
 import { MIN_TRANSACTION_USD_MICROS } from '@ferry/core';
 import { claimRequestTypedData } from '@ferry/core/api';
 import type { OrderRecord, PayLinkRecord } from '../db/types.js';
+import type {
+  SolverOrderRecord,
+  OrderStatus,
+  SwapDirection,
+} from '../state-machine/types.js';
 import type { SolverEngine } from '../engine/runner.js';
 import { createLinkId, verifyPayLinksSignature } from '../paylink/link.js';
 import {
@@ -1323,6 +1336,14 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         return sendApiError(reply, 'ORDER_NOT_FOUND', `Order ${id} not found`);
       }
 
+      if (order.status === 'CANCELLED' || db.isOrderCancelled(order.id)) {
+        return sendApiError(
+          reply,
+          'LINK_CANCELLED',
+          'This send link was cancelled by the sender and cannot be claimed',
+        );
+      }
+
       let terms: OrderTerms;
       try {
         terms = JSON.parse(order.termsJson, (_k, v) =>
@@ -1574,6 +1595,14 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       const order = db.getOrder(id);
       if (!order) {
         return sendApiError(reply, 'ORDER_NOT_FOUND', `Order ${id} not found`);
+      }
+
+      if (order.status === 'CANCELLED' || db.isOrderCancelled(order.id)) {
+        return sendApiError(
+          reply,
+          'LINK_CANCELLED',
+          'This send link was cancelled by the sender and cannot be claimed',
+        );
       }
 
       const raw = (req.body ?? {}) as Record<string, unknown>;
@@ -2825,6 +2854,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       ...(memo !== undefined ? { memo } : {}),
       ...(raw.expiresAt !== undefined ? { expiresAt: raw.expiresAt } : {}),
       ...(raw.ownerSig !== undefined ? { ownerSig: raw.ownerSig } : {}),
+      ...(raw.ownerSecretHash !== undefined
+        ? { ownerSecretHash: raw.ownerSecretHash }
+        : {}),
     };
 
     const parseResult = CreatePayLinkRequestSchema.safeParse(normalizedBody);
@@ -2909,6 +2941,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       expiresAt: body.expiresAt,
       verified: Boolean(body.ownerSig),
       status: 'open',
+      ownerSecretHash: body.ownerSecretHash,
       createdAt: now,
       updatedAt: now,
     };
@@ -3008,7 +3041,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         (link.kind as 'invoice' | 'open') ??
         (link.amountOut ? 'invoice' : 'open'),
       status: link.status as
-        'open' | 'reserved' | 'paid' | 'expired' | 'cancelled',
+        'open' | 'reserved' | 'paid' | 'expired' | 'cancelled' | 'closed',
       token: link.token as 'PUSD' | 'MUSD',
       recipientAddress: link.recipientCashaddr,
       recipientLockingBytecode: link.recipientLockingBytecode as Hex,
@@ -3352,6 +3385,94 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     },
   );
 
+  // 18b. DELETE /v1/links/:id (Delete/Close PayLink with Owner Secret)
+  app.delete<{
+    Params: { id: string };
+    Body?: { secret?: string };
+  }>('/v1/links/:id', async (req, reply) => {
+    const { id } = req.params;
+    const bodySecret =
+      typeof req.body === 'object' && req.body !== null
+        ? (req.body as { secret?: string }).secret
+        : undefined;
+    const headerSecret = req.headers['x-owner-secret'] as string | undefined;
+    const secret = bodySecret ?? headerSecret;
+
+    const link = db.getPayLink(id);
+    if (!link) {
+      return sendApiError(reply, 'LINK_NOT_FOUND', `Pay link ${id} not found`);
+    }
+
+    if (!link.ownerSecretHash) {
+      return sendApiError(
+        reply,
+        'UNAUTHORIZED',
+        'Pay link was created without an owner secret and cannot be deleted with a secret',
+      );
+    }
+
+    if (!secret) {
+      return sendApiError(
+        reply,
+        'UNAUTHORIZED',
+        'Missing owner secret for pay link deletion',
+      );
+    }
+
+    let secretMatches = false;
+    try {
+      const cleanSecret = secret.startsWith('0x') ? secret.slice(2) : secret;
+      let secretBytes: Uint8Array;
+      if (/^[0-9a-fA-F]+$/.test(cleanSecret) && cleanSecret.length % 2 === 0) {
+        secretBytes = libauth.hexToBin(cleanSecret);
+      } else {
+        secretBytes = new TextEncoder().encode(secret);
+      }
+      const hashedHex =
+        `0x${libauth.binToHex(libauth.sha256.hash(secretBytes))}`.toLowerCase();
+      if (hashedHex === link.ownerSecretHash.toLowerCase()) {
+        secretMatches = true;
+      }
+    } catch {
+      secretMatches = false;
+    }
+
+    if (!secretMatches) {
+      return sendApiError(reply, 'UNAUTHORIZED', 'Invalid owner secret');
+    }
+
+    if (link.status === 'paid') {
+      return sendApiError(
+        reply,
+        'ALREADY_PAID',
+        'Cannot delete a paid pay link',
+      );
+    }
+
+    const payingOrder = db.findOrderForPayLink(link);
+    if (
+      payingOrder &&
+      payingOrder.status !== 'QUOTED' &&
+      payingOrder.status !== 'EXPIRED' &&
+      payingOrder.status !== 'REJECTED'
+    ) {
+      return sendApiError(
+        reply,
+        'ALREADY_PAID',
+        'Cannot delete a pay link with payment in progress',
+      );
+    }
+
+    db.updatePayLinkStatus(link.id, 'closed');
+    const response: DeletePayLinkResponse = {
+      ok: true,
+      id: link.id,
+      status: 'closed',
+    };
+    DeletePayLinkResponseSchema.parse(response);
+    return reply.status(200).send(response);
+  });
+
   // 19. POST /v1/send-quotes
   app.post('/v1/send-quotes', async (req, reply) => {
     let clientIp: string;
@@ -3411,6 +3532,16 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       viewTag = `0x${viewTag}`;
     }
 
+    let cancelHash =
+      raw.cancelHash !== undefined ? String(raw.cancelHash) : undefined;
+    if (
+      cancelHash &&
+      !cancelHash.startsWith('0x') &&
+      /^[0-9a-fA-F]{64}$/.test(cancelHash)
+    ) {
+      cancelHash = `0x${cancelHash}`;
+    }
+
     const normalizedBody = {
       token,
       chainId,
@@ -3423,6 +3554,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       windowSeconds,
       ...(raw.note !== undefined ? { note: raw.note } : {}),
       ...(viewTag !== undefined ? { viewTag } : {}),
+      ...(cancelHash !== undefined ? { cancelHash } : {}),
       lane,
     };
 
@@ -3631,6 +3763,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     if (request.viewTag !== undefined) {
       db.saveSendLinkTag(request.viewTag, orderIdHex, now);
     }
+    // The cancelHash is kept beside the order, not inside its signed terms.
+    if (request.cancelHash !== undefined) {
+      db.saveSendLinkCancelHash(orderIdHex, request.cancelHash, now);
+    }
 
     const response = {
       orderId: (orderIdHex.startsWith('0x')
@@ -3659,10 +3795,18 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       throw new Error('Failed to parse stored send link terms');
     }
 
-    let status: 'pending_lock' | 'locked' | 'claimed' | 'refunded' | 'expired';
+    let status:
+      | 'pending_lock'
+      | 'locked'
+      | 'claimed'
+      | 'refunded'
+      | 'expired'
+      | 'cancelled';
     // The names below are the engine's own order states (DONE, SECRET_KNOWN, SOLVER_REFUNDED, ...);
     // an earlier version mapped names the engine never uses, so a finished link read as pending.
-    if (
+    if (order.status === 'CANCELLED' || db.isOrderCancelled(order.id)) {
+      status = 'cancelled';
+    } else if (
       order.status === 'DONE' ||
       order.status === 'SECRET_KNOWN' ||
       order.status === 'SWAP_COMPLETE' ||
@@ -3698,9 +3842,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
     const response: SendLinkDetailsResponse = {
       id: order.id,
-      orderId: (order.id.startsWith('0x')
-        ? order.id
-        : `0x${order.id}`) as Hex32,
+      ...(/^0x[0-9a-fA-F]{64}$/.test(order.id)
+        ? { orderId: order.id.toLowerCase() as Hex32 }
+        : {}),
       status,
       token: (terms.bchToken === 'MUSD' ? 'MUSD' : 'PUSD') as 'PUSD' | 'MUSD',
       chainId: terms.evmChainId,
@@ -3813,6 +3957,305 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     SendLinksQueryResponseSchema.parse(response);
     return reply.status(200).send(response);
   });
+
+  let cachedSecp256k1: libauth.Secp256k1 | null = null;
+  async function getSecp256k1(): Promise<libauth.Secp256k1> {
+    if (!cachedSecp256k1) {
+      cachedSecp256k1 = await libauth.instantiateSecp256k1();
+    }
+    return cachedSecp256k1;
+  }
+
+  async function verifySenderCancellationAuth(
+    terms: OrderTerms,
+    body: CancelSendLinkRequest,
+    orderId: string,
+    storedCancelHash: { cancelHash: string; spent: boolean } | null,
+  ): Promise<boolean> {
+    // 1. Refuse any request providing recoveryRoot or recovery/EVM signatures
+    if (body.recoveryRoot || body.recoverySignature || body.evmSignature) {
+      return false;
+    }
+
+    // 2. Method 1: Cancel key (revealed by sender, hashes to stored cancelHash)
+    if (body.cancelKey && storedCancelHash && !storedCancelHash.spent) {
+      try {
+        const cleanKey = body.cancelKey.replace(/^0x/i, '');
+        if (/^[0-9a-fA-F]{64}$/.test(cleanKey)) {
+          const keyBytes = libauth.hexToBin(cleanKey);
+          const computedHash =
+            `0x${libauth.binToHex(libauth.sha256.hash(keyBytes))}`.toLowerCase();
+          if (computedHash === storedCancelHash.cancelHash.toLowerCase()) {
+            return true;
+          }
+        }
+      } catch {
+        // invalid cancel key
+      }
+    }
+
+    // 3. Method 2: Bitcoin Cash wallet signature (exact P2PKH refund bytecode check)
+    if (body.bchPublicKey && body.bchSignature) {
+      try {
+        const pubKeyBin = libauth.hexToBin(
+          body.bchPublicKey.replace(/^0x/i, ''),
+        );
+        const pkh = libauth.hash160(pubKeyBin);
+        const expectedP2pkh =
+          `76a914${libauth.binToHex(pkh)}88ac`.toLowerCase();
+        const userLocking = terms.userBchLockingBytecode
+          .replace(/^0x/i, '')
+          .toLowerCase();
+
+        // Exact match: the lock's refund bytecode must be the pubkey hash's P2PKH, no substring match
+        if (userLocking === expectedP2pkh) {
+          const cancelMsg = `cancel:${orderId}`;
+          const msgHash = libauth.sha256.hash(
+            new TextEncoder().encode(cancelMsg),
+          );
+          const sigBin = libauth.hexToBin(
+            body.bchSignature.replace(/^0x/i, ''),
+          );
+          const secp = await getSecp256k1();
+          if (sigBin.length === 64) {
+            if (secp.verifySignatureSchnorr(sigBin, pubKeyBin, msgHash)) {
+              return true;
+            }
+          }
+          if (secp.verifySignatureDERLowS(sigBin, pubKeyBin, msgHash)) {
+            return true;
+          }
+          if (secp.verifySignatureCompact(sigBin, pubKeyBin, msgHash)) {
+            return true;
+          }
+        }
+      } catch {
+        // verification failed
+      }
+    }
+
+    return false;
+  }
+
+  // 22. GET /v1/send-links/:id/cancel-quota
+  app.get<{ Params: { id: string } }>(
+    '/v1/send-links/:id/cancel-quota',
+    async (req, reply) => {
+      const { id } = req.params;
+      const order = db.getOrder(id);
+      if (!order) {
+        return sendApiError(
+          reply,
+          'LINK_NOT_FOUND',
+          `Send link ${id} not found`,
+        );
+      }
+      let terms: OrderTerms;
+      try {
+        terms = JSON.parse(order.termsJson);
+      } catch {
+        return sendApiError(
+          reply,
+          'INTERNAL_ERROR',
+          'Failed to parse order terms',
+        );
+      }
+      const senderIdentity = terms.userBchLockingBytecode.toLowerCase();
+      const now = Math.floor(Date.now() / 1000);
+      const quota = db.getSendLinkCancellationQuota(senderIdentity, now);
+      CancelSendLinkQuotaSchema.parse(quota);
+      return reply.status(200).send(quota);
+    },
+  );
+
+  // 23. POST /v1/send-links/:id/cancel
+  app.post<{ Params: { id: string } }>(
+    '/v1/send-links/:id/cancel',
+    async (req, reply) => {
+      const { id } = req.params;
+      const order = db.getOrder(id);
+      if (!order) {
+        return sendApiError(
+          reply,
+          'LINK_NOT_FOUND',
+          `Send link ${id} not found`,
+        );
+      }
+
+      let terms: OrderTerms;
+      try {
+        terms = JSON.parse(order.termsJson);
+      } catch {
+        return sendApiError(
+          reply,
+          'INTERNAL_ERROR',
+          'Failed to parse order terms',
+        );
+      }
+
+      // 1. Check if already claimed
+      if (
+        order.status === 'DONE' ||
+        order.status === 'SECRET_KNOWN' ||
+        order.status === 'SWAP_COMPLETE' ||
+        order.status === 'CLAIMED' ||
+        order.status === 'SOLVER_CLAIM_FINAL' ||
+        order.status === 'SOLVER_CLAIM_BROADCAST' ||
+        order.status === 'USER_CLAIM_SEEN' ||
+        order.status === 'USER_CLAIM_FINAL' ||
+        (order.secret && isValidSecret(order.secret, order.hashLock))
+      ) {
+        return sendApiError(
+          reply,
+          'ALREADY_CLAIMED',
+          'This send link has already been claimed and cannot be cancelled',
+        );
+      }
+
+      // 2. Check if claim is in progress / EVM counter-lock exists
+      if (
+        order.solverLockTxId ||
+        order.status === 'SOLVER_LOCK_BROADCAST' ||
+        order.status === 'SOLVER_LOCK_SEEN' ||
+        db.getAction(order.id, 'SOLVER_LOCK')
+      ) {
+        return sendApiError(
+          reply,
+          'CLAIM_IN_PROGRESS',
+          'A receiver claim is already in progress and the link cannot be cancelled',
+        );
+      }
+
+      const parseResult = CancelSendLinkRequestSchema.safeParse(req.body ?? {});
+      if (!parseResult.success) {
+        return sendApiError(
+          reply,
+          'VALIDATION_ERROR',
+          'Invalid cancel send link request payload',
+          { issues: parseResult.error.issues },
+        );
+      }
+
+      const senderIdentity = terms.userBchLockingBytecode.toLowerCase();
+      const now = Math.floor(Date.now() / 1000);
+
+      // 3. Check if already cancelled (idempotent)
+      if (order.status === 'CANCELLED' || db.isOrderCancelled(order.id)) {
+        const quota = db.getSendLinkCancellationQuota(senderIdentity, now);
+        const response: CancelSendLinkResponse = {
+          success: true,
+          orderId: order.id,
+          status: 'cancelled',
+          ...(order.solverRefundTxId
+            ? { refundTxId: order.solverRefundTxId }
+            : {}),
+          quota,
+        };
+        CancelSendLinkResponseSchema.parse(response);
+        return reply.status(200).send(response);
+      }
+
+      // 4. Verify authorization (proves knowledge of cancelKey or BCH wallet key)
+      if (
+        parseResult.data.recoveryRoot ||
+        parseResult.data.recoverySignature ||
+        parseResult.data.evmSignature
+      ) {
+        return sendApiError(
+          reply,
+          'NOT_YOUR_LINK',
+          'Recovery root or signatures are refused as proof to prevent secret disclosure. Use the cancel key or Bitcoin Cash wallet signature.',
+        );
+      }
+
+      const storedCancelHash = db.getSendLinkCancelHash(order.id);
+      const isAuthorized = await verifySenderCancellationAuth(
+        terms,
+        parseResult.data,
+        order.id,
+        storedCancelHash,
+      );
+      if (!isAuthorized) {
+        return sendApiError(
+          reply,
+          'NOT_YOUR_LINK',
+          'Unauthorized: cancellation requires the cancel key or the Bitcoin Cash wallet that created the lock',
+        );
+      }
+
+      // 5. Check quota limits (2 per 24h, 10 per 30d per sender identity)
+      const quota = db.getSendLinkCancellationQuota(senderIdentity, now);
+      if (quota.dailyRemaining <= 0 || quota.monthlyRemaining <= 0) {
+        const nextTimeStr = quota.nextAllowedAt
+          ? new Date(quota.nextAllowedAt * 1000).toISOString()
+          : 'later';
+        return sendApiError(
+          reply,
+          'LIMIT_REACHED',
+          `Cancellation limit reached (max 2 per 24 hours, 10 per 30 days). Next cancellation available at ${nextTimeStr}.`,
+          {
+            quota,
+            nextAllowedAt: quota.nextAllowedAt,
+          },
+        );
+      }
+
+      // 6. Record cancellation and update order state
+      db.recordSendLinkCancellation(order.id, senderIdentity, now);
+      db.markSendLinkCancelHashSpent(order.id);
+      order.status = 'CANCELLED';
+      order.updatedAt = now;
+
+      // 7. If user lock is on chain, execute early release
+      let refundTxId = order.solverRefundTxId;
+      if (
+        !refundTxId &&
+        (order.userLockTxId ||
+          order.status === 'USER_LOCK_SEEN' ||
+          order.status === 'USER_LOCK_FINAL' ||
+          order.status === 'LOCKED')
+      ) {
+        try {
+          if (engine && typeof engine.earlyReleaseUserBchLock === 'function') {
+            const solverOrder: SolverOrderRecord = {
+              ...order,
+              direction: order.direction as SwapDirection,
+              status: order.status as OrderStatus,
+              terms,
+              hashLock: order.hashLock as `0x${string}`,
+              secret: order.secret as `0x${string}` | undefined,
+              secretSource: undefined,
+            };
+            await engine.earlyReleaseUserBchLock(
+              solverOrder,
+              'Cancelled by sender',
+            );
+            const refreshed = db.getOrder(order.id);
+            if (refreshed?.solverRefundTxId) {
+              refundTxId = refreshed.solverRefundTxId;
+              order.solverRefundTxId = refundTxId;
+            }
+          }
+        } catch {
+          // If on-chain release encounters issue, order remains cancelled
+        }
+      }
+
+      db.saveOrder(order);
+      const updatedQuota = db.getSendLinkCancellationQuota(senderIdentity, now);
+
+      const response: CancelSendLinkResponse = {
+        success: true,
+        orderId: order.id,
+        status: 'cancelled',
+        ...(refundTxId ? { refundTxId } : {}),
+        quota: updatedQuota,
+      };
+
+      CancelSendLinkResponseSchema.parse(response);
+      return reply.status(200).send(response);
+    },
+  );
 
   return app;
 }

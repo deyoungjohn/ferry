@@ -90,4 +90,22 @@ describe('the steps of a pay link and a send link', () => {
       ).every((s) => s.state === 'done'),
     ).toBe(true);
   });
+
+  it('send link: shows refund step when cancelled and refunded to sender', () => {
+    const steps = sendLinkSteps(
+      'Base',
+      snap({ bchLock: H('a'), bchRefund: H('r') }, 'CANCELLED'),
+      false,
+    );
+    expect(
+      steps.some(
+        (s) => s.label.includes('Cancelled') || s.label.includes('Refunded'),
+      ),
+    ).toBe(true);
+    const refundStep = steps.find((s) =>
+      s.txs?.some((tx) => tx.hash === H('r')),
+    );
+    expect(refundStep).toBeDefined();
+    expect(refundStep?.state).toBe('done');
+  });
 });
