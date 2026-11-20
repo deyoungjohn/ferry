@@ -82,7 +82,7 @@ export function encodeHtlcParameters(
       tokenCategory,
       tokenAmount: terms.bchTokenAmount,
       refundHeight: terms.bchRefundHeight,
-      maxFee: terms.bchMaxFee,
+      maxFee: BigInt(terms.bchMaxFee),
     };
   }
 
@@ -204,7 +204,7 @@ export function getHtlcContract(
     params.tokenCategory,
     params.tokenAmount,
     BigInt(params.refundHeight),
-    params.maxFee,
+    BigInt(params.maxFee),
   ];
 
   const targetArtifact =

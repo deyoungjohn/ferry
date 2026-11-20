@@ -255,6 +255,7 @@ export interface BchLockContext {
   /** The user's own locking bytecode, hex: where the funding outputs are looked up. */
   readonly userLockingBytecodeHex: string;
   readonly feeRateSatPerByte?: number;
+  readonly recoveryTag?: string | Uint8Array | undefined;
 }
 
 const DEFAULT_FEE_RATE_SAT_PER_BYTE = 1;
@@ -333,6 +334,8 @@ export async function lockUserOnBch(
       network: context.bchNetwork,
       feeRateSatPerByte:
         context.feeRateSatPerByte ?? DEFAULT_FEE_RATE_SAT_PER_BYTE,
+      includeTermsOutput: true,
+      recoveryTag: context.recoveryTag,
     });
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('Insufficient')) {

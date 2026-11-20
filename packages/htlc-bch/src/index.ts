@@ -11,3 +11,4 @@ export * from './signed-check.js';
 export * from './activity.js';
 export * from './recovery.js';
 export * from './send-link.js';
+export * from './terms-output.js';
