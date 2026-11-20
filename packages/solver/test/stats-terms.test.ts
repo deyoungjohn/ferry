@@ -113,3 +113,30 @@ describe('dollar figures for an 18-decimal token', () => {
     expect(db.getOpenExposureUsdMicros()).toBe(4_980_000n);
   });
 });
+
+describe('open exposure of a dead order', () => {
+  it('ignores a forward order whose own deadline has passed', () => {
+    const db = new SolverDatabase(':memory:');
+    const now = Math.floor(Date.now() / 1000);
+    const make = (id: string, deadline: number) =>
+      db.saveOrder({
+        id: '0x' + id.repeat(32),
+        direction: 'EVM_TO_BCH',
+        status: 'USER_LOCK_SEEN',
+        userCounterAddress: '0x1111111111111111111111111111111111111111',
+        lockId: '0x' + id.repeat(32),
+        hashLock: '0x' + id.repeat(32),
+        termsJson: JSON.stringify({
+          evmAmount: '1000000n',
+          bchTokenAmount: '99n',
+          bchToken: 'PUSD',
+          evmDeadline: deadline,
+        }),
+        createdAt: now - 100,
+        updatedAt: now - 100,
+      });
+    make('f1', now - 3600);
+    make('f2', now + 3600);
+    expect(db.getOpenExposureUsdMicros()).toBe(990_000n);
+  });
+});

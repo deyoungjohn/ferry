@@ -599,6 +599,17 @@ export class SolverDatabase {
       }
       try {
         const terms = JSON.parse(order.termsJson);
+        // Past its own deadline the user can refund and the solver owes nothing: no reservation.
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        const deadline = Number(
+          String(terms.evmDeadline ?? '0').replace(/n$/, ''),
+        );
+        const forward =
+          order.direction === 'EVM_TO_BCH' ||
+          order.direction === 'COUNTER_TO_BCH';
+        if (forward && deadline > 0 && deadline < nowSeconds) continue;
+        if (!forward && toSeconds(order.createdAt) < nowSeconds - 86_400)
+          continue;
         // From the PUSD or MUSD amount (2 decimals, a cent per unit): the same for every EVM token,
         // whatever its decimals (BNB Chain's USDT has 18).
         totalMicros += termsBigInt(terms.bchTokenAmount) * 10_000n;

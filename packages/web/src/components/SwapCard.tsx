@@ -197,21 +197,31 @@ export function SwapCard({
     return [];
   }, []);
 
-  // Fetch liquidity on mount
+  // The available figure: read on mount, then every 15 seconds and when the tab is shown again,
+  // so it never stays at an old value.
   useEffect(() => {
     let active = true;
-    solver
-      .getLiquidity()
-      .then((res) => {
-        if (active) setLiquidity(res);
-      })
-      .catch(() => {
-        // Gracefully ignore liquidity read failure
-      });
+    const read = () =>
+      solver
+        .getLiquidity()
+        .then((res) => {
+          if (active) setLiquidity(res);
+        })
+        .catch(() => {
+          // Keep the last figure when a read fails
+        });
+    void read();
+    const timer = window.setInterval(() => void read(), 15_000);
+    const onVisible = () => {
+      if (!document.hidden) void read();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [solver]);
+  }, [solver, bestSolverQuote]);
 
   // Fetch quote whenever inputs change via multi-solver bestQuote
   useEffect(() => {

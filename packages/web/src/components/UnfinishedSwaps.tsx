@@ -53,6 +53,8 @@ export function UnfinishedSwaps({
 }: UnfinishedSwapsProps) {
   const [local, setLocal] = useState<ResumeAllResult | null>(null);
   const [server, setServer] = useState<readonly Row[]>([]);
+  // Whether the solver's list was read: only then can "not on it" mean "never locked".
+  const [serverRead, setServerRead] = useState(false);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -85,7 +87,10 @@ export function UnfinishedSwaps({
             orderId: order.orderId,
             text: SERVER_TEXT[order.status]!,
           }));
-        if (!cancelled) setServer(rows);
+        if (!cancelled) {
+          setServer(rows);
+          setServerRead(true);
+        }
       } catch {
         // the list is a convenience; the swap card works without it
       }
@@ -103,6 +108,18 @@ export function UnfinishedSwaps({
     const step = swap.session.state.step;
     if (swap.settled || STEP_TEXT[step] === undefined) continue;
     if (isCancelled(swap.orderId)) continue;
+    // A quote that expired without the solver ever seeing a lock is not unfinished business: a
+    // failed read on this page's side must not make it look like one.
+    const expiry = Number(swap.session.recoveryFile?.terms.quoteExpiry ?? 0);
+    const onServerList = server.some((row) => row.orderId === swap.orderId);
+    if (
+      serverRead &&
+      !onServerList &&
+      expiry > 0 &&
+      expiry < Math.floor(Date.now() / 1000)
+    ) {
+      continue;
+    }
     rows.set(swap.orderId, { orderId: swap.orderId, text: STEP_TEXT[step]! });
   }
   const list = [...rows.values()];
