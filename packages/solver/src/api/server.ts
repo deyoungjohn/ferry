@@ -1,3 +1,4 @@
+import { formatUsdMicrosToDecimal } from '../pricing/price-source.js';
 import Fastify, {
   type FastifyInstance,
   type FastifyRequest,
@@ -2362,20 +2363,42 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   });
 
   // 11. GET /v1/pegs
+  // The price of each token as the quote engine reads it now (the DEX spot), with a rolling
+  // history kept in memory (a point at most every two minutes, the last 24 hours).
+  const pegHistory = new Map<string, Array<{ at: number; usdPrice: string }>>();
   app.get('/v1/pegs', async (_req, reply) => {
     const now = Math.floor(Date.now() / 1000);
-    const tokens = [
-      {
-        asset: 'PUSD',
-        currentUsdPrice: '1.00',
-        points: [{ at: now, usdPrice: '1.00' }],
-      },
-      {
-        asset: 'MUSD',
-        currentUsdPrice: '1.00',
-        points: [{ at: now, usdPrice: '1.00' }],
-      },
-    ];
+    const tokens: Array<{
+      asset: string;
+      currentUsdPrice: string;
+      points: Array<{ at: number; usdPrice: string }>;
+    }> = [];
+    for (const asset of ['PUSD', 'MUSD']) {
+      let price = '1.00';
+      try {
+        const reading = await priceSource.getPrice(asset);
+        price = formatUsdMicrosToDecimal(reading.usdPrice);
+      } catch {
+        // No fresh reading: keep the last known price, else par.
+        price = pegHistory.get(asset)?.at(-1)?.usdPrice ?? '1.00';
+      }
+      const history = pegHistory.get(asset) ?? [];
+      const last = history.at(-1);
+      if (!last || now - last.at >= 120) {
+        history.push({ at: now, usdPrice: price });
+      } else {
+        last.usdPrice = price;
+      }
+      const cutoff = now - 86_400;
+      while (history.length > 0 && history[0]!.at < cutoff) history.shift();
+      pegHistory.set(asset, history);
+      tokens.push({
+        asset,
+        currentUsdPrice: price,
+        points:
+          history.length > 0 ? [...history] : [{ at: now, usdPrice: price }],
+      });
+    }
 
     const response = {
       tokens,

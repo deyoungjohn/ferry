@@ -51,7 +51,6 @@ const TESTED = [
 const NOT_YET = [
   'No outside security audit has been done.',
   'Real-money swaps are only starting; volume is small and capped.',
-  'Arc and Robinhood Chain routes are not enabled: the contract has not been proven on Arc, and Robinhood has no issuer-documented stablecoin.',
   'The solver must be online to quote. Refunds and recovery do not need it.',
 ] as const;
 

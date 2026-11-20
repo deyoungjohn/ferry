@@ -50,12 +50,9 @@ describe('HomePage components', () => {
       screen.getByRole('heading', { level: 2, name: /How Ferry Swaps Work/i }),
     ).toBeInTheDocument();
 
-    // FAQ
+    // The FAQ lives on the landing and features pages, not on the swap page.
     expect(
-      screen.getByRole('heading', {
-        level: 2,
-        name: /Frequently Asked Questions & Honest Risks/i,
-      }),
-    ).toBeInTheDocument();
+      screen.queryByRole('heading', { name: /Frequently asked questions/i }),
+    ).not.toBeInTheDocument();
   });
 });
