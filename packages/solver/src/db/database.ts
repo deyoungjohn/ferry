@@ -1090,19 +1090,15 @@ export class SolverDatabase {
     return now;
   }
 
-  /** The orders that older links were tied to by the old rule (one per link), for the swap lists. */
+  /**
+   * The orders the product already attached to a link (stored on the link when its page or the
+   * list read it), for the swap lists: exactly what was shown as a link's payment, not a new guess.
+   */
   private legacyLinkOrderIds(): Set<string> {
-    const from = this.payLinkTaggingFrom();
-    const ids = new Set<string>();
     const rows = this.db
-      .prepare('SELECT id FROM pay_links WHERE created_at < ?')
-      .all(from) as Array<{ id: string }>;
-    for (const row of rows) {
-      const link = this.getPayLink(row.id);
-      const order = link ? this.findLegacyOrderForPayLink(link, from) : null;
-      if (order) ids.add(order.id);
-    }
-    return ids;
+      .prepare('SELECT order_id FROM pay_links WHERE order_id IS NOT NULL')
+      .all() as Array<{ order_id: string }>;
+    return new Set(rows.map((r) => r.order_id));
   }
 
   getRecentSwaps(limit: number = 50): Array<{

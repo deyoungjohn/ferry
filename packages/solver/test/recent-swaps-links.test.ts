@@ -82,15 +82,18 @@ describe('recent swaps leave out link orders', () => {
     expect(db.getRecentSwaps(50).map((s) => s.orderId)).toEqual(['ownswap']);
   });
 
-  it('a link made before marking keeps the old rule for the swaps made before it, one order per link', () => {
+  it('a link made before marking hides only the order the product attached to it', () => {
     const db = new SolverDatabase();
     const now = Math.floor(Date.now() / 1000);
     makeLink(db, recipient, now - 100);
     save(db, 'oldpay', recipient);
+    save(db, 'otherown', recipient);
     db.setSetting('pay_link_tagging_from', String(now + 10));
-    expect(db.findOrderForPayLink(db.getPayLink('pl-real')!)?.id).toBe(
-      'oldpay',
-    );
-    expect(db.getRecentSwaps(50).map((s) => s.orderId)).toEqual([]);
+    const link = db.getPayLink('pl-real')!;
+    expect(db.findOrderForPayLink(link)?.id).toBeDefined();
+    // The product attached one order to the link (stored when the page read it): only that one is
+    // hidden; the owner's other swap to the same address stays in the list.
+    db.savePayLink({ ...link, orderId: 'oldpay', status: 'paid' } as never);
+    expect(db.getRecentSwaps(50).map((s) => s.orderId)).toEqual(['otherown']);
   });
 });
