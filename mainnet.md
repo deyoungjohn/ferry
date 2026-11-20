@@ -8,22 +8,22 @@ Real swaps settled on mainnet through Ferry, read from the public solver record 
 
 ## Routes covered
 
-| Chain | Token | EVM → Bitcoin Cash | Bitcoin Cash → EVM |
-|---|---|---|---|
-| Base | USDC | ✅ 9 | ✅ 3 |
-| Ethereum | USDC | ✅ 1 | ✅ 1 |
-| Ethereum | USDT | ✅ 1 | ✅ 1 |
-| BNB Chain | USDT | ✅ 1 | ✅ 1 |
-| Robinhood Chain | USDG | ✅ 1 | ✅ 1 |
-| Arc | USDC | ✅ 1 | ✅ 1 |
-| Arbitrum One | USDC | ✅ 2 | ✅ 1 |
-| Arbitrum One | USDT | ✅ 1 | ✅ 1 |
+| Chain           | Token | EVM → Bitcoin Cash | Bitcoin Cash → EVM |
+| --------------- | ----- | ------------------ | ------------------ |
+| Base            | USDC  | ✅ 9               | ✅ 3               |
+| Ethereum        | USDC  | ✅ 1               | ✅ 1               |
+| Ethereum        | USDT  | ✅ 1               | ✅ 1               |
+| BNB Chain       | USDT  | ✅ 1               | ✅ 1               |
+| Robinhood Chain | USDG  | ✅ 1               | ✅ 1               |
+| Arc             | USDC  | ✅ 1               | ✅ 1               |
+| Arbitrum One    | USDC  | ✅ 2               | ✅ 1               |
+| Arbitrum One    | USDT  | ✅ 1               | ✅ 1               |
 
 The first swaps (19 Nov) ran while the solver's engine was still being finished, so some took many minutes; later ones settle in about a minute and a half. A swap that is not completed is refunded to its sender and does not appear here.
 
 ## Every completed swap
 
-Times are UTC. "Created" is when the quote was made; "Done" is when the last claim confirmed. Transactions: *Lock* is the swap's first lock, *Counter-lock* the solver's lock on the other chain, then the two claims.
+Times are UTC. "Created" is when the quote was made; "Done" is when the last claim confirmed. Transactions: _Lock_ is the swap's first lock, _Counter-lock_ the solver's lock on the other chain, then the two claims.
 
 ### 1. 1.00 USDC → 0.99 PUSD (Base, EVM → Bitcoin Cash)
 
@@ -267,4 +267,3 @@ Times are UTC. "Created" is when the quote was made; "Done" is when the last cla
 - Counter-lock (Bitcoin Cash): [3b6fdcf586…d7058d](https://bchexplorer.info/tx/3b6fdcf5869a778f1d84f49e90dca6610103e0512cf590853bf869b097d7058d)
 - User claim (Bitcoin Cash): [31e99dd5fb…d00c2e](https://bchexplorer.info/tx/31e99dd5fb65b8ac247a5a9ffe6c25abbd46f9b55e7e4f42a619b17bd0d00c2e)
 - Solver claim (Basescan): [0x8c104e0e…054aca](https://basescan.org/tx/0x8c104e0e7e347391dd1e2f1b1dcf0766c9c1ff09b9b11e8c7183274b22054aca)
-
