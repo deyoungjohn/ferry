@@ -65,11 +65,16 @@ export async function createSendLinkLive(
     deps.bchCashAddress,
   );
 
-  // BCH token base units (e.g. 20.00 PUSD * 100 = 2000n)
-  const amountIn = BigInt(Math.round(input.amount * 100));
+  // The amount the receiver is to get, in the destination token's smallest units.
+  const wantedUnits =
+    BigInt(Math.round(input.amount * 100)) *
+    10n ** BigInt(Math.max(0, tokenFacts.decimals - 2));
 
-  // 2. Call quoteSendLink from @ferry/solver-client (carries note, window, hashLock; NEVER secret)
-  const sendQuoteRequest: SendQuoteRequest = {
+  // 2. Call quoteSendLink from @ferry/solver-client (carries note, window, hashLock; NEVER secret).
+  // The sender pays the spread and fees: when the quote would deliver less than the amount the
+  // sender entered, the lock is raised by the shortfall and the quote is asked again (the spread
+  // is a share of the amount, so a second or third round settles it).
+  const quoteFor = (amountIn: bigint): SendQuoteRequest => ({
     token: 'PUSD',
     chainId: tokenFacts.chainId,
     evmToken: tokenFacts.address,
@@ -82,9 +87,24 @@ export async function createSendLinkLive(
     ...(input.note ? { note: cleanNote(input.note) } : {}),
     ...(viewTag ? { viewTag } : {}),
     lane: 'safe',
-  };
+  });
 
-  const rawQuote = await deps.solver.quoteSendLink(sendQuoteRequest);
+  let amountIn = BigInt(Math.round(input.amount * 100));
+  let sendQuoteRequest = quoteFor(amountIn);
+  let rawQuote = await deps.solver.quoteSendLink(sendQuoteRequest);
+  for (let round = 0; round < 3; round += 1) {
+    const delivered = BigInt(
+      (rawQuote.terms as { evmAmount: string | bigint }).evmAmount,
+    );
+    if (delivered >= wantedUnits) break;
+    // Cents to add: the shortfall scaled to cents, plus one cent for rounding.
+    const unitsPerCent = 10n ** BigInt(Math.max(0, tokenFacts.decimals - 2));
+    const shortCents =
+      (wantedUnits - delivered + unitsPerCent - 1n) / unitsPerCent;
+    amountIn += shortCents + 1n;
+    sendQuoteRequest = quoteFor(amountIn);
+    rawQuote = await deps.solver.quoteSendLink(sendQuoteRequest);
+  }
 
   // 3. Verify the quote
   const verified = await verifySendLinkQuote(rawQuote, sendQuoteRequest);
@@ -195,5 +215,6 @@ export async function createSendLinkLive(
     bchLockTxId,
     expiresAt: verified.terms.evmDeadline,
     verifiedQuote: verified,
+    amountLockedCents: Number(amountIn),
   };
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext, useRef } from 'react';
+import { LinkHowItWorks } from '../components/links/LinkHowItWorks';
 import { ROUTES } from '../lib/routes';
 import { useParams, useNavigate, Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
@@ -11,7 +12,7 @@ import type { ChainDisplay } from '../lib/network';
 import type { QuoteResponse } from '../lib/solver/types';
 import { useToast } from '../lib/toast/ToastContext';
 import { pusdIconUrl } from '../components/swap-block/token-badges';
-import { chainIconUrl } from '../lib/icons';
+import { chainIconUrl, tokenIconUrl } from '../lib/icons';
 import { Select } from '../components/ui/select';
 import { LIVE_EXECUTION_ENABLED } from '../lib/config';
 import { listPayLinks } from '../lib/paylink/pay-store';
@@ -124,9 +125,13 @@ export function PayLinkPage() {
   );
   const selectedChain: ChainDisplay =
     farChains.find((c) => c.id === selectedChainId) ?? farChains[0]!;
-  const [selectedPayerToken] = useState<string>(
-    selectedChain?.tokenSymbols[0] ?? 'USDC',
-  );
+  // The stablecoin the payer sends: their choice when the chain has it, else the chain's first.
+  const [payerTokenChoice, setPayerTokenChoice] = useState<string>('');
+  const selectedPayerToken: string = selectedChain?.tokenSymbols.includes(
+    payerTokenChoice,
+  )
+    ? payerTokenChoice
+    : (selectedChain?.tokenSymbols[0] ?? 'USDC');
 
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [paying, setPaying] = useState(false);
@@ -358,6 +363,9 @@ export function PayLinkPage() {
                   ? `Pay ${youPayText} ${selectedPayerToken}`
                   : `Pay any amount in ${selectedPayerToken}`}
             </h1>
+            <div className="mt-1 print:hidden">
+              <LinkHowItWorks kind="pay" />
+            </div>
             {note && (
               <p
                 data-testid="pay-link-note"
@@ -440,9 +448,16 @@ export function PayLinkPage() {
                           value={payerAmount}
                           onChange={(e) => setPayerAmount(e.target.value)}
                           placeholder="0.00"
-                          className="w-full rounded-well border border-hairline bg-surface-1 px-2 py-1 text-lg font-semibold text-text focus:border-lime focus:outline-none"
+                          className="w-full rounded-well border border-hairline bg-surface-1 px-3 py-2 text-lg font-semibold text-text focus:border-lime focus:outline-none"
                         />
-                        <span className="text-lg font-semibold text-text">
+                        <span className="flex shrink-0 items-center gap-2 text-lg font-semibold text-text">
+                          {pusdIconUrl(token) && (
+                            <img
+                              src={pusdIconUrl(token)!}
+                              alt=""
+                              className="size-7 rounded-full"
+                            />
+                          )}
                           {token}
                         </span>
                       </div>
@@ -470,14 +485,29 @@ export function PayLinkPage() {
                     <Select
                       label="Payer chain"
                       value={String(selectedChainId)}
-                      onValueChange={(value) =>
-                        setSelectedChainId(Number(value))
-                      }
+                      onValueChange={(value) => {
+                        setSelectedChainId(Number(value));
+                        setPayerTokenChoice('');
+                      }}
                       options={farChains.map((c) => ({
                         value: String(c.id),
                         label: c.name,
                         icon: chainIconUrl(c.name),
                       }))}
+                      className="w-full"
+                      triggerClassName="w-full py-1 text-xs"
+                    />
+                    <Select
+                      label="Payer stablecoin"
+                      value={selectedPayerToken}
+                      onValueChange={setPayerTokenChoice}
+                      options={(selectedChain?.tokenSymbols ?? []).map(
+                        (symbol) => ({
+                          value: symbol,
+                          label: symbol,
+                          icon: tokenIconUrl(symbol),
+                        }),
+                      )}
                       className="w-full"
                       triggerClassName="w-full py-1 text-xs"
                     />

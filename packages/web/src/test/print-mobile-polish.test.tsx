@@ -92,7 +92,7 @@ describe('Print and Mobile Polish (Task B3-09)', () => {
     expect(addrInput).toHaveAttribute('spellcheck', 'false');
     expect(addrInput).toHaveAttribute('autocomplete', 'off');
 
-    const amountInput = screen.getByLabelText(/Amount to Send/i);
+    const amountInput = screen.getByLabelText(/Amount the receiver gets/i);
     expect(amountInput).toHaveAttribute('inputMode', 'decimal');
     expect(amountInput).toHaveAttribute('autocomplete', 'off');
   });

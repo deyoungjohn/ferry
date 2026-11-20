@@ -31,6 +31,7 @@ import {
   REOWN_PROJECT_ID,
   WIZARD_RELAY_URLS,
 } from '../config';
+import { plainWalletMessage } from '@ferry/user-flow';
 import { BchPairingDialog } from '../../components/BchPairingDialog';
 import { WalletContext } from './context';
 import { wagmiConfig } from './evm-config';
@@ -156,7 +157,9 @@ function useRealEvmWallet(): EvmWallet {
             { cause },
           );
         }
-        setError(cause instanceof Error ? cause.message : 'Signature rejected');
+        setError(
+          plainWalletMessage(cause).replace(/ Nothing was locked\.$/, ''),
+        );
         throw cause;
       } finally {
         clearTimeout(timer);
@@ -185,7 +188,7 @@ function useRealEvmWallet(): EvmWallet {
           );
         }
         setError(
-          cause instanceof Error ? cause.message : 'Transaction rejected',
+          plainWalletMessage(cause).replace(/ Nothing was locked\.$/, ''),
         );
         throw cause;
       } finally {

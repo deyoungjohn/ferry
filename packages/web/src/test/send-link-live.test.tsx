@@ -187,7 +187,7 @@ describe('Send Links Live Execution and Receiver Claim (Task B3-14)', () => {
       const addressInput = screen.getByLabelText(/Recipient EVM Address/i);
       fireEvent.change(addressInput, { target: { value: dummyRecipient } });
 
-      const amountInput = screen.getByLabelText(/Amount to Send/i);
+      const amountInput = screen.getByLabelText(/Amount the receiver gets/i);
       fireEvent.change(amountInput, { target: { value: '20.00' } });
 
       const noteInput = screen.getByLabelText(/Note for the receiver/i);
@@ -453,7 +453,7 @@ describe('Send Links Live Execution and Receiver Claim (Task B3-14)', () => {
       expect(statusEl).toHaveTextContent("the sender's funds are being locked");
 
       // Claim button should reflect wait state and be disabled
-      const btn = screen.getByRole('button');
+      const btn = screen.getByTestId('send-link-submit-button');
       expect(btn).toBeDisabled();
       expect(btn).toHaveTextContent("the sender's funds are being locked");
     });
@@ -484,7 +484,7 @@ describe('Send Links Live Execution and Receiver Claim (Task B3-14)', () => {
       const statusEl = await screen.findByTestId('send-link-status');
       expect(statusEl).toHaveTextContent('claimed');
 
-      const btn = screen.getByRole('button');
+      const btn = screen.getByTestId('send-link-submit-button');
       expect(btn).toBeDisabled();
       expect(btn).toHaveTextContent(/Claimed/i);
     });
@@ -517,7 +517,7 @@ describe('Send Links Live Execution and Receiver Claim (Task B3-14)', () => {
         'expired: the sender gets their funds back',
       );
 
-      const btn = screen.getByRole('button');
+      const btn = screen.getByTestId('send-link-submit-button');
       expect(btn).toBeDisabled();
       expect(btn).toHaveTextContent(
         'expired: the sender gets their funds back',
@@ -603,7 +603,9 @@ describe('Send Links Live Execution and Receiver Claim (Task B3-14)', () => {
         </SolverProvider>,
       );
       fireEvent.click(
-        await screen.findByRole('button', { name: /Send link ›/i }),
+        await screen.findByRole('button', {
+          name: /^Claim$|Connect and claim/i,
+        }),
       );
       await waitFor(() =>
         expect(screen.getByTestId('send-link-status')).toHaveTextContent(
@@ -658,7 +660,9 @@ describe('Send Links Live Execution and Receiver Claim (Task B3-14)', () => {
         </WalletContext.Provider>,
       );
       fireEvent.click(
-        await screen.findByRole('button', { name: /Send link ›/i }),
+        await screen.findByRole('button', {
+          name: /^Claim$|Connect and claim/i,
+        }),
       );
       await waitFor(() => expect(sent).toHaveLength(1));
       const decoded = decodeFunctionData({

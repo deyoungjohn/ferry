@@ -1,4 +1,5 @@
 import { useEffect, useState, useContext } from 'react';
+import { LinkHowItWorks } from '../components/links/LinkHowItWorks';
 import { ROUTES } from '../lib/routes';
 import { useParams, useNavigate, Link } from 'react-router';
 import { readSnapshot, writeSnapshot } from '../lib/paylink/snapshot-cache';
@@ -20,6 +21,7 @@ import {
 import { WalletContext } from '../lib/wallet/context';
 import { evmSignerFromWallet } from '../lib/live/ports';
 import { SolverClient } from '@ferry/solver-client';
+import { plainWalletMessage } from '@ferry/user-flow';
 import type { SendLinkSolverPort } from '../lib/send/ports';
 import type { SendLinkWaitState } from '../lib/send/types';
 import type { Hex32 } from '@ferry/core';
@@ -151,6 +153,11 @@ export function SendLinkPage({
   const claimable = isReadyToClaim && !claiming && !wrongWallet;
 
   async function handleClaim() {
+    if (isLive && wallets && !wallets.evm.address) {
+      // No EVM wallet yet: the button first connects one, then the person presses it again.
+      wallets.evm.connect();
+      return;
+    }
     if (isLive) {
       setClaiming(true);
       setError(null);
@@ -194,6 +201,7 @@ export function SendLinkPage({
             secret: activeSecret,
             // The link says which lock to claim; nothing else in the page knows it.
             ...(rawLink?.lockId ? { lockId: rawLink.lockId as Hex32 } : {}),
+            ...(rawLink?.chainId ? { chainId: rawLink.chainId } : {}),
           },
           {
             solver: liveSolver,
@@ -208,7 +216,15 @@ export function SendLinkPage({
         setClaimedLocally(true);
         showToast('Funds claimed successfully!', 'success');
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        const text = cause instanceof Error ? cause.message : String(cause);
+        // Our own sentences pass through; a wallet or library failure is put in plain words.
+        setError(
+          /^(Your wallet|The connected wallet|This link|No solver|Only 0x|The solver)/.test(
+            text,
+          )
+            ? text
+            : plainWalletMessage(cause).replace(/ Nothing was locked\.$/, ''),
+        );
       } finally {
         setClaiming(false);
       }
@@ -318,6 +334,9 @@ export function SendLinkPage({
                 <p className="mt-1 text-xs text-text-muted">
                   Sent from Bitcoin Cash through Ferry atomic swap.
                 </p>
+                <div className="mt-1">
+                  <LinkHowItWorks kind="send" />
+                </div>
               </div>
 
               {link.note && (
@@ -399,7 +418,9 @@ export function SendLinkPage({
                     : isPendingLock
                       ? "the sender's funds are being locked"
                       : isReadyToClaim
-                        ? copy.actionLabel
+                        ? isLive && wallets && !wallets.evm.address
+                          ? 'Connect and claim'
+                          : 'Claim'
                         : isClaimed
                           ? 'Claimed'
                           : isExpired

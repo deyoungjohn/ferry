@@ -159,7 +159,7 @@ describe('New Routes Layout & Responsive Viewports (FR-13, FR-17, FR-18)', () =>
         }),
       ).toBeInTheDocument();
       expect(
-        screen.getByRole('button', { name: /Send link ›/i }),
+        screen.getByRole('button', { name: /^Claim$|Connect and claim/i }),
       ).toBeInTheDocument();
     });
 

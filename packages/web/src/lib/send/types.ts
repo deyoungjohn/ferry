@@ -28,6 +28,8 @@ export interface SendLinkLiveCreationResult {
   readonly bchLockTxId?: string | undefined;
   readonly expiresAt: number;
   readonly verifiedQuote: VerifiedQuote;
+  /** What the sender locked, in cents: the amount the receiver gets plus the spread and fees. */
+  readonly amountLockedCents?: number;
 }
 
 export interface ClaimSendLinkLiveInput {

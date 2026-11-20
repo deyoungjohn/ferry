@@ -24,6 +24,33 @@ export interface ClaimSendLinkDependencies {
 }
 
 /**
+ * The chain the claim is made on: the link's own chain. A wallet on another network is asked to
+ * switch first; when it refuses or cannot, the person is told which network to choose.
+ */
+async function ensureLinkChain(
+  signer: EvmSignerPort,
+  wanted: number | undefined,
+): Promise<number> {
+  if (wanted === undefined) return signer.getChainId();
+  const current = await signer.getChainId().catch(() => undefined);
+  if (current === wanted) return wanted;
+  if (!signer.switchChain) {
+    throw new Error(
+      'Your wallet is on a different network than this link. Switch network in your wallet and try again.',
+    );
+  }
+  try {
+    await signer.switchChain(wanted);
+  } catch (cause) {
+    throw new Error(
+      'Your wallet is on a different network than this link and did not switch. Switch network in your wallet and try again.',
+      { cause },
+    );
+  }
+  return wanted;
+}
+
+/**
  * Executes a claim for a send link on the receiver's side.
  *
  * Requirements:
@@ -53,8 +80,10 @@ export async function claimSendLinkLive(
       throw new Error('The connected wallet is not the intended recipient.');
     }
     if (lockId) {
-      const chainForSig =
-        input.chainId ?? deps.chainId ?? (await deps.evmSigner.getChainId());
+      const chainForSig = await ensureLinkChain(
+        deps.evmSigner,
+        input.chainId ?? deps.chainId,
+      );
       claimSig = await deps.evmSigner.signTypedData(
         claimRequestTypedData({ chainId: chainForSig, orderId, lockId }),
       );
@@ -94,7 +123,10 @@ export async function claimSendLinkLive(
     );
   }
 
-  const chainId = deps.chainId ?? (await deps.evmSigner.getChainId());
+  const chainId = await ensureLinkChain(
+    deps.evmSigner,
+    input.chainId ?? deps.chainId,
+  );
   let htlcAddress = deps.htlcAddress;
   if (!htlcAddress) {
     // The recorded deployments are bundled with the page; reading the chain config from disk

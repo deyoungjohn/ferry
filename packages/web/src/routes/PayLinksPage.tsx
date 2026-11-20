@@ -1,7 +1,10 @@
 import { useState, useContext, useEffect, type FormEvent } from 'react';
+import { LinkHowItWorks } from '../components/links/LinkHowItWorks';
 import { Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
-import { decodeCashAddress, MIN_TRANSACTION_USD } from '@ferry/core';
+import { MIN_TRANSACTION_USD } from '@ferry/core';
+import { NETWORK_PROFILE } from '../lib/config';
+import { checkPayRecipient } from '../lib/paylink/recipient';
 import { WalletContext } from '../lib/wallet/context';
 import {
   chunkCashaddr,
@@ -87,18 +90,19 @@ export function PayLinksPage() {
     };
   }, [live, solverUrl]);
 
-  const activeRecipient = pastedAddress.trim() || bch.address?.address || '';
+  // Only what the person typed or explicitly chose: the wallet's address is never filled in alone.
+  const activeRecipient = pastedAddress.trim();
+  const recipientCheck = checkPayRecipient(
+    activeRecipient,
+    NETWORK_PROFILE.bch.prefix,
+  );
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError(null);
 
-    try {
-      decodeCashAddress(activeRecipient);
-    } catch (err) {
-      setError(
-        `Invalid recipient Bitcoin Cash address: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    if (!recipientCheck.ok) {
+      setError(recipientCheck.message);
       return;
     }
 
@@ -177,6 +181,9 @@ export function PayLinksPage() {
             Get paid in PUSD or MUSD from anyone holding a stablecoin on any
             supported chain.
           </p>
+          <div className="mt-1">
+            <LinkHowItWorks kind="pay" />
+          </div>
         </div>
         <Link
           to="/"
@@ -206,7 +213,8 @@ export function PayLinksPage() {
                   type="text"
                   value={pastedAddress}
                   onChange={(e) => setPastedAddress(e.target.value)}
-                  placeholder={activeRecipient}
+                  placeholder="bitcoincash:z…"
+                  aria-invalid={activeRecipient !== '' && !recipientCheck.ok}
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
@@ -214,11 +222,31 @@ export function PayLinksPage() {
                   inputMode="text"
                   className="w-full rounded-well border border-hairline bg-surface-2 p-2.5 font-mono text-xs text-text placeholder:text-text-dim focus:border-lime focus:outline-none"
                 />
-                <span className="mt-1 block text-[11px] text-text-dim">
-                  {bch.address?.address === activeRecipient
-                    ? '✓ Auto-filled from your connected BCH wallet'
-                    : 'Enter a valid CashAddr'}
+                <span
+                  className={`mt-1 block text-[11px] ${
+                    activeRecipient === ''
+                      ? 'text-text-dim'
+                      : recipientCheck.ok
+                        ? 'text-ok'
+                        : 'text-danger'
+                  }`}
+                  data-testid="recipient-check"
+                >
+                  {activeRecipient === ''
+                    ? 'Paste the address that should receive the PUSD or MUSD.'
+                    : recipientCheck.ok
+                      ? '✓ A valid token-aware address'
+                      : recipientCheck.message}
                 </span>
+                {bch.status === 'connected' && bch.address?.address && (
+                  <button
+                    type="button"
+                    onClick={() => setPastedAddress(bch.address!.address)}
+                    className="mt-1 text-[11px] text-lime underline"
+                  >
+                    Use my connected wallet&apos;s address
+                  </button>
+                )}
               </div>
 
               {/* Token Selection */}
@@ -327,7 +355,7 @@ export function PayLinksPage() {
 
               <button
                 type="submit"
-                disabled={creating}
+                disabled={creating || !recipientCheck.ok}
                 className="w-full rounded-pill bg-olive py-3 font-semibold text-text transition-colors"
               >
                 {creating ? 'Creating…' : 'Generate Pay Link'}

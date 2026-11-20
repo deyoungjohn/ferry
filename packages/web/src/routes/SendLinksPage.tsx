@@ -1,4 +1,5 @@
 import { MIN_TRANSACTION_USD, type Hex32 } from '@ferry/core';
+import { LinkHowItWorks } from '../components/links/LinkHowItWorks';
 import { useState, useContext, useEffect, type FormEvent } from 'react';
 import {
   SEND_LINK_NOTE_MAX_LENGTH,
@@ -479,6 +480,9 @@ export function SendLinksPage({
             Send stablecoins from Bitcoin Cash to someone on another chain with
             an automatic refund window.
           </p>
+          <div className="mt-1">
+            <LinkHowItWorks kind="send" />
+          </div>
         </div>
         <Link
           to="/"
@@ -610,7 +614,7 @@ export function SendLinksPage({
                   htmlFor="send-amount"
                   className="block text-text-muted mb-1"
                 >
-                  Amount to Send
+                  Amount the receiver gets
                 </label>
                 <div className="flex items-center gap-2">
                   <input

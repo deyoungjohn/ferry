@@ -163,6 +163,8 @@ export interface SendLinkView {
   readonly note?: string | undefined;
   /** The EVM lock the receiver claims; what a direct claim from the receiver's wallet needs. */
   readonly lockId?: string | undefined;
+  /** The EVM chain the funds arrive on; the claim is signed and sent on it. */
+  readonly chainId?: number | undefined;
 }
 
 export interface SolverClient {
