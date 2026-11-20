@@ -1,4 +1,4 @@
-import type { Hex } from '@ferry/core';
+import type { Hex, Hex32 } from '@ferry/core';
 import { SolverClient } from '@ferry/solver-client';
 import type {
   BchSignerPort,
@@ -9,6 +9,10 @@ import type { BchWallet, EvmWallet } from '../wallet/types';
 import { createBrowserBchChain } from './bch-chain';
 import { createBrowserEvmChain } from './evm-chain';
 import { createLocalRecoveryStore } from './recovery-store';
+import {
+  createRescueSecretGenerator,
+  createWalletSecretGenerator,
+} from '../recovery/recovery-key-service';
 
 export function evmSignerFromWallet(wallet: EvmWallet): EvmSignerPort {
   return {
@@ -73,15 +77,28 @@ export function createLiveDependencies(options: {
   const { wallets, solverUrl, chainId } = options;
   const address = wallets.bch.address?.address;
   if (!address) throw new Error('Connect a Bitcoin Cash wallet first.');
+  const evmChain = createBrowserEvmChain(chainId);
+
+  let secretGenerator: (() => Promise<Hex32>) | undefined;
+  if (wallets.evm.address) {
+    secretGenerator = createWalletSecretGenerator(wallets.evm, {
+      chains: [evmChain],
+      chainClient: evmChain.client,
+    });
+  } else {
+    secretGenerator = createRescueSecretGenerator();
+  }
+
   return {
     solver: new SolverClient({ baseUrl: solverUrl }),
     evmSigner: evmSignerFromWallet(wallets.evm),
-    evmChain: createBrowserEvmChain(chainId),
+    evmChain,
     bchSigner: bchSignerFromWallet(wallets.bch),
     bchChain: createBrowserBchChain({ solverUrl }),
     store: createLocalRecoveryStore(),
     bchNetwork: 'mainnet',
     bchCashAddress: address,
+    secretGenerator,
   };
 }
 
@@ -98,10 +115,18 @@ export function createPayerDependencies(options: {
   readonly recipientCashAddress: string;
 }): UserSwapDependencies {
   const { evm, solverUrl, chainId, recipientCashAddress } = options;
+  const evmChain = createBrowserEvmChain(chainId);
+  const secretGenerator = evm.address
+    ? createWalletSecretGenerator(evm, {
+        chains: [evmChain],
+        chainClient: evmChain.client,
+      })
+    : undefined;
+
   return {
     solver: new SolverClient({ baseUrl: solverUrl }),
     evmSigner: evmSignerFromWallet(evm),
-    evmChain: createBrowserEvmChain(chainId),
+    evmChain,
     bchSigner: {
       signTransaction: () =>
         Promise.reject(
@@ -112,5 +137,6 @@ export function createPayerDependencies(options: {
     store: createLocalRecoveryStore(),
     bchNetwork: 'mainnet',
     bchCashAddress: recipientCashAddress,
+    ...(secretGenerator ? { secretGenerator } : {}),
   };
 }

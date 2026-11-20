@@ -44,12 +44,13 @@ export function SaveRecoveryDialog({
           }}
           className="h-10 rounded-pill border border-hairline bg-surface-2 px-5 font-medium text-text"
         >
-          Download recovery file
+          {saved
+            ? '✓ Recovery file downloaded'
+            : 'Download recovery file (optional)'}
         </button>
         <button
           type="button"
           data-testid="continue-after-save"
-          disabled={!saved}
           onClick={() => {
             setSaved(false);
             onContinue();

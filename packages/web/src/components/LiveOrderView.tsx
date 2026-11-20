@@ -737,8 +737,8 @@ export function LiveOrderView({
         </p>
       )}
       <p className="mt-4 text-xs text-text-dim">
-        You can close this page and come back to it: the swap carries on from
-        the chains. If anything stops, your own refund stays available.
+        This swap can be recovered with your wallet on any device. If anything
+        stops, your refund stays available.
       </p>
     </div>
   );

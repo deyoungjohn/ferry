@@ -8,6 +8,7 @@ import {
   type LiveSwapWallets,
 } from '../lib/live/ports';
 import { executeSwap, prepareSwap, previewSwap } from '../lib/live/run';
+import { browserRecoveryStorage } from '../lib/recovery/recovery-key-service';
 
 type Phase =
   | 'previewing'
@@ -105,9 +106,26 @@ export function LiveSwapPanel({
   const [error, setError] = useState<string | null>(null);
   const [fileSaved, setFileSaved] = useState(false);
   const [refundFlag, setRefundFlag] = useState(false);
+  const [isContract, setIsContract] = useState(false);
   const sessionRef = useRef<UserSwapSession | null>(null);
   const recoveryRef = useRef<{ filename: string; json: string } | null>(null);
   const started = useRef(false);
+
+  const evmAddress = wallets?.evm?.address?.toLowerCase();
+  const hasWalletRecovery = Boolean(evmAddress);
+  const requiresFileDownload = !hasWalletRecovery || isContract;
+
+  useEffect(() => {
+    if (!evmAddress) {
+      setIsContract(false);
+      return;
+    }
+    void browserRecoveryStorage
+      .get(`ferry.recovery.contract.${evmAddress}`)
+      .then((flag) => {
+        setIsContract(flag === 'true');
+      });
+  }, [evmAddress]);
 
   const deps = useCallback(
     () =>
@@ -268,9 +286,11 @@ export function LiveSwapPanel({
         {phase === 'keepFile' && (
           <>
             <p data-testid="live-keep-file-note">
-              Download your recovery file before anything is locked. It holds
-              the secret that releases your funds and the way to refund if
-              something stops.
+              {isContract
+                ? 'Smart contract wallet detected: keep this per-swap recovery file to ensure you can recover your funds.'
+                : hasWalletRecovery
+                  ? 'This swap can be recovered with your wallet on any device. If anything stops, your refund stays available.'
+                  : 'Download your recovery file before anything is locked. It holds the secret that releases your funds and the way to refund if something stops.'}
             </p>
             <button
               type="button"
@@ -280,11 +300,13 @@ export function LiveSwapPanel({
             >
               {fileSaved
                 ? '✓ Recovery file downloaded'
-                : 'Download recovery file'}
+                : hasWalletRecovery && !isContract
+                  ? 'Download recovery file (optional)'
+                  : 'Download recovery file'}
             </button>
             <button
               type="button"
-              disabled={!fileSaved}
+              disabled={requiresFileDownload && !fileSaved}
               className="h-10 w-full rounded-pill bg-olive font-semibold disabled:opacity-40"
               onClick={handleLock}
               data-testid="live-lock"

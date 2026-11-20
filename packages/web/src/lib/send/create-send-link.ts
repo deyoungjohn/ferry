@@ -2,10 +2,7 @@ import { binToHex } from '@bitauth/libauth';
 import { cashAddressToLockingBytecode, type Hex } from '@ferry/core';
 import type { SendQuoteRequest } from '@ferry/core/api';
 import { deriveHtlcAddresses, encodeHtlcParameters } from '@ferry/htlc-bch';
-import {
-  prepareRecoveryDownload,
-  triggerRecoveryDownload,
-} from '@ferry/solver-client';
+import { prepareRecoveryDownload } from '@ferry/solver-client';
 import { lockUserOnBch } from '@ferry/user-flow';
 import { sendLinkUrl } from '../paylink/link';
 import { cleanNote, saveSendLink } from '../paylink/send-store';
@@ -51,8 +48,10 @@ export async function createSendLinkLive(
     );
   }
 
-  // 1. Generate 32-byte secret in browser and hash it
-  const secret = generateSecret();
+  // 1. Generate or derive 32-byte secret and hash it
+  const secret = deps.secretGenerator
+    ? await deps.secretGenerator()
+    : generateSecret();
   const hashLock = hashSecret(secret);
 
   // Derive sender's BCH locking bytecode
@@ -139,11 +138,9 @@ export async function createSendLinkLive(
     lockStatus: 'pending_lock',
   });
 
-  // The recovery file is offered BEFORE the lock (the interface asks the person to save it)
+  // The recovery file is offered before the lock when an explicit downloadFile handler is provided; no automatic download behind the user's back
   if (deps.downloadFile) {
     await deps.downloadFile(recoveryPayload.filename, recoveryPayload.json);
-  } else {
-    triggerRecoveryDownload(recoveryPayload);
   }
 
   // 5. Run user's Bitcoin Cash lock through wallet adapters

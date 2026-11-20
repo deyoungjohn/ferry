@@ -179,4 +179,44 @@ describe('live swap panel', () => {
     fireEvent.click(screen.getByTestId('live-lock'));
     expect(onStart).toHaveBeenCalledWith(`0x${'cd'.repeat(32)}`);
   });
+
+  it('with connected EVM wallet, enables start swap without requiring file download and never fires automatic download', async () => {
+    const downloadSpy = vi.fn();
+    URL.createObjectURL = downloadSpy;
+    render(
+      <LiveSwapPanel
+        open
+        onClose={() => undefined}
+        input={input}
+        wallets={
+          {
+            evm: { address: '0x1111111111111111111111111111111111111111' },
+            bch: {},
+          } as never
+        }
+        solverUrl="https://solver.test"
+        services={services}
+        describe={{ pay: '1.00 USDC', receive: '0.99 PUSD' }}
+      />,
+    );
+
+    await screen.findByTestId('live-preview-note');
+    fireEvent.click(screen.getByTestId('live-continue'));
+    const note = await screen.findByTestId('live-keep-file-note');
+    expect(note).toHaveTextContent(
+      'This swap can be recovered with your wallet on any device. If anything stops, your refund stays available.',
+    );
+
+    // No automatic download fired
+    expect(downloadSpy).not.toHaveBeenCalled();
+
+    // Lock button is enabled directly without clicking download
+    const lock = screen.getByTestId('live-lock') as HTMLButtonElement;
+    expect(lock.disabled).toBe(false);
+
+    fireEvent.click(lock);
+    await screen.findByTestId('live-done');
+    expect(calls).toEqual(['preview', 'prepare', 'execute']);
+    expect(downloadSpy).not.toHaveBeenCalled();
+  });
 });
