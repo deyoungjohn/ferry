@@ -318,6 +318,8 @@ export function PayLinkPage() {
           bchTokenDecimals: 2,
           lane: 'fast' as const,
           fastOptIn: true,
+          // Marks the swap as this link's payment (the server never guesses it).
+          ...(id ? { payLinkId: id } : {}),
         };
         // A fixed link: find what to send so the recipient gets exactly the amount. An open link:
         // the payer pays exactly what they typed, fees and spread included.

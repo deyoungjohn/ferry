@@ -364,6 +364,8 @@ export const QuoteRequestSchema = z.strictObject({
   fastOptIn: z.boolean().optional(),
   /** A quote that reserves nothing: for showing a price before the user commits. */
   dryRun: z.boolean().optional(),
+  /** The pay link this payment is for, so the swap is tied to it by a mark and never by a guess. */
+  payLinkId: textSchema.optional(),
 });
 
 export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
