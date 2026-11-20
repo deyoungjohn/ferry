@@ -1,6 +1,7 @@
 import { createWalletClient, sha256, stringToHex } from 'viem';
 import type { Address, Chain, Hex, PublicClient } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
+import type { EvmChainAdapter } from '@ferry/chain-evm';
 import {
   evmLockId,
   type Hex32,
@@ -26,6 +27,7 @@ import type { FakeBchChain } from '../../e2e/test/support/fake-bch-chain.js';
 
 export interface FlowContext {
   solver: RealEngineSolver;
+  evmAdapter?: EvmChainAdapter;
   chain: FakeBchChain;
   chainConfig: Chain;
   publicClient: PublicClient;
@@ -37,6 +39,10 @@ export interface FlowContext {
   tokenPermit: boolean;
   userBch: BchIdentity;
   solverBch: BchIdentity;
+}
+
+function evmAdapterOf(ctx: FlowContext): EvmChainAdapter {
+  return ctx.evmAdapter ?? ctx.solver.evmAdapter;
 }
 
 function syncPrices(ctx: FlowContext): void {
@@ -120,7 +126,7 @@ async function lockUserEvm(
 ): Promise<void> {
   const terms = quote.terms as OrderTerms;
   if (!ctx.tokenPermit) {
-    const unsigned = await ctx.solver.evmAdapter.buildUserLock(terms);
+    const unsigned = await evmAdapterOf(ctx).buildUserLock(terms);
     const payload = unsigned.payload as {
       mode: 'approve-lock';
       transactions: Array<{ to: Address; data: Hex; value: bigint }>;
@@ -141,7 +147,7 @@ async function lockUserEvm(
     return;
   }
   const request = await signRelayLockRequest({
-    evmAdapter: ctx.solver.evmAdapter,
+    evmAdapter: evmAdapterOf(ctx),
     orderId: quote.orderId as Hex32,
     terms,
     userAccount: ctx.user,
@@ -206,7 +212,7 @@ export async function runFinalityFlow(
     await ctx.solver.waitFor(
       'user EVM lock',
       async () => {
-        const lock = await ctx.solver.evmAdapter.getLock(
+        const lock = await evmAdapterOf(ctx).getLock(
           evmLockId(ctx.user.address, hashLock),
         );
         return lock.status === 'locked';
@@ -216,7 +222,7 @@ export async function runFinalityFlow(
     await ctx.solver.revert(snapshot);
     await ctx.solver.pump();
     await new Promise((resolve) => setTimeout(resolve, 1_500));
-    const lockAgain = await ctx.solver.evmAdapter.getLock(
+    const lockAgain = await evmAdapterOf(ctx).getLock(
       evmLockId(ctx.user.address, hashLock),
     );
     if (lockAgain.status !== 'absent') {
@@ -232,8 +238,7 @@ export async function runFinalityFlow(
   const lockId = await userEvmLock(ctx, quote);
   await ctx.solver.waitFor(
     'user EVM lock',
-    async () =>
-      (await ctx.solver.evmAdapter.getLock(lockId)).status === 'locked',
+    async () => (await evmAdapterOf(ctx).getLock(lockId)).status === 'locked',
     30_000,
   );
   await ctx.solver.pump();
@@ -268,10 +273,10 @@ export async function runReleaseFlow(
 
   if (chain === 'evm') {
     const lockId = await userEvmLock(ctx, quote);
-    const before = await ctx.solver.evmAdapter.getLock(lockId);
+    const before = await evmAdapterOf(ctx).getLock(lockId);
     if (before.status !== 'locked') throw new Error('lock was not created');
-    const released = await ctx.solver.evmAdapter.release(lockId);
-    const after = await ctx.solver.evmAdapter.getLock(lockId);
+    const released = await evmAdapterOf(ctx).release(lockId);
+    const after = await evmAdapterOf(ctx).getLock(lockId);
     if (after.status !== 'refunded') {
       throw new Error(`release left the lock ${after.status}`);
     }
@@ -292,10 +297,10 @@ export async function runReleaseFlow(
       lane: 'safe',
     });
     const secondLock = await userEvmLock(ctx, secondQuote);
-    await ctx.solver.evmAdapter.claim(secondLock, secondSecret);
+    await evmAdapterOf(ctx).claim(secondLock, secondSecret);
     let refused = false;
     try {
-      await ctx.solver.evmAdapter.release(secondLock);
+      await evmAdapterOf(ctx).release(secondLock);
     } catch {
       refused = true;
     }
@@ -374,8 +379,7 @@ export async function runForwardCrashFlow(ctx: FlowContext): Promise<string> {
   const evmLock = evmLockId(ctx.user.address, hashLock);
   await ctx.solver.waitFor(
     'solver EVM claim after restart',
-    async () =>
-      (await ctx.solver.evmAdapter.getLock(evmLock)).status === 'claimed',
+    async () => (await evmAdapterOf(ctx).getLock(evmLock)).status === 'claimed',
     60_000,
   );
   await ctx.solver.waitFor(
@@ -433,8 +437,7 @@ export async function runForwardFlow(ctx: FlowContext): Promise<string> {
   const evmLock = evmLockId(ctx.user.address, hashLock);
   await ctx.solver.waitFor(
     'solver EVM claim',
-    async () =>
-      (await ctx.solver.evmAdapter.getLock(evmLock)).status === 'claimed',
+    async () => (await evmAdapterOf(ctx).getLock(evmLock)).status === 'claimed',
     60_000,
   );
   await ctx.solver.waitFor(
@@ -471,12 +474,11 @@ export async function runReverseFlow(ctx: FlowContext): Promise<string> {
   const evmLock = evmLockId(ctx.solverEvmAddress, hashLock);
   await ctx.solver.waitFor(
     'solver EVM lock',
-    async () =>
-      (await ctx.solver.evmAdapter.getLock(evmLock)).status === 'locked',
+    async () => (await evmAdapterOf(ctx).getLock(evmLock)).status === 'locked',
     30_000,
   );
   const claim = buildEvmClaim({
-    htlc: ctx.solver.evmAdapter.htlcAddress,
+    htlc: evmAdapterOf(ctx).htlcAddress,
     lockId: evmLock,
     secret,
   });

@@ -351,10 +351,6 @@ export async function runChain(
       );
       for (const [name, detail] of [
         [
-          'two-chains',
-          'not run: the harness starts one fork at a time; two orders on two live forks need a second anvil process and a multi-chain engine fixture',
-        ],
-        [
           'wallet-amounts',
           'partial: minimum, maximum, wrong token and wrong chain are covered; insufficient balance/allowance, bad permits and rounding are not',
         ],
