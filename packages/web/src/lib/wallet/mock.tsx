@@ -46,6 +46,7 @@ export interface MockWalletProviderProps {
   readonly children: ReactNode;
   readonly defaultEvmConnected?: boolean;
   readonly defaultBchConnected?: boolean;
+  readonly defaultBchPairingFailed?: boolean;
   readonly asleepDelayMs?: number;
 }
 
@@ -53,6 +54,7 @@ export function MockWalletProvider({
   children,
   defaultEvmConnected = false,
   defaultBchConnected = false,
+  defaultBchPairingFailed = false,
   asleepDelayMs = 5000,
 }: MockWalletProviderProps) {
   // EVM wallet state
@@ -68,7 +70,9 @@ export function MockWalletProvider({
   const [bchStatus, setBchStatus] = useState<WalletStatus>(
     defaultBchConnected ? 'connected' : 'disconnected',
   );
-  const [bchError, setBchError] = useState<string | null>(null);
+  const [bchError, setBchError] = useState<string | null>(
+    defaultBchPairingFailed ? 'The pairing connection was dropped.' : null,
+  );
   const [bchAddress, setBchAddress] = useState<BchAddressInfo | null>(
     defaultBchConnected ? getMockBchAddress() : null,
   );
@@ -76,6 +80,9 @@ export function MockWalletProvider({
     defaultBchConnected ? 'Paytaca (Mock)' : null,
   );
   const [bchPairing, setBchPairing] = useState<boolean>(false);
+  const [bchPairingFailed, setBchPairingFailed] = useState<boolean>(
+    defaultBchPairingFailed,
+  );
   const [bchPending, setBchPending] = useState<string | null>(null);
   const [bchPromptHelp, setBchPromptHelp] = useState<string | null>(null);
   const bchAbortRef = useRef<AbortController | null>(null);
@@ -172,10 +179,26 @@ export function MockWalletProvider({
       error: bchError,
       walletName: bchWalletName,
       pairing: bchPairing,
+      pairingFailed: bchPairingFailed,
       pendingRequest: bchPending,
       promptHelp: bchPromptHelp,
+      showQrAgain: () => {
+        setBchPairingFailed(false);
+        setBchError(null);
+        setBchStatus('connecting');
+        setBchPairing(true);
+      },
+      reconnectWallet: () => {
+        setBchPairingFailed(false);
+        setBchError(null);
+        setBchStatus('disconnected');
+        setBchAddress(null);
+        setBchWalletName(null);
+        setBchPairing(false);
+      },
       connect: (options?: BchWalletConnectOptions) => {
         setBchError(null);
+        setBchPairingFailed(false);
 
         // Prefix validation check
         const targetAddress = options?.simulatePrefixMismatch
@@ -266,6 +289,7 @@ export function MockWalletProvider({
       bchError,
       bchWalletName,
       bchPairing,
+      bchPairingFailed,
       bchPending,
       bchPromptHelp,
       cancelBchPending,

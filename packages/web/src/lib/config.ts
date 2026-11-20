@@ -90,3 +90,16 @@ export const REOWN_PROJECT_ID =
  */
 export const LIVE_EXECUTION_ENABLED =
   import.meta.env?.VITE_LIVE_EXECUTION === '1';
+
+/**
+ * Optional custom WizardConnect relay URLs.
+ * Off by default; when unset or empty, WizardConnect uses its built-in relays:
+ * ["wss://relay.riften.net:443", "wss://relay.cauldron.quest:443"].
+ * Format: comma-separated list of WebSocket URLs (e.g. "wss://relay.example.com:443").
+ */
+export const WIZARD_RELAY_URLS: readonly string[] = (
+  (import.meta.env?.VITE_WIZARD_RELAY_URLS as string | undefined) ?? ''
+)
+  .split(',')
+  .map((url) => url.trim())
+  .filter((url) => url.length > 0);

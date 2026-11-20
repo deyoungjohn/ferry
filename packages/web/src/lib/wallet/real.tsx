@@ -1,8 +1,15 @@
 import { useAppKit } from '@reown/appkit/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { clearSession } from '@wizardconnect/dapp';
-import { WizardConnectQRDialog, useWizardConnect } from '@wizardconnect/react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useWizardConnect } from '@wizardconnect/react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   bytesToHex,
   hexToBytes,
@@ -19,11 +26,15 @@ import {
   useSwitchChain,
   WagmiProvider,
 } from 'wagmi';
-import { NETWORK_PROFILE, REOWN_PROJECT_ID } from '../config';
+import {
+  NETWORK_PROFILE,
+  REOWN_PROJECT_ID,
+  WIZARD_RELAY_URLS,
+} from '../config';
+import { BchPairingDialog } from '../../components/BchPairingDialog';
 import { WalletContext } from './context';
 import { wagmiConfig } from './evm-config';
 import { validateBchAddressPrefix } from './chain';
-import { wizardConnectTheme } from './wizard-theme';
 import { useBchReconnectTimeout } from './reconnect-timeout';
 import { revokeAccountAccess } from './revoke';
 import { wizardSignParams } from './wizard-sign';
@@ -200,7 +211,12 @@ function useRealBchWallet(
   onRestart: () => void,
   startFresh: boolean,
 ): { wallet: BchWallet; dialog: ReactNode } {
-  const wizard = useWizardConnect({ dappName: 'Ferry' });
+  const wizard = useWizardConnect({
+    dappName: 'Ferry',
+    ...(WIZARD_RELAY_URLS.length > 0
+      ? { relayUrls: [...WIZARD_RELAY_URLS] }
+      : {}),
+  });
   const connectRef = useRef(wizard.connect);
   const connectStartedAt = useRef(0);
   const startedFresh = useRef(false);
@@ -221,11 +237,20 @@ function useRealBchWallet(
 
   // A pairing the user started waits for the scan; only a restored session is
   // dropped by the 8s limit.
-  const [userStarted, setUserStarted] = useState(false);
+  const [userStarted, setUserStarted] = useState(startFresh);
+  const [dialogOpen, setDialogOpen] = useState(startFresh);
+  const [pairingFailed, setPairingFailed] = useState(false);
+  const [failureReason, setFailureReason] = useState<string | null>(null);
+
   // Cleared only by a completed connection: a pairing can pass through "disconnected" (a relay
   // reconnect) and back to "connecting" while its QR is on screen.
   useEffect(() => {
-    if (wizard.state === 'connected') setUserStarted(false);
+    if (wizard.state === 'connected') {
+      setUserStarted(false);
+      setDialogOpen(false);
+      setPairingFailed(false);
+      setFailureReason(null);
+    }
   }, [wizard.state]);
 
   const reconnectTimedOut = useBchReconnectTimeout(
@@ -235,6 +260,56 @@ function useRealBchWallet(
     // Never while a pairing link (the QR) exists: it waits for the scan.
     !userStarted && !wizard.uri,
   );
+
+  // Detect failed or dropped pairings
+  useEffect(() => {
+    if (!userStarted) return;
+    if (wizard.error) {
+      setPairingFailed(true);
+      setFailureReason(wizard.error);
+    } else if (wizard.state === 'disconnected') {
+      setPairingFailed(true);
+      setFailureReason(
+        'The pairing connection was dropped. The wallet or relay disconnected.',
+      );
+    } else if (reconnectTimedOut) {
+      setPairingFailed(true);
+      setFailureReason('Pairing attempt timed out. The relay was unreachable.');
+    }
+  }, [userStarted, wizard.state, wizard.error, reconnectTimedOut]);
+
+  const showQrAgain = useCallback(() => {
+    setPairingFailed(false);
+    setFailureReason(null);
+    setUserStarted(true);
+    setDialogOpen(true);
+    connectStartedAt.current = Date.now();
+    // Clear active relay session and re-initiate fresh pairing without leaving dialog
+    void Promise.resolve(wizard.disconnect()).then(() => {
+      try {
+        const ok = wizard.connect();
+        if (!ok && wizard.error) {
+          setPairingFailed(true);
+          setFailureReason(wizard.error);
+        }
+      } catch (err) {
+        setPairingFailed(true);
+        setFailureReason(
+          err instanceof Error ? err.message : 'Connection failed at once.',
+        );
+      }
+    });
+  }, [wizard]);
+
+  const reconnectWallet = useCallback(() => {
+    setPairingFailed(false);
+    setFailureReason(null);
+    clearRememberedBchWallet();
+    setRemembered(null);
+    setUserStarted(true);
+    setDialogOpen(true);
+    onRestart();
+  }, [onRestart]);
 
   const signAbort = useRef<AbortController | null>(null);
   const scanAbort = useRef<AbortController | null>(null);
@@ -300,11 +375,17 @@ function useRealBchWallet(
     error: prefixError ?? wizard.error,
     walletName: wizard.walletName ?? remembered?.name ?? null,
     pairing: wizard.state === 'connecting' && wizard.uri !== null,
+    pairingFailed,
     pendingRequest,
     promptHelp,
+    showQrAgain,
+    reconnectWallet,
     connect: () => {
       setPrefixError(null);
+      setPairingFailed(false);
+      setFailureReason(null);
       setUserStarted(true);
+      setDialogOpen(true);
       connectStartedAt.current = Date.now();
       // Normal case: open the QR dialog directly. A stale restored
       // attempt needs the clear-and-remount path to offer fresh QR.
@@ -312,10 +393,25 @@ function useRealBchWallet(
         onRestart();
         return;
       }
-      wizard.connect();
+      try {
+        const ok = wizard.connect();
+        if (!ok && wizard.error) {
+          setPairingFailed(true);
+          setFailureReason(wizard.error);
+        }
+      } catch (err) {
+        setPairingFailed(true);
+        setFailureReason(
+          err instanceof Error ? err.message : 'Connection failed at once.',
+        );
+      }
     },
     disconnect: async () => {
       setPrefixError(null);
+      setPairingFailed(false);
+      setFailureReason(null);
+      setDialogOpen(false);
+      setUserStarted(false);
       setPendingRequest(null);
       setPromptHelp(null);
       await wizard.disconnect();
@@ -478,23 +574,26 @@ function useRealBchWallet(
     transactionExists: async () => false,
   };
 
-  const dialog =
-    wizard.uri && wizard.qrUri ? (
-      <WizardConnectQRDialog
-        show={wizard.state === 'connecting'}
-        onClose={() => {
-          // A close in the first second is never the person (it is a focus or click that landed
-          // as the window opened); ignoring it keeps the code on screen.
-          if (Date.now() - connectStartedAt.current < 1200) return;
-          void wizard.disconnect();
-        }}
-        uri={wizard.uri}
-        qrUri={wizard.qrUri}
-        title="Connect a BCH wallet"
-        subtitle="Scan with Selene, Paytaca or another WizardConnect wallet"
-        theme={wizardConnectTheme}
-      />
-    ) : null;
+  const dialog = (
+    <BchPairingDialog
+      open={dialogOpen && wizard.state !== 'connected'}
+      onClose={() => {
+        if (Date.now() - connectStartedAt.current < 1200) return;
+        setDialogOpen(false);
+        setUserStarted(false);
+        setPairingFailed(false);
+        setFailureReason(null);
+        void wizard.disconnect();
+      }}
+      uri={wizard.uri}
+      qrUri={wizard.qrUri}
+      state={wizard.state}
+      pairingFailed={pairingFailed}
+      failureReason={failureReason}
+      onShowQrAgain={showQrAgain}
+      onReconnect={reconnectWallet}
+    />
+  );
 
   return { wallet, dialog };
 }

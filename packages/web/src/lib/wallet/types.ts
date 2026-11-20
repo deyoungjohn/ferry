@@ -86,9 +86,12 @@ export interface BchWallet {
   readonly error: string | null;
   readonly walletName: string | null;
   readonly pairing?: boolean;
+  readonly pairingFailed?: boolean;
   readonly pendingRequest: string | null;
   readonly promptHelp?: string | null;
   connect(options?: BchWalletConnectOptions): void;
+  showQrAgain?(): void;
+  reconnectWallet?(): void;
   disconnect(): Promise<void>;
   cancelPendingRequest(): void;
   setAddress(address: BchAddressInfo): void;
