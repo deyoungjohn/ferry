@@ -47,7 +47,7 @@ function formatDeadline(seconds: number): string {
   }).format(new Date(seconds * 1000));
 }
 
-export function formatTimeLeft(seconds: number): string {
+function formatTimeLeft(seconds: number): string {
   if (seconds <= 0) return 'Expired';
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -57,7 +57,7 @@ export function formatTimeLeft(seconds: number): string {
   return `${minutes}m left`;
 }
 
-export function computeWaitState(
+function computeWaitState(
   status: string,
   expiresAt: number | null,
 ): SendLinkWaitState {
