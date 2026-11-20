@@ -185,7 +185,7 @@ describe('RecoveryKeyService', () => {
     expect(saved).toBe('6');
   });
 
-  it('falls back to index > 1000 when scan times out', async () => {
+  it('on a scan timeout continues from the last used index seen, never a far random index', async () => {
     const root = deriveRecoveryRoot(testSignature);
     const hangingChain: EvmChainPort = {
       buildUserLock: vi.fn(),
@@ -199,8 +199,8 @@ describe('RecoveryKeyService', () => {
       timeoutMs: 50,
     });
 
-    expect(nextIdx).toBeGreaterThanOrEqual(1000);
-    expect(nextIdx).toBeLessThanOrEqual(10000);
+    // Nothing was seen before the timeout: start at 0, inside the range recovery scans.
+    expect(nextIdx).toBe(0);
   });
 
   it('manages rescue root for reverse swaps without connected EVM wallet', async () => {

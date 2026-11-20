@@ -130,7 +130,7 @@ describe('B4-07 Adversarial Defect Fixes (Quoting & Operator Safety)', () => {
           userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
           userBchLockingBytecode:
             '0x76a914000000000000000000000000000000000000000088ac',
-          hashLock,
+          hashLock: sha256((hashLock + '01') as `0x${string}`),
           lane: 'safe',
         },
       });
@@ -154,7 +154,7 @@ describe('B4-07 Adversarial Defect Fixes (Quoting & Operator Safety)', () => {
           userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
           userBchLockingBytecode:
             '0x76a914000000000000000000000000000000000000000088ac',
-          hashLock,
+          hashLock: sha256((hashLock + '02') as `0x${string}`),
           lane: 'safe',
         },
       });
@@ -178,7 +178,7 @@ describe('B4-07 Adversarial Defect Fixes (Quoting & Operator Safety)', () => {
           userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
           userBchLockingBytecode:
             '0x76a914000000000000000000000000000000000000000088ac',
-          hashLock,
+          hashLock: sha256((hashLock + '03') as `0x${string}`),
           lane: 'safe',
         },
       });
@@ -253,7 +253,7 @@ describe('B4-07 Adversarial Defect Fixes (Quoting & Operator Safety)', () => {
           userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
           userBchLockingBytecode:
             '0x76a914000000000000000000000000000000000000000088ac',
-          hashLock,
+          hashLock: sha256((hashLock + '08') as `0x${string}`),
           lane: 'safe',
         },
       });
@@ -320,7 +320,7 @@ describe('B4-07 Adversarial Defect Fixes (Quoting & Operator Safety)', () => {
           userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
           userBchLockingBytecode:
             '0x76a914000000000000000000000000000000000000000088ac',
-          hashLock,
+          hashLock: sha256((hashLock + '09') as `0x${string}`),
           lane: 'fast',
         },
       });

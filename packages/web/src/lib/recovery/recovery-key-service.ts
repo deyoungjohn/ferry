@@ -5,6 +5,7 @@ import {
   RECOVERY_SCAN_GAP,
   swapHashLockAt,
   swapSecretAt,
+  swapTagAt,
   type Hex32,
 } from '@ferry/core';
 import type { EvmChainPort } from '@ferry/user-flow';
@@ -238,7 +239,9 @@ export async function scanNextIndex(
   const gap = options?.gap ?? RECOVERY_SCAN_GAP;
   const timeoutMs = options?.timeoutMs ?? 5000;
 
-  const fallbackIndex = 1000 + Math.floor(Math.random() * 9000);
+  // On a timeout, carry on just after the last used index the scan has seen so far: an index
+  // far above would never be found by a recovery scan, and the solver refuses a reused one.
+  let maxUsedSoFar = -1;
 
   const scanPromise = (async () => {
     let maxUsed = -1;
@@ -259,6 +262,7 @@ export async function scanNextIndex(
       const isUsed = states.some((s) => s.status !== 'absent');
       if (isUsed) {
         maxUsed = n;
+        maxUsedSoFar = n;
         consecutiveMisses = 0;
       } else {
         consecutiveMisses += 1;
@@ -270,7 +274,7 @@ export async function scanNextIndex(
   })();
 
   const timeoutPromise = new Promise<number>((resolve) => {
-    setTimeout(() => resolve(fallbackIndex), timeoutMs);
+    setTimeout(() => resolve(maxUsedSoFar + 1), timeoutMs);
   });
 
   try {
@@ -283,9 +287,9 @@ export async function scanNextIndex(
   } catch {
     await store.set(
       `ferry.recovery.index.${normalizedAddr}`,
-      String(fallbackIndex),
+      String(maxUsedSoFar + 1),
     );
-    return fallbackIndex;
+    return maxUsedSoFar + 1;
   }
 }
 
@@ -304,10 +308,11 @@ export function createWalletSecretGenerator(
       getCode?: (args: { address: Address }) => Promise<Hex | undefined>;
     };
   },
-): () => Promise<Hex32> {
+): SecretGenerator {
   const store = options?.store ?? browserRecoveryStorage;
 
-  return async (): Promise<Hex32> => {
+  const generate: SecretGenerator = async (): Promise<Hex32> => {
+    generate.lastTag = undefined;
     const { root, isContract } = await getOrDeriveRecoveryRoot(wallet, options);
     if (isContract || !root || !wallet.address) {
       // Contract wallet fallback: random secret
@@ -335,8 +340,10 @@ export function createWalletSecretGenerator(
 
     // Advance index before returning secret
     await store.set(`ferry.recovery.index.${addr}`, String(currentIndex + 1));
+    generate.lastTag = swapTagAt(root, currentIndex);
     return swapSecretAt(root, currentIndex);
   };
+  return generate;
 }
 
 /**
@@ -358,21 +365,28 @@ export async function getOrCreateRescueRoot(
   return root;
 }
 
+/** A secret source that also remembers the recovery tag of the secret it gave last. */
+export type SecretGenerator = (() => Promise<Hex32>) & {
+  lastTag?: `0x${string}` | undefined;
+};
+
 /**
  * Secret generator for reverse swaps without connected EVM wallet.
  */
 export function createRescueSecretGenerator(
   store: KeyValueStore = browserRecoveryStorage,
-): () => Promise<Hex32> {
-  return async (): Promise<Hex32> => {
+): SecretGenerator {
+  const generate: SecretGenerator = async (): Promise<Hex32> => {
     const root = await getOrCreateRescueRoot(store);
     const stored = await store.get('ferry.rescue.index');
     let idx = stored !== null ? parseInt(stored, 10) : 0;
     if (Number.isNaN(idx) || idx < 0) idx = 0;
 
     await store.set('ferry.rescue.index', String(idx + 1));
+    generate.lastTag = swapTagAt(root, idx);
     return swapSecretAt(root, idx);
   };
+  return generate;
 }
 
 export async function isRescueKeySaved(

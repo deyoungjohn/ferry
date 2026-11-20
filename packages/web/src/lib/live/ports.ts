@@ -1,4 +1,4 @@
-import type { Hex, Hex32 } from '@ferry/core';
+import type { Hex } from '@ferry/core';
 import { SolverClient } from '@ferry/solver-client';
 import type {
   BchSignerPort,
@@ -12,6 +12,7 @@ import { createLocalRecoveryStore } from './recovery-store';
 import {
   createRescueSecretGenerator,
   createWalletSecretGenerator,
+  type SecretGenerator,
 } from '../recovery/recovery-key-service';
 
 export function evmSignerFromWallet(wallet: EvmWallet): EvmSignerPort {
@@ -79,7 +80,7 @@ export function createLiveDependencies(options: {
   if (!address) throw new Error('Connect a Bitcoin Cash wallet first.');
   const evmChain = createBrowserEvmChain(chainId);
 
-  let secretGenerator: (() => Promise<Hex32>) | undefined;
+  let secretGenerator: SecretGenerator | undefined;
   if (wallets.evm.address) {
     secretGenerator = createWalletSecretGenerator(wallets.evm, {
       chains: [evmChain],
@@ -99,6 +100,8 @@ export function createLiveDependencies(options: {
     bchNetwork: 'mainnet',
     bchCashAddress: address,
     secretGenerator,
+    // The tag of the secret just used, written into the Bitcoin Cash lock's terms output.
+    recoveryTag: () => secretGenerator?.lastTag,
   };
 }
 

@@ -54,7 +54,7 @@ describe('Contract Suite (@ferry/solver-client contract runner)', () => {
           solverBchLockingBytecode:
             '0x76a914000000000000000000000000000000000000000088ac',
           hashLock:
-            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            '0xabababababababababababababababababababababababababababababababab',
           evmDeadline: now - 3600,
           bchRefundHeight: 320000,
           bchCarrySats: 1000,
@@ -73,7 +73,7 @@ describe('Contract Suite (@ferry/solver-client contract runner)', () => {
         (_, v) => (typeof v === 'bigint' ? v.toString() + 'n' : v),
       ),
       hashLock:
-        '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        '0xabababababababababababababababababababababababababababababababab',
       lane: 'safe',
       fastOptIn: false,
       firstSeenAtMs: (now - 3600) * 1000,

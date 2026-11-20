@@ -400,6 +400,33 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(badRes.json().error.code).toBe('BAD_REQUEST');
     });
 
+    it('refuses a second quote with a hash lock an earlier order used', async () => {
+      const hashLock = sha256(('0x' + '98'.repeat(32)) as `0x${string}`);
+      const payload = {
+        direction: 'EVM_TO_BCH',
+        bchToken: 'PUSD',
+        amountIn: '10000000',
+        userEvmAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
+        userBchLockingBytecode:
+          '0x76a914000000000000000000000000000000000000000088ac',
+        hashLock,
+        lane: 'safe',
+      };
+      const first = await app.inject({
+        method: 'POST',
+        url: '/v1/quotes',
+        payload,
+      });
+      expect(first.statusCode).toBe(200);
+      const second = await app.inject({
+        method: 'POST',
+        url: '/v1/quotes',
+        payload,
+      });
+      expect(second.statusCode).toBe(409);
+      expect(second.body).toMatch(/hashLock has already been used/);
+    });
+
     it('GET /v1/orders/by-hash-lock/:hashLock returns order status and public terms, 404 when unknown', async () => {
       const secret = ('0x' + '99'.repeat(32)) as `0x${string}`;
       const hashLock = sha256(secret);
@@ -844,7 +871,7 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
           counterChain: 'base',
           counterSymbol: 'USDC',
           userCounterAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
-          hashLock: sha256(('0x' + '99'.repeat(32)) as `0x${string}`),
+          hashLock: sha256(('0x' + '9a'.repeat(32)) as `0x${string}`),
           lane: 'safe',
         },
       });
@@ -906,6 +933,7 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
 
     // Each call uses a different recipient so the per-address rate limit never trips.
     let recipientCounter = 0x1000;
+    let sendQuoteCount = 0;
     async function sendQuote(extra: Record<string, unknown>) {
       recipientCounter += 1;
       const recipient = `0x${recipientCounter.toString(16).padStart(40, '0')}`;
@@ -917,7 +945,9 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
           recipientAddress: recipient,
           windowSeconds: 86400,
           bchToken: 'PUSD',
-          hashLock: sha256(('0x' + '77'.repeat(32)) as `0x${string}`),
+          hashLock: sha256(
+            `0x${(sendQuoteCount++).toString(16).padStart(64, '7')}` as `0x${string}`,
+          ),
           ...extra,
         },
       });
@@ -1109,7 +1139,10 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       const r1 = await limitedApp.inject({
         method: 'POST',
         url: '/v1/quotes',
-        payload: quotePayload,
+        payload: {
+          ...quotePayload,
+          hashLock: sha256(('0x' + '01'.repeat(32)) as `0x${string}`),
+        },
       });
       expect(r1.statusCode).toBe(200);
 
@@ -1117,7 +1150,10 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       const r2 = await limitedApp.inject({
         method: 'POST',
         url: '/v1/quotes',
-        payload: quotePayload,
+        payload: {
+          ...quotePayload,
+          hashLock: sha256(('0x' + '02'.repeat(32)) as `0x${string}`),
+        },
       });
       expect(r2.statusCode).toBe(200);
 
@@ -1125,7 +1161,10 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       const r3 = await limitedApp.inject({
         method: 'POST',
         url: '/v1/quotes',
-        payload: quotePayload,
+        payload: {
+          ...quotePayload,
+          hashLock: sha256(('0x' + '03'.repeat(32)) as `0x${string}`),
+        },
       });
       expect(r3.statusCode).toBe(429);
       expect(r3.json().error.code).toBe('RATE_LIMITED');

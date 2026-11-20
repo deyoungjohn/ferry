@@ -474,3 +474,36 @@ describe('tip height', () => {
     expect(chainReads).toBe(2);
   });
 });
+
+describe('a used hash lock', () => {
+  it('moves to the next secret when the solver says a hash lock was already used', async () => {
+    const { deps } = createWorld();
+    const built = deps();
+    let calls = 0;
+    const secrets = [`0x${'01'.repeat(32)}`, `0x${'02'.repeat(32)}`] as const;
+    const seen: string[] = [];
+    const solver = {
+      ...built.solver,
+      quote: async (request: Parameters<typeof built.solver.quote>[0]) => {
+        calls += 1;
+        seen.push(request.hashLock);
+        if (calls === 1) {
+          throw Object.assign(
+            new Error('hashLock has already been used by another order'),
+            { code: 'CONFLICT' },
+          );
+        }
+        return built.solver.quote(request);
+      },
+    };
+    let n = 0;
+    const session = new UserSwapSession({
+      ...built,
+      solver,
+      secretGenerator: () => secrets[n++ % 2]!,
+    });
+    await session.quote(forward);
+    expect(calls).toBe(2);
+    expect(seen[0]).not.toBe(seen[1]);
+  });
+});

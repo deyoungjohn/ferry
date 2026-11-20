@@ -150,6 +150,18 @@ const INITIAL_STATE: SwapState = {
  * recovery file after a reload. Nothing here touches a wallet, a socket or a
  * file: all of that is behind the ports.
  */
+/** How many secrets a quote tries when the solver says a hash lock was already used. */
+const MAX_SECRET_ATTEMPTS = 50;
+
+function isHashLockUsed(error: unknown): boolean {
+  const e = error as { code?: unknown; message?: unknown } | null;
+  return (
+    e?.code === 'CONFLICT' &&
+    typeof e.message === 'string' &&
+    /hashLock has already been used/i.test(e.message)
+  );
+}
+
 export class UserSwapSession {
   private readonly deps: UserSwapDependencies;
   private current: SwapState = INITIAL_STATE;
@@ -249,31 +261,54 @@ export class UserSwapSession {
       }
       const bchLockingBytecode = this.userBchLockingBytecode();
 
-      const secret = await (
-        this.deps.secretGenerator ?? defaultSecretGenerator
-      )();
-      const hashLock = sha256(secret) as Hex32;
-      const request: QuoteRequest = {
-        direction: input.direction,
-        token: input.token,
-        chainId: input.chainId,
-        evmToken: input.evmToken,
-        amountIn: input.amountIn,
-        userEvmAddress,
-        userBchLockingBytecode: bchLockingBytecode,
-        hashLock,
-        lane:
-          input.lane ?? (input.direction === 'EVM_TO_BCH' ? 'fast' : 'safe'),
-        ...(input.fastOptIn !== undefined
-          ? { fastOptIn: input.fastOptIn }
-          : {}),
-        ...(input.dryRun === true ? { dryRun: true } : {}),
-      };
-
-      const [bchTipHeight, response] = await Promise.all([
-        this.tipHeight(),
-        this.deps.solver.quote(request),
-      ]);
+      // A wallet-derived secret may already have been used (another device, a reverse swap the
+      // scan cannot see): the solver refuses its hash lock and the next secret is tried.
+      let secret: Hex32 | undefined;
+      let request: QuoteRequest | undefined;
+      let bchTipHeight = 0;
+      let response: Awaited<ReturnType<SolverPort['quote']>> | undefined;
+      for (let attempt = 0; attempt < MAX_SECRET_ATTEMPTS; attempt += 1) {
+        const candidate = await (
+          this.deps.secretGenerator ?? defaultSecretGenerator
+        )();
+        const hashLock = sha256(candidate) as Hex32;
+        const candidateRequest: QuoteRequest = {
+          direction: input.direction,
+          token: input.token,
+          chainId: input.chainId,
+          evmToken: input.evmToken,
+          amountIn: input.amountIn,
+          userEvmAddress,
+          userBchLockingBytecode: bchLockingBytecode,
+          hashLock,
+          lane:
+            input.lane ?? (input.direction === 'EVM_TO_BCH' ? 'fast' : 'safe'),
+          ...(input.fastOptIn !== undefined
+            ? { fastOptIn: input.fastOptIn }
+            : {}),
+          ...(input.dryRun === true ? { dryRun: true } : {}),
+        };
+        try {
+          [bchTipHeight, response] = await Promise.all([
+            this.tipHeight(),
+            this.deps.solver.quote(candidateRequest),
+          ]);
+        } catch (error) {
+          if (isHashLockUsed(error) && attempt + 1 < MAX_SECRET_ATTEMPTS) {
+            continue;
+          }
+          throw error;
+        }
+        secret = candidate;
+        request = candidateRequest;
+        break;
+      }
+      if (!secret || !request || !response) {
+        throw new UserFlowError(
+          'INVALID_INPUT',
+          'No unused secret was found for this swap. Nothing was locked.',
+        );
+      }
       const verified = await verifyQuote(response, request, {
         ...this.deps.verify,
         bchTipHeight,

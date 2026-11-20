@@ -529,6 +529,16 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
 
     const coreRequest = parseResult.data;
+
+    // A hash lock is used by one order only: a second swap with the same secret could be claimed
+    // by whoever learned it from the first. The page then moves to its next secret.
+    if (!isDryRun && db.getOrderByHashLock(coreRequest.hashLock)) {
+      return sendApiError(
+        reply,
+        'CONFLICT',
+        'hashLock has already been used by another order',
+      );
+    }
     const request = {
       ...coreRequest,
       bchToken: coreRequest.token,
@@ -2687,6 +2697,13 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       }
 
       const request = parseResult.data;
+      if (db.getOrderByHashLock(request.hashLock)) {
+        return sendApiError(
+          reply,
+          'CONFLICT',
+          'hashLock has already been used by another order',
+        );
+      }
       const targetAmountOut =
         request.amountOut !== undefined
           ? BigInt(request.amountOut)
@@ -3008,6 +3025,14 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         asset: request.token,
         message: 'A send link must be for at least $1.00',
       });
+    }
+
+    if (db.getOrderByHashLock(request.hashLock)) {
+      return sendApiError(
+        reply,
+        'CONFLICT',
+        'hashLock has already been used by another order',
+      );
     }
 
     if (request.viewTag !== undefined && db.hasSendLinkTag(request.viewTag)) {

@@ -23,6 +23,7 @@ import {
 } from '@ferry/core/api';
 import type { z } from 'zod';
 import type { FetchLike } from './client.js';
+import { sha256 } from 'viem';
 
 export interface ContractSuiteFixtures {
   readonly chainId?: number;
@@ -71,6 +72,13 @@ const DEFAULT_RECIPIENT_EVM =
   '0x2222222222222222222222222222222222222222' as Hex;
 const DEFAULT_BCH_LOCKING =
   '0x76a914111111111111111111111111111111111111111188ac' as Hex;
+/** A different, valid hash lock for each extra quote: the solver accepts a hash lock once. */
+function otherHashLock(hashLock: Hex32, n: number): Hex32 {
+  return sha256(
+    `${hashLock}${n.toString(16).padStart(2, '0')}` as Hex32,
+  ) as Hex32;
+}
+
 const DEFAULT_HASH_LOCK =
   '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Hex32;
 const DEFAULT_SECRET =
@@ -451,7 +459,7 @@ export async function runContractSuite(
       chainId,
       evmToken,
       userEvmAddress,
-      hashLock,
+      hashLock: otherHashLock(hashLock, 1),
       lane: 'safe',
     },
     expectedStatuses: [200],
@@ -495,7 +503,7 @@ export async function runContractSuite(
       recipientEvmAddress,
       userEvmAddress,
       userBchLockingBytecode,
-      hashLock,
+      hashLock: otherHashLock(hashLock, 2),
       windowSeconds: 86400,
       lane: 'safe',
     },
@@ -564,7 +572,7 @@ export async function runContractSuite(
       amountIn: insufficientLiquidityAmountIn,
       userEvmAddress,
       userBchLockingBytecode,
-      hashLock,
+      hashLock: otherHashLock(hashLock, 3),
       lane: 'safe',
     },
     expectedStatuses: [422],
