@@ -144,3 +144,26 @@ export async function setStorageAt(
 ): Promise<void> {
   await body(rpcUrl, 'anvil_setStorageAt', [address, slot, value]);
 }
+
+export async function impersonateAccount(
+  rpcUrl: string,
+  address: string,
+): Promise<void> {
+  await body(rpcUrl, 'anvil_impersonateAccount', [address]);
+}
+
+export async function stopImpersonatingAccount(
+  rpcUrl: string,
+  address: string,
+): Promise<void> {
+  await body(rpcUrl, 'anvil_stopImpersonatingAccount', [address]);
+}
+
+export async function sendTransaction(
+  rpcUrl: string,
+  from: string,
+  to: string,
+  data: string,
+): Promise<string> {
+  return body<string>(rpcUrl, 'eth_sendTransaction', [{ from, to, data }]);
+}

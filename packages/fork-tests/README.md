@@ -22,19 +22,26 @@ the fork before moving to the next chain. Missing RPC names are reported as
 skipped chains, not as failures.
 
 The current matrix covers health, quote, relay-lock with permit and
-approve-plus-lock tokens, and the minimum, maximum, wrong-chain and wrong-token
-refusals. Base, Ethereum, Arbitrum, BNB and Robinhood pass those rows on the live
-forks. Arc is skipped because its USDC token does not expose a discoverable
-ERC-20 balance storage slot; use the manual checklist for it.
+approve-plus-lock tokens, both full swap directions, and the minimum, maximum,
+wrong-chain and wrong-token refusals. Base, Ethereum, Arbitrum, BNB and Robinhood
+pass every row on the live forks.
 
-A full forward/reverse swap attempt is wired in but does not pass yet: on the
-current v2-staging fork run both stalled at `USER_LOCK_SEEN` waiting for the
-engine's Bitcoin Cash lock. It is reported as a failure row, not as a pass.
+The Base full-swap stall was a harness gap, not an engine bug: the real EVM port
+had no adapter registered for the order's chain id, so the engine could not read
+the user's lock. Registering the chain id and the deployment block fixed it.
 
-The following still require a manual or harness extension pass: full BCH claim
-and refund flows, finality/reorg boundaries, quote and deadline timing, solver
+Arc is funded by impersonating a recent USDC holder found in a 10-block log
+window, because its USDC does not use the ordinary ERC-20 balance slot. The
+funding succeeds and the refusal rows pass, but the lock call still reverts; the
+Arc full-swap rows are reported as failures until that is traced.
+
+The following still require a manual or harness extension pass: finality/reorg
+boundaries, two chains with the same lock id, quote and deadline timing, solver
 inventory and gas refusals, bad permits, wallet reverts, crash/restart at every
 step, keeper refunds and early release, wrong/late/non-recipient claims,
 18-decimal and rounding cases, and gas spikes/replacements/nonce gaps.
+
+Use `FERRY_FORK_CHAINS=base,ethereum` to run a subset while iterating. The full
+run still uses one fork at a time and stops each one before the next.
 
 The suite is not part of the normal unit run; `FERRY_RUN_FORK=1` is required.

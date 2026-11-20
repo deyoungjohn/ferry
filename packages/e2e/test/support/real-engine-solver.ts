@@ -85,6 +85,8 @@ export interface RealEngineSolver {
   faults: BchFaults;
   /** Confirmations the EVM port requires before it calls a transaction final. */
   evmConfirmations: { value: number };
+  /** Engine events, newest last; useful when a swap stalls. */
+  events: string[];
   /** Orders whose state is reported when a wait times out. */
   watch: (orderId: string) => void;
   /** One reconciliation pass of the engine. */
@@ -116,6 +118,7 @@ export async function startRealEngineSolver(params: {
    * solver's own executors. Defaults to the FERRY_E2E_REFERENCE_ACTIONS switch.
    */
   referenceActions?: boolean;
+  deployBlock?: bigint;
 }): Promise<RealEngineSolver> {
   const solverAccount = privateKeyToAccount(params.solverEvmKey ?? SOLVER_KEY);
   const publicClient = createPublicClient({
@@ -150,6 +153,7 @@ export async function startRealEngineSolver(params: {
     },
     client: publicClient,
     walletClient,
+    deployBlock: params.deployBlock,
   });
 
   const now = Math.floor(Date.now() / 1000);
@@ -199,7 +203,11 @@ export async function startRealEngineSolver(params: {
   const evmConfirmations = { value: 1 };
   // The solver's own EVM port over the real adapter; only the finality rule is replaced, so a test
   // can choose how many confirmations count.
-  const realEvmPort = createEvmPort({ evmAdapter });
+  const realEvmPort = createEvmPort({
+    evmAdapter,
+    evmAdapters: new Map([[String(params.chain.id), evmAdapter]]),
+    evmClients: new Map([[String(params.chain.id), publicClient]]),
+  });
   const evmPort: EvmChainPort = {
     ...realEvmPort,
     getTip: async () => ({
@@ -248,19 +256,34 @@ export async function startRealEngineSolver(params: {
   };
 
   const db = new SolverDatabase(':memory:');
+  const events: string[] = [];
+  const recordEngineEvent = (info: unknown, message: string) => {
+    events.push(`${message}: ${JSON.stringify(info)}`);
+  };
   const useReference =
     params.referenceActions ??
     process.env['FERRY_E2E_REFERENCE_ACTIONS'] === '1';
   const enginePort = useReference
     ? withCovenantLookup(bchPort, db, params.bchChain)
     : bchPort;
+  const engineConfig = {
+    ...config,
+    onEngineEvent: recordEngineEvent,
+    onOrderError: (orderId: string, status: string, error: unknown) => {
+      events.push(
+        `Order error ${orderId.slice(0, 10)} ${status}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    },
+  };
   const newEngine = () =>
     useReference
       ? new SolverEngine(
           db,
           enginePort,
           evmPort,
-          config,
+          engineConfig,
           new ReferenceBchExecutor(
             db,
             enginePort,
@@ -269,7 +292,7 @@ export async function startRealEngineSolver(params: {
           ),
           new ReferenceEvmExecutor(db, evmPort, evmAdapter),
         )
-      : new SolverEngine(db, enginePort, evmPort, config);
+      : new SolverEngine(db, enginePort, evmPort, engineConfig);
   let engine = newEngine();
   let app = buildServer({
     config,
@@ -304,6 +327,7 @@ export async function startRealEngineSolver(params: {
     solverBch: params.solverBch,
     faults,
     evmConfirmations,
+    events,
     watch: (orderId) => {
       watched.push(orderId);
     },
@@ -339,7 +363,10 @@ export async function startRealEngineSolver(params: {
               (orders.length > 0 ? `. Orders: ${orders.join('; ')}` : '') +
               (refused.length > 0
                 ? `. The simulated chain refused: ${refused.join(' | ')}`
-                : '. The simulated chain saw no refused broadcast.'),
+                : '. The simulated chain saw no refused broadcast.') +
+              (events.length > 0
+                ? `. Recent engine events: ${events.slice(-12).join(' | ')}`
+                : ''),
           );
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
