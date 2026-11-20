@@ -59,6 +59,8 @@ export interface LiveOrderViewProps {
   readonly embedded?: boolean | undefined;
   /** Other words for the steps (a payment to a pay link says "the owner is paid"). */
   readonly labels?: Readonly<Record<string, string>> | undefined;
+  /** Initial wait seconds for testing long wait offers. */
+  readonly initialWaitSeconds?: number | undefined;
 }
 
 /**
@@ -73,6 +75,7 @@ export function LiveOrderView({
   start,
   embedded = false,
   labels,
+  initialWaitSeconds,
 }: LiveOrderViewProps) {
   const wallets = useContext(WalletContext);
   const location = useLocation();
@@ -93,6 +96,38 @@ export function LiveOrderView({
   const checkingRef = useRef(false);
   const [checking, setChecking] = useState(false);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+
+  const consentKey = `ferry_finish_for_me_${orderId}`;
+  const [delegationConsent, setDelegationConsent] = useState<
+    'accepted' | 'dismissed' | null
+  >(() => {
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage.getItem(consentKey) as 'accepted' | 'dismissed' | null;
+  });
+  const [delegating, setDelegating] = useState(false);
+  const [delegationError, setDelegationError] = useState<string | null>(null);
+  const [waitStartTime, setWaitStartTime] = useState<number | null>(() => {
+    if (typeof sessionStorage === 'undefined') return null;
+    const stored = sessionStorage.getItem(`ferry_wait_start_${orderId}`);
+    return stored ? Number(stored) : null;
+  });
+
+  const isWaitCounterLockStep = state?.step === 'waitCounterLock';
+
+  useEffect(() => {
+    if (isWaitCounterLockStep && waitStartTime === null) {
+      const now = Date.now();
+      setWaitStartTime(now);
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(`ferry_wait_start_${orderId}`, String(now));
+      }
+    }
+  }, [isWaitCounterLockStep, waitStartTime, orderId]);
+
+  const elapsedWaitSeconds =
+    (waitStartTime ? (Date.now() - waitStartTime) / 1000 : 0) +
+    (initialWaitSeconds ?? 0);
+  const isLongWait = elapsedWaitSeconds >= 120;
 
   function depsFor(json: string): UserSwapDependencies {
     if (dependencies) return dependencies;
@@ -216,7 +251,6 @@ export function LiveOrderView({
       })();
     }, POLL_MS);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function carryOn(session: UserSwapSession, mayLock: boolean) {
@@ -498,6 +532,40 @@ export function LiveOrderView({
     state?.step === 'lock' &&
     signer?.status !== 'connected';
 
+  const handleLetFerryFinish = async () => {
+    setDelegating(true);
+    setDelegationError(null);
+    try {
+      if (sessionRef.current) {
+        await sessionRef.current.delegateFinish();
+      } else if (fileJson) {
+        const file = parseRecoveryFileJson(fileJson);
+        if (file.secret) {
+          const deps = depsFor(fileJson);
+          await deps.solver.revealSecret(
+            orderId as Hex32,
+            file.secret as Hex32,
+          );
+        }
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(consentKey, 'accepted');
+      }
+      setDelegationConsent('accepted');
+    } catch (err) {
+      setDelegationError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDelegating(false);
+    }
+  };
+
+  const handleKeepPageOpen = () => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(consentKey, 'dismissed');
+    }
+    setDelegationConsent('dismissed');
+  };
+
   return (
     <div
       className={embedded ? '' : 'mx-auto max-w-lg px-4 py-8 sm:px-6'}
@@ -614,6 +682,65 @@ export function LiveOrderView({
                 {txsFor(item.id).map((tx) => (
                   <TxLink key={tx.label} {...tx} />
                 ))}
+                {active &&
+                  item.id === 'waitCounterLock' &&
+                  forward &&
+                  isLongWait &&
+                  delegationConsent !== 'dismissed' && (
+                    <div
+                      className="mt-3 rounded-lg border border-hairline bg-surface-1 p-3 text-xs"
+                      data-testid="finish-for-me-offer"
+                    >
+                      {delegationConsent === 'accepted' ? (
+                        <p
+                          className="text-lime"
+                          data-testid="finish-for-me-accepted"
+                        >
+                          Ferry then completes the payout for you and only takes
+                          your funds after the payout is sent.
+                        </p>
+                      ) : (
+                        <>
+                          <p className="font-medium text-text">
+                            This can take about 15 minutes on this chain. Let
+                            Ferry finish it if you leave, or keep this page
+                            open.
+                          </p>
+                          <p className="mt-1 text-text-muted">
+                            Ferry then completes the payout for you and only
+                            takes your funds after the payout is sent.
+                          </p>
+                          {delegationError && (
+                            <p className="mt-1 text-rose-400">
+                              {delegationError}
+                            </p>
+                          )}
+                          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleLetFerryFinish}
+                              disabled={delegating}
+                              data-testid="finish-for-me-btn"
+                              className="rounded bg-lime px-3 py-1.5 font-medium text-lime-ink hover:bg-lime/90 disabled:opacity-50 transition-colors"
+                            >
+                              {delegating
+                                ? 'Sending…'
+                                : 'Let Ferry finish this'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleKeepPageOpen}
+                              disabled={delegating}
+                              data-testid="keep-page-open-btn"
+                              className="rounded border border-hairline bg-surface-2 px-3 py-1.5 text-text-muted hover:text-text transition-colors"
+                            >
+                              I will keep this page open
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
               </div>
             </li>
           );

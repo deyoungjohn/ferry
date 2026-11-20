@@ -63,6 +63,24 @@ describe('the whole flow, both directions', () => {
     expect(states.at(-1)).toBe('done:ready');
   });
 
+  it('forward: delegateFinish reveals secret to solver', async () => {
+    const { world, deps } = createWorld();
+    const session = new UserSwapSession(deps());
+    await session.quote(forward);
+    await session.saveRecovery();
+    await session.lock();
+    await session.delegateFinish();
+    expect(world.events).toContain('revealSecret');
+  });
+
+  it('reverse: delegateFinish is rejected as invalid direction', async () => {
+    const { deps } = createWorld();
+    const session = new UserSwapSession(deps());
+    await session.quote(reverse);
+    await session.saveRecovery();
+    await expectCode(session.delegateFinish(), 'INVALID_INPUT');
+  });
+
   it('reverse: quote, save recovery, lock on Bitcoin Cash through the wallet, wait, claim on EVM', async () => {
     const { world, deps } = createWorld();
     const session = new UserSwapSession(deps());

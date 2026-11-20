@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserFlowError, UserSwapSession } from '@ferry/user-flow';
 import { LiveOrderView } from '../components/LiveOrderView';
+import { LinkHowItWorks } from '../components/links/LinkHowItWorks';
 import { WalletContext } from '../lib/wallet/context';
 import { createLocalRecoveryStore } from '../lib/live/recovery-store';
 
@@ -41,21 +42,30 @@ function fakeSession(step: string) {
       session.state = { ...session.state, step: 'refunded' };
       return 'refundtx';
     }),
+    delegateFinish: vi.fn(async () => {}),
   };
   return session;
 }
 
-function renderPage(start: boolean) {
+function renderPage(
+  start: boolean,
+  initialWaitSeconds?: number,
+  orderId = ORDER,
+) {
   return render(
     <MemoryRouter
       initialEntries={[
         {
-          pathname: `/app/swap/${ORDER}`,
+          pathname: `/app/swap/${orderId}`,
           state: start ? { start: true } : null,
         },
       ]}
     >
-      <LiveOrderView orderId={ORDER} dependencies={{} as never} />
+      <LiveOrderView
+        orderId={orderId}
+        dependencies={{} as never}
+        initialWaitSeconds={initialWaitSeconds}
+      />
     </MemoryRouter>,
   );
 }
@@ -333,5 +343,114 @@ describe('the order page', () => {
         /This swap can be recovered with your wallet on any device\. If anything stops, your refund stays available\./i,
       ),
     ).toBeInTheDocument();
+  });
+
+  describe('finish-for-me delegation offer', () => {
+    it('is hidden when the wait is short (< 120s)', async () => {
+      const session = fakeSession('waitCounterLock');
+      session.waitCounterLock = vi.fn(async () => new Promise(() => {}));
+      vi.spyOn(UserSwapSession, 'resume').mockResolvedValue(session as never);
+      renderPage(false, 30);
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('order-step-waitCounterLock'),
+        ).toBeInTheDocument(),
+      );
+      expect(screen.queryByTestId('finish-for-me-offer')).toBeNull();
+    });
+
+    it('is hidden for reverse swaps even if the wait is long', async () => {
+      const session = fakeSession('waitCounterLock');
+      session.state = { ...session.state, direction: 'BCH_TO_EVM' } as never;
+      session.waitCounterLock = vi.fn(async () => new Promise(() => {}));
+      vi.spyOn(UserSwapSession, 'resume').mockResolvedValue(session as never);
+      renderPage(false, 150);
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('order-step-waitCounterLock'),
+        ).toBeInTheDocument(),
+      );
+      expect(screen.queryByTestId('finish-for-me-offer')).toBeNull();
+    });
+
+    it('appears under waitCounterLock when wait >= 120s for forward swaps', async () => {
+      const session = fakeSession('waitCounterLock');
+      session.waitCounterLock = vi.fn(async () => new Promise(() => {}));
+      vi.spyOn(UserSwapSession, 'resume').mockResolvedValue(session as never);
+      renderPage(false, 130);
+      const offer = await screen.findByTestId('finish-for-me-offer');
+      expect(offer).toHaveTextContent(
+        'This can take about 15 minutes on this chain. Let Ferry finish it if you leave, or keep this page open.',
+      );
+      expect(offer).toHaveTextContent(
+        'Ferry then completes the payout for you and only takes your funds after the payout is sent.',
+      );
+      expect(screen.getByTestId('finish-for-me-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('keep-page-open-btn')).toBeInTheDocument();
+    });
+
+    it('clicking "Let Ferry finish this" delegates finish, remembers consent, and updates UI', async () => {
+      const session = fakeSession('waitCounterLock');
+      session.waitCounterLock = vi.fn(async () => new Promise(() => {}));
+      vi.spyOn(UserSwapSession, 'resume').mockResolvedValue(session as never);
+      renderPage(false, 130);
+      const finishBtn = await screen.findByTestId('finish-for-me-btn');
+      fireEvent.click(finishBtn);
+      await waitFor(() =>
+        expect(session.delegateFinish).toHaveBeenCalledTimes(1),
+      );
+      expect(window.localStorage.getItem(`ferry_finish_for_me_${ORDER}`)).toBe(
+        'accepted',
+      );
+      expect(screen.getByTestId('finish-for-me-accepted')).toHaveTextContent(
+        'Ferry then completes the payout for you and only takes your funds after the payout is sent.',
+      );
+      expect(screen.queryByTestId('finish-for-me-btn')).toBeNull();
+      expect(screen.queryByTestId('keep-page-open-btn')).toBeNull();
+    });
+
+    it('clicking "I will keep this page open" dismisses offer and remembers choice', async () => {
+      const session = fakeSession('waitCounterLock');
+      session.waitCounterLock = vi.fn(async () => new Promise(() => {}));
+      vi.spyOn(UserSwapSession, 'resume').mockResolvedValue(session as never);
+      renderPage(false, 130);
+      const keepOpenBtn = await screen.findByTestId('keep-page-open-btn');
+      fireEvent.click(keepOpenBtn);
+      expect(window.localStorage.getItem(`ferry_finish_for_me_${ORDER}`)).toBe(
+        'dismissed',
+      );
+      await waitFor(() => {
+        expect(screen.queryByTestId('finish-for-me-offer')).toBeNull();
+      });
+    });
+
+    it('remembers consent per order without leaking globally to other orders', async () => {
+      const otherOrder = `0x${'cd'.repeat(32)}` as const;
+      await createLocalRecoveryStore().save(otherOrder, '{"saved":true}');
+      window.localStorage.setItem(`ferry_finish_for_me_${ORDER}`, 'accepted');
+
+      const session = fakeSession('waitCounterLock');
+      session.state = { ...session.state, orderId: otherOrder };
+      session.waitCounterLock = vi.fn(async () => new Promise(() => {}));
+      vi.spyOn(UserSwapSession, 'resume').mockResolvedValue(session as never);
+
+      renderPage(false, 130, otherOrder);
+      const offer = await screen.findByTestId('finish-for-me-offer');
+      expect(offer).toBeInTheDocument();
+      expect(screen.getByTestId('finish-for-me-btn')).toBeInTheDocument();
+      expect(
+        window.localStorage.getItem(`ferry_finish_for_me_${otherOrder}`),
+      ).toBeNull();
+    });
+
+    it('LinkHowItWorks displays the finish-for-me trust disclosure in pay link steps', () => {
+      render(<LinkHowItWorks kind="pay" />);
+      fireEvent.click(screen.getByTestId('how-pay-links-works'));
+      expect(
+        screen.getByText(
+          /Custody never passes to Ferry\. The optional handoff makes the order of steps depend on Ferry’s code for the hours of the swap, and the page says so before you choose\./,
+        ),
+      ).toBeInTheDocument();
+    });
   });
 });

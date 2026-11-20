@@ -181,6 +181,12 @@ export function transition(
       if (current === 'SOLVER_LOCK_BROADCAST') {
         return { nextStatus: current };
       }
+      if (current === 'SECRET_KNOWN') {
+        return {
+          nextStatus: current,
+          mutations: { solverLockTxId: event.txId },
+        };
+      }
       throw new Error(
         `Illegal transition: cannot apply SOLVER_LOCK_BROADCAST in state ${current}`,
       );

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { MODE_COPY, getModeCopy, containsForbiddenWord } from '../lib/copy';
+import {
+  MODE_COPY,
+  getModeCopy,
+  containsForbiddenWord,
+  FAQ_ITEMS,
+} from '../lib/copy';
 
 describe('Copy wording module', () => {
   it('covers the three modes: swap, pay-link, send-link', () => {
@@ -42,5 +47,15 @@ describe('Copy wording module', () => {
   it('throws on unknown mode', () => {
     // @ts-expect-error Testing invalid runtime mode
     expect(() => getModeCopy('unknown')).toThrow();
+  });
+
+  it('includes the finish-for-me disclosure in trust model FAQ', () => {
+    const trustFaq = FAQ_ITEMS.find((item) =>
+      item.question.includes('trust model'),
+    );
+    expect(trustFaq).toBeDefined();
+    expect(trustFaq?.answer).toContain(
+      'Custody never passes to Ferry. The optional handoff makes the order of steps depend on Ferry’s code for the hours of the swap, and the page says so before you choose.',
+    );
   });
 });

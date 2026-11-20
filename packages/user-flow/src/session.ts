@@ -500,6 +500,23 @@ export class UserSwapSession {
     }
   }
 
+  /**
+   * Voluntarily delegate payout completion to the solver ("Let Ferry finish this if I leave").
+   * Sends the secret to the solver so it can broadcast the Bitcoin Cash payout to the recipient
+   * and subsequently claim the EVM lock.
+   */
+  async delegateFinish(): Promise<void> {
+    const { file, terms } = this.requireSavedOrder();
+    if (terms.direction !== 'EVM_TO_BCH') {
+      throw new UserFlowError(
+        'INVALID_INPUT',
+        'Finish-for-me delegation is only available for forward swaps (EVM to Bitcoin Cash)',
+      );
+    }
+    const secret = this.requireSecret();
+    await this.deps.solver.revealSecret(file.orderId, secret);
+  }
+
   /** Step `refund`: the user's own refund, only when its deadline has passed. */
   async refund(): Promise<string> {
     const { file, terms } = this.requireSavedOrder();
