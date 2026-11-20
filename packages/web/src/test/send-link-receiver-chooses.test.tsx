@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { SendLinkPage } from '../routes/SendLinkPage';
 import { SolverProvider } from '../lib/solver/SolverProvider';
@@ -14,7 +14,7 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
   const orderId = ('0x' + '44'.repeat(32)) as Hex32;
 
   const mockLiquidity: LiquidityResponse = {
-    ok: true,
+    asOf: Math.floor(Date.now() / 1000),
     routes: [
       {
         route: 'usdc:base',
