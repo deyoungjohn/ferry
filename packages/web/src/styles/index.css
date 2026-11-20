@@ -201,3 +201,31 @@
     animation: none;
   }
 }
+
+@keyframes ferry-marquee-rtl {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.ferry-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: ferry-marquee-rtl 34s linear infinite;
+  will-change: transform;
+}
+
+.ferry-marquee:hover .ferry-marquee-track,
+.ferry-marquee:focus-within .ferry-marquee-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ferry-marquee-track {
+    animation: none;
+  }
+}
+

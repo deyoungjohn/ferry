@@ -20,6 +20,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { ROUTES } from '../lib/routes';
 import { PegCards } from '../components/PegCards';
+import { ScrollReveal } from '../components/marketing/MotionPrimitives';
 import {
   Eyebrow,
   PayLinkQrCard,
@@ -56,40 +57,42 @@ function FeaturePanel({
 }) {
   return (
     <section className="mx-auto mt-6 max-w-6xl px-4 sm:px-6">
-      <div className="grid items-center gap-10 overflow-hidden rounded-card border border-hairline bg-surface-1 p-6 sm:p-10 lg:grid-cols-[1.05fr_1fr] lg:p-12">
-        <div>
-          <Eyebrow>{label}</Eyebrow>
-          <h2 className="mt-5 text-3xl font-semibold leading-[1.1] tracking-[-0.03em] text-text sm:text-4xl">
-            {title}
-          </h2>
-          <p className="mt-4 max-w-lg text-sm leading-relaxed text-text-muted sm:text-base">
-            {body}
-          </p>
-          <dl className="mt-8 grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
-            {points.map((point) => (
-              <div key={point.title}>
-                <dt className="flex items-center gap-2.5 text-sm font-semibold text-text">
-                  <point.icon className="size-4 text-text-muted" />
-                  {point.title}
-                </dt>
-                <dd className="mt-1.5 text-sm leading-relaxed text-text-muted">
-                  {point.body}
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <Link
-            to={cta.to}
-            className="mt-9 inline-flex h-11 items-center gap-2 rounded-pill bg-lime px-6 text-sm font-semibold text-lime-ink transition-opacity hover:opacity-90"
-          >
-            {cta.text}
-            <ArrowRight className="size-4" />
-          </Link>
+      <ScrollReveal>
+        <div className="grid items-center gap-10 overflow-hidden rounded-card border border-hairline bg-surface-1 p-6 sm:p-10 lg:grid-cols-[1.05fr_1fr] lg:p-12">
+          <div>
+            <Eyebrow>{label}</Eyebrow>
+            <h2 className="mt-5 text-3xl font-semibold leading-[1.1] tracking-[-0.03em] text-text sm:text-4xl">
+              {title}
+            </h2>
+            <p className="mt-4 max-w-lg text-sm leading-relaxed text-text-muted sm:text-base">
+              {body}
+            </p>
+            <dl className="mt-8 grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
+              {points.map((point) => (
+                <div key={point.title}>
+                  <dt className="flex items-center gap-2.5 text-sm font-semibold text-text">
+                    <point.icon className="size-4 text-text-muted" />
+                    {point.title}
+                  </dt>
+                  <dd className="mt-1.5 text-sm leading-relaxed text-text-muted">
+                    {point.body}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <Link
+              to={cta.to}
+              className="mt-9 inline-flex h-11 items-center gap-2 rounded-pill bg-lime px-6 text-sm font-semibold text-lime-ink transition-opacity hover:opacity-90"
+            >
+              {cta.text}
+              <ArrowRight className="size-4" />
+            </Link>
+          </div>
+          <div className="flex min-h-80 items-center justify-center rounded-well bg-surface-2/60 p-6 sm:p-8">
+            {picture}
+          </div>
         </div>
-        <div className="flex min-h-80 items-center justify-center rounded-well bg-surface-2/60 p-6 sm:p-8">
-          {picture}
-        </div>
-      </div>
+      </ScrollReveal>
     </section>
   );
 }
@@ -98,14 +101,16 @@ export function FeaturesPage() {
   return (
     <div className="pb-20">
       <section className="mx-auto max-w-6xl px-4 pt-14 pb-6 sm:px-6">
-        <h1 className="max-w-3xl text-4xl font-semibold leading-[1.05] tracking-[-0.04em] text-text sm:text-6xl">
-          Swaps, payment links and send links between EVM chains and Bitcoin
-          Cash
-        </h1>
-        <p className="mt-5 max-w-xl text-base leading-relaxed text-text-muted">
-          Each one runs on two contracts and one secret, so nobody holds your
-          money in between.
-        </p>
+        <ScrollReveal>
+          <h1 className="max-w-3xl text-4xl font-semibold leading-[1.05] tracking-[-0.04em] text-text sm:text-6xl">
+            Swaps, payment links and send links between EVM chains and Bitcoin
+            Cash
+          </h1>
+          <p className="mt-5 max-w-xl text-base leading-relaxed text-text-muted">
+            Each one runs on two contracts and one secret, so nobody holds your
+            money in between.
+          </p>
+        </ScrollReveal>
       </section>
 
       <FeaturePanel
@@ -243,26 +248,28 @@ export function FeaturesPage() {
       />
 
       <section className="mx-auto mt-6 max-w-6xl px-4 sm:px-6">
-        <div className="grid items-center gap-10 rounded-card border border-hairline bg-surface-1 p-6 sm:p-10 lg:grid-cols-2 lg:p-12">
-          <div>
-            <Eyebrow>Order page</Eyebrow>
-            <h2 className="mt-5 text-3xl font-semibold leading-[1.1] tracking-[-0.03em] text-text sm:text-4xl">
-              Every step, with the transaction that proves it
-            </h2>
-            <p className="mt-4 max-w-lg text-sm leading-relaxed text-text-muted sm:text-base">
-              Each swap has its own page. It ticks the steps as the chains
-              confirm them, links each transaction to the chain&apos;s explorer
-              and keeps working if you close it and come back.
-            </p>
+        <ScrollReveal>
+          <div className="grid items-center gap-10 rounded-card border border-hairline bg-surface-1 p-6 sm:p-10 lg:grid-cols-2 lg:p-12">
+            <div>
+              <Eyebrow>Order page</Eyebrow>
+              <h2 className="mt-5 text-3xl font-semibold leading-[1.1] tracking-[-0.03em] text-text sm:text-4xl">
+                Every step, with the transaction that proves it
+              </h2>
+              <p className="mt-4 max-w-lg text-sm leading-relaxed text-text-muted sm:text-base">
+                Each swap has its own page. It ticks the steps as the chains
+                confirm them, links each transaction to the chain&apos;s
+                explorer and keeps working if you close it and come back.
+              </p>
+            </div>
+            <UiCard className="mx-auto w-full max-w-sm">
+              <SwapLine
+                from={{ amount: '9.00', token: 'USDC', chain: 42161 }}
+                to={{ amount: '8.96', token: 'PUSD', chain: 'bch' }}
+              />
+              <StepsPreview className="mt-4" done={3} />
+            </UiCard>
           </div>
-          <UiCard className="mx-auto w-full max-w-sm">
-            <SwapLine
-              from={{ amount: '9.00', token: 'USDC', chain: 42161 }}
-              to={{ amount: '8.96', token: 'PUSD', chain: 'bch' }}
-            />
-            <StepsPreview className="mt-4" done={3} />
-          </UiCard>
-        </div>
+        </ScrollReveal>
       </section>
 
       <PegCards />

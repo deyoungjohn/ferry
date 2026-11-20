@@ -3,7 +3,15 @@ import { Faq } from '../components/Faq';
 import { Link } from 'react-router';
 import { ArrowRight, ArrowUpDown } from 'lucide-react';
 import { ROUTES } from '../lib/routes';
+import { AssetMarquee } from '../components/marketing/AssetMarquee';
 import { FeatureBento } from '../components/marketing/FeatureBento';
+import { LandingBannerCta } from '../components/marketing/LandingBannerCta';
+import { LandingShowcase } from '../components/marketing/LandingShowcase';
+import { LandingStats } from '../components/marketing/LandingStats';
+import {
+  CountUp,
+  ScrollReveal,
+} from '../components/marketing/MotionPrimitives';
 import { ChainRow, Eyebrow, TokenMark } from '../components/marketing/visuals';
 
 // The 3D ribbon animation loads asynchronously so the initial route bundle stays lean.
@@ -15,17 +23,17 @@ const HeroCoinRibbon = lazy(() =>
 
 const STEPS = [
   {
-    n: '01',
+    n: 1,
     title: 'You lock',
     body: 'Your stablecoin goes into a contract on its own chain, under a hash lock only your secret opens.',
   },
   {
-    n: '02',
+    n: 2,
     title: 'The solver locks',
     body: 'It puts the other side into a matching contract with the same lock, on the other chain.',
   },
   {
-    n: '03',
+    n: 3,
     title: 'You claim',
     body: 'Claiming reveals the secret, which lets the solver take its side. Both happen, or neither.',
   },
@@ -42,15 +50,17 @@ export function LandingPage() {
           token: 'USDC',
           network: 'Arbitrum',
           chain: 42161 as const,
-          amount: '100.00',
-          range: '1.00 – 5,000 USDC',
+          amount: 100,
+          min: 1,
+          max: 5000,
         }
       : {
           token: 'PUSD',
           network: 'Bitcoin Cash',
           chain: 'bch' as const,
-          amount: '100.00',
-          range: '1.00 – 5,000 PUSD',
+          amount: 100,
+          min: 1,
+          max: 5000,
         };
 
   const getLeg =
@@ -59,13 +69,13 @@ export function LandingPage() {
           token: 'PUSD',
           network: 'Bitcoin Cash',
           chain: 'bch' as const,
-          amount: '99.85',
+          amount: 99.85,
         }
       : {
           token: 'USDC',
           network: 'Arbitrum',
           chain: 42161 as const,
-          amount: '99.85',
+          amount: 99.85,
         };
 
   return (
@@ -140,7 +150,7 @@ export function LandingPage() {
 
               {/* Swap preview rows */}
               <div className="mt-4">
-                <div className="rounded-well border border-hairline bg-surface-2/70 p-3.5">
+                <div className="rounded-well border border-hairline bg-surface-2/70 p-3.5 transition-colors hover:border-lime/25">
                   <div className="flex items-center justify-between text-[11px] text-text-muted">
                     <span>You send</span>
                     <span>{sendLeg.network}</span>
@@ -157,12 +167,13 @@ export function LandingPage() {
                           {sendLeg.token}
                         </div>
                         <div className="text-[11px] text-text-muted">
-                          {sendLeg.range}
+                          <CountUp value={sendLeg.min} decimals={2} /> –{' '}
+                          <CountUp value={sendLeg.max} /> {sendLeg.token}
                         </div>
                       </div>
                     </div>
                     <span className="text-2xl font-semibold tabular-nums tracking-[-0.03em] text-text">
-                      {sendLeg.amount}
+                      <CountUp value={sendLeg.amount} decimals={2} />
                     </span>
                   </div>
                 </div>
@@ -176,13 +187,13 @@ export function LandingPage() {
                         d === 'to-bch' ? 'to-evm' : 'to-bch',
                       )
                     }
-                    className="inline-flex size-8 items-center justify-center rounded-full border border-hairline bg-surface-1 text-text-muted transition-colors hover:border-lime/50 hover:text-lime"
+                    className="inline-flex size-8 items-center justify-center rounded-full border border-hairline bg-surface-1 text-text-muted transition-all hover:rotate-180 hover:border-lime/50 hover:text-lime"
                   >
                     <ArrowUpDown className="size-3.5" />
                   </button>
                 </div>
 
-                <div className="rounded-well border border-hairline bg-surface-2/70 p-3.5">
+                <div className="rounded-well border border-hairline bg-surface-2/70 p-3.5 transition-colors hover:border-lime/25">
                   <div className="flex items-center justify-between text-[11px] text-text-muted">
                     <span>You get</span>
                     <span>{getLeg.network}</span>
@@ -204,20 +215,22 @@ export function LandingPage() {
                       </div>
                     </div>
                     <span className="text-2xl font-semibold tabular-nums tracking-[-0.03em] text-text">
-                      {getLeg.amount}
+                      <CountUp value={getLeg.amount} decimals={2} />
                     </span>
                   </div>
                 </div>
               </div>
 
               <p className="mt-3.5 text-center text-xs tabular-nums text-text-muted">
-                1 {sendLeg.token} ≈ 0.9985 {getLeg.token} · settles in ~36 s
+                <CountUp value={1} /> {sendLeg.token} ≈{' '}
+                <CountUp value={0.9985} decimals={4} /> {getLeg.token} · settles
+                in <CountUp value={36} prefix="~" suffix=" s" />
               </p>
 
               <div className="mt-4 flex flex-col gap-2">
                 <Link
                   to={ROUTES.swap}
-                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-pill bg-lime px-7 text-sm font-semibold text-lime-ink transition-opacity hover:opacity-90"
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-pill bg-lime px-7 text-sm font-semibold text-lime-ink transition-all hover:opacity-90 active:scale-[0.99]"
                 >
                   Open Ferry
                   <ArrowRight className="size-4" />
@@ -238,6 +251,9 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* Right-to-left supported chains & stablecoins marquee */}
+      <AssetMarquee />
+
       <FeatureBento />
 
       {/* Three steps, the short version of the how it works page */}
@@ -245,60 +261,74 @@ export function LandingPage() {
         aria-labelledby="steps-heading"
         className="mx-auto mt-24 max-w-6xl px-4 sm:px-6"
       >
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <h2
-            id="steps-heading"
-            className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl"
-          >
-            One secret, two locks
-          </h2>
-          <Link
-            to="/how-it-works"
-            className="inline-flex items-center gap-1.5 text-sm text-text-muted transition-colors hover:text-lime"
-          >
-            The full walkthrough
-            <ArrowRight className="size-4" />
-          </Link>
-        </div>
-        <ol className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
-          {STEPS.map((step) => (
-            <li
-              key={step.n}
-              className="rounded-card border border-hairline bg-surface-1 p-6"
+        <ScrollReveal>
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <h2
+              id="steps-heading"
+              className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl"
             >
-              <span className="text-5xl font-semibold tracking-[-0.04em] text-text-dim/50">
-                {step.n}
-              </span>
-              <h3 className="mt-6 text-base font-semibold text-text">
-                {step.title}
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-text-muted">
-                {step.body}
-              </p>
+              One secret, two locks
+            </h2>
+            <Link
+              to="/how-it-works"
+              className="inline-flex items-center gap-1.5 text-sm text-text-muted transition-colors hover:text-lime"
+            >
+              The full walkthrough
+              <ArrowRight className="size-4" />
+            </Link>
+          </div>
+        </ScrollReveal>
+        <ol className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {STEPS.map((step, index) => (
+            <li key={step.n}>
+              <ScrollReveal delay={index * 90} className="h-full">
+                <div className="h-full rounded-card border border-hairline bg-surface-1 p-6 transition-colors duration-300 hover:border-lime/35">
+                  <span className="text-5xl font-semibold tracking-[-0.04em] text-text-dim/50">
+                    <CountUp value={step.n} padInteger={2} />
+                  </span>
+                  <h3 className="mt-6 text-base font-semibold text-text">
+                    {step.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                    {step.body}
+                  </p>
+                </div>
+              </ScrollReveal>
             </li>
           ))}
         </ol>
       </section>
 
+      {/* Honest, verifiable metrics with scroll-triggered count-up */}
+      <LandingStats />
+
+      {/* Two-column interactive Pay/Send link & atomic settlement showcase */}
+      <LandingShowcase />
+
+      {/* Full-width Ferry lime CTA banner */}
+      <LandingBannerCta />
+
       <section className="mx-auto mt-24 max-w-6xl px-4 sm:px-6">
-        <div className="flex flex-col items-start justify-between gap-6 rounded-card border border-hairline bg-surface-1 p-8 sm:flex-row sm:items-center sm:p-10">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text sm:text-3xl">
-              Check it, don&apos;t trust it
-            </h2>
-            <p className="mt-2 max-w-lg text-sm leading-relaxed text-text-muted">
-              The contracts are verified on every chain and the code is open.
-              See what is deployed, what was tested and what has not been
-              reviewed yet.
-            </p>
+        <ScrollReveal>
+          <div className="flex flex-col items-start justify-between gap-6 rounded-card border border-hairline bg-surface-1 p-8 sm:flex-row sm:items-center sm:p-10">
+            <div>
+              <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text sm:text-3xl">
+                Check it, don&apos;t trust it
+              </h2>
+              <p className="mt-2 max-w-lg text-sm leading-relaxed text-text-muted">
+                The contracts are verified on every chain and the code is open.
+                See what is deployed, what was tested and what has not been
+                reviewed yet.
+              </p>
+            </div>
+            <Link
+              to="/stats"
+              className="inline-flex h-11 shrink-0 items-center rounded-pill border border-hairline bg-surface-2 px-6 text-sm font-medium text-text transition-colors hover:border-lime/40"
+            >
+              See the stats
+            </Link>
           </div>
-          <Link
-            to="/stats"
-            className="inline-flex h-11 shrink-0 items-center rounded-pill border border-hairline bg-surface-2 px-6 text-sm font-medium text-text transition-colors hover:border-lime/40"
-          >
-            See the stats
-          </Link>
-        </div>
+        </ScrollReveal>
       </section>
       <Faq />
     </div>

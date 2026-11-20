@@ -12,6 +12,10 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { ROUTES } from '../lib/routes';
 import {
+  CountUp,
+  ScrollReveal,
+} from '../components/marketing/MotionPrimitives';
+import {
   Eyebrow,
   RecoveryFileCard,
   ReleaseCard,
@@ -23,17 +27,17 @@ import {
 
 const STEPS = [
   {
-    n: '01',
+    n: 1,
     title: 'Get a price',
     body: 'Pick the chain, the stablecoin and the amount. The solver signs a quote with its reference prices, and the page saves your recovery file.',
   },
   {
-    n: '02',
+    n: 2,
     title: 'Lock your side',
     body: 'You sign one lock in your wallet. Your funds go into a contract on their own chain, under a hash only your secret matches.',
   },
   {
-    n: '03',
+    n: 3,
     title: 'Claim the other side',
     body: 'The solver locks the other side with the same hash. You claim it, which reveals the secret and lets the solver take yours.',
   },
@@ -124,43 +128,45 @@ export function HowItWorksPage() {
     <div className="pb-20">
       {/* Hero */}
       <section className="mx-auto mt-6 max-w-6xl px-4 sm:px-6">
-        <div className="grid items-center gap-10 overflow-hidden rounded-card border border-hairline bg-olive-ink p-6 sm:p-10 lg:grid-cols-[1.1fr_1fr] lg:p-14">
-          <div>
-            <Eyebrow>How it works</Eyebrow>
-            <h1 className="mt-6 text-4xl font-semibold leading-[1.05] tracking-[-0.04em] text-text sm:text-6xl">
-              How a Ferry swap works
-            </h1>
-            <p className="mt-5 max-w-lg text-base leading-relaxed text-text-muted">
-              Two contracts, one on each chain, locked with the same secret. You
-              get the other side or your own funds back, and no one holds your
-              money in between.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link
-                to={ROUTES.swap}
-                className="inline-flex h-12 items-center gap-2 rounded-pill bg-lime px-7 text-sm font-semibold text-lime-ink transition-opacity hover:opacity-90"
-              >
-                Start a swap
-                <ArrowRight className="size-4" />
-              </Link>
-              <a
-                href="#walkthrough"
-                className="inline-flex h-12 items-center rounded-pill border border-hairline bg-surface-2 px-7 text-sm font-medium text-text transition-colors hover:border-lime/40"
-              >
-                See each step
-              </a>
+        <ScrollReveal>
+          <div className="grid items-center gap-10 overflow-hidden rounded-card border border-hairline bg-olive-ink p-6 sm:p-10 lg:grid-cols-[1.1fr_1fr] lg:p-14">
+            <div>
+              <Eyebrow>How it works</Eyebrow>
+              <h1 className="mt-6 text-4xl font-semibold leading-[1.05] tracking-[-0.04em] text-text sm:text-6xl">
+                How a Ferry swap works
+              </h1>
+              <p className="mt-5 max-w-lg text-base leading-relaxed text-text-muted">
+                Two contracts, one on each chain, locked with the same secret.
+                You get the other side or your own funds back, and no one holds
+                your money in between.
+              </p>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <Link
+                  to={ROUTES.swap}
+                  className="inline-flex h-12 items-center gap-2 rounded-pill bg-lime px-7 text-sm font-semibold text-lime-ink transition-opacity hover:opacity-90"
+                >
+                  Start a swap
+                  <ArrowRight className="size-4" />
+                </Link>
+                <a
+                  href="#walkthrough"
+                  className="inline-flex h-12 items-center rounded-pill border border-hairline bg-surface-2 px-7 text-sm font-medium text-text transition-colors hover:border-lime/40"
+                >
+                  See each step
+                </a>
+              </div>
+            </div>
+            <div className="flex justify-center">
+              <UiCard className="w-full max-w-sm">
+                <SwapLine
+                  from={{ amount: '8.00', token: 'USDC', chain: 42161 }}
+                  to={{ amount: '7.96', token: 'PUSD', chain: 'bch' }}
+                />
+                <StepsPreview className="mt-4" />
+              </UiCard>
             </div>
           </div>
-          <div className="flex justify-center">
-            <UiCard className="w-full max-w-sm">
-              <SwapLine
-                from={{ amount: '8.00', token: 'USDC', chain: 42161 }}
-                to={{ amount: '7.96', token: 'PUSD', chain: 'bch' }}
-              />
-              <StepsPreview className="mt-4" />
-            </UiCard>
-          </div>
-        </div>
+        </ScrollReveal>
       </section>
 
       {/* Three steps */}
@@ -168,32 +174,35 @@ export function HowItWorksPage() {
         aria-labelledby="steps-heading"
         className="mx-auto mt-24 max-w-6xl px-4 sm:px-6"
       >
-        <div className="text-center">
-          <h2
-            id="steps-heading"
-            className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl"
-          >
-            Swap in three steps
-          </h2>
-          <p className="mx-auto mt-3 max-w-md text-sm text-text-muted">
-            You need an EVM wallet and a Bitcoin Cash wallet. That is all.
-          </p>
-        </div>
-        <ol className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
-          {STEPS.map((step) => (
-            <li
-              key={step.n}
-              className="flex min-h-64 flex-col rounded-card border border-hairline bg-surface-1 p-6"
+        <ScrollReveal>
+          <div className="text-center">
+            <h2
+              id="steps-heading"
+              className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl"
             >
-              <span className="text-7xl font-semibold leading-none tracking-[-0.05em] text-text-dim/50">
-                {step.n}
-              </span>
-              <h3 className="mt-auto pt-8 text-base font-semibold text-text">
-                {step.title}
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-text-muted">
-                {step.body}
-              </p>
+              Swap in three steps
+            </h2>
+            <p className="mx-auto mt-3 max-w-md text-sm text-text-muted">
+              You need an EVM wallet and a Bitcoin Cash wallet. That is all.
+            </p>
+          </div>
+        </ScrollReveal>
+        <ol className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {STEPS.map((step, index) => (
+            <li key={step.n}>
+              <ScrollReveal delay={index * 90} className="h-full">
+                <div className="flex min-h-64 h-full flex-col rounded-card border border-hairline bg-surface-1 p-6 transition-colors duration-300 hover:border-lime/35">
+                  <span className="text-7xl font-semibold leading-none tracking-[-0.05em] text-text-dim/50">
+                    <CountUp value={step.n} padInteger={2} />
+                  </span>
+                  <h3 className="mt-auto pt-8 text-base font-semibold text-text">
+                    {step.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                    {step.body}
+                  </p>
+                </div>
+              </ScrollReveal>
             </li>
           ))}
         </ol>
@@ -205,73 +214,80 @@ export function HowItWorksPage() {
         aria-labelledby="walkthrough-heading"
         className="mx-auto mt-24 max-w-6xl scroll-mt-24 px-4 sm:px-6"
       >
-        <div className="text-center">
-          <h2
-            id="walkthrough-heading"
-            className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl"
-          >
-            What happens at each step
-          </h2>
-          <p className="mx-auto mt-3 max-w-md text-sm text-text-muted">
-            The same steps you see on your order page, explained.
-          </p>
-        </div>
+        <ScrollReveal>
+          <div className="text-center">
+            <h2
+              id="walkthrough-heading"
+              className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl"
+            >
+              What happens at each step
+            </h2>
+            <p className="mx-auto mt-3 max-w-md text-sm text-text-muted">
+              The same steps you see on your order page, explained.
+            </p>
+          </div>
+        </ScrollReveal>
         <div className="mt-10 flex flex-col gap-4">
           {WALKTHROUGH.map((item, index) => (
-            <div key={item.title} className="grid gap-4 md:grid-cols-2">
-              <article
-                className={`flex flex-col justify-center rounded-card border border-hairline bg-surface-1 p-6 sm:p-8 ${
-                  index % 2 ? 'md:order-2' : ''
-                }`}
-              >
-                <span className="inline-flex size-10 items-center justify-center rounded-xl bg-surface-2 text-text">
-                  <item.icon className="size-5" />
-                </span>
-                <h3 className="mt-6 text-xl font-semibold tracking-[-0.02em] text-text">
-                  {item.title}
-                </h3>
-                <p className="mt-3 text-sm leading-relaxed text-text-muted">
-                  {item.body}
-                </p>
-                <ul className="mt-5 flex flex-col gap-2">
-                  {item.points.map((point) => (
-                    <li
-                      key={point}
-                      className="flex items-center gap-2.5 text-sm text-text-muted"
-                    >
-                      <Check className="size-4 shrink-0 text-lime" />
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-              </article>
-              <div className="flex min-h-72 items-center justify-center rounded-card border border-hairline bg-olive-ink p-6 sm:p-8">
-                {item.picture}
+            <ScrollReveal key={item.title} delay={index * 60}>
+              <div className="grid gap-4 md:grid-cols-2">
+                <article
+                  className={`flex flex-col justify-center rounded-card border border-hairline bg-surface-1 p-6 sm:p-8 ${
+                    index % 2 ? 'md:order-2' : ''
+                  }`}
+                >
+                  <span className="inline-flex size-10 items-center justify-center rounded-xl bg-surface-2 text-text">
+                    <item.icon className="size-5" />
+                  </span>
+                  <h3 className="mt-6 text-xl font-semibold tracking-[-0.02em] text-text">
+                    {item.title}
+                  </h3>
+                  <p className="mt-3 text-sm leading-relaxed text-text-muted">
+                    {item.body}
+                  </p>
+                  <ul className="mt-5 flex flex-col gap-2">
+                    {item.points.map((point) => (
+                      <li
+                        key={point}
+                        className="flex items-center gap-2.5 text-sm text-text-muted"
+                      >
+                        <Check className="size-4 shrink-0 text-lime" />
+                        {point}
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+                <div className="flex min-h-72 items-center justify-center rounded-card border border-hairline bg-olive-ink p-6 sm:p-8">
+                  {item.picture}
+                </div>
               </div>
-            </div>
+            </ScrollReveal>
           ))}
         </div>
       </section>
 
       <section className="mx-auto mt-24 max-w-6xl px-4 sm:px-6">
-        <div className="flex flex-col items-start justify-between gap-6 rounded-card border border-hairline bg-olive-ink p-8 sm:flex-row sm:items-center sm:p-12">
-          <div>
-            <h2 className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl">
-              Try it with a stablecoin
-            </h2>
-            <p className="mt-2 max-w-md text-sm text-text-muted">
-              The smallest swap is $1 on most chains ($5 on Ethereum), so a
-              first try costs next to nothing.
-            </p>
+        <ScrollReveal>
+          <div className="flex flex-col items-start justify-between gap-6 rounded-card border border-hairline bg-olive-ink p-8 sm:flex-row sm:items-center sm:p-12">
+            <div>
+              <h2 className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl">
+                Try it with a stablecoin
+              </h2>
+              <p className="mt-2 max-w-md text-sm text-text-muted">
+                The smallest swap is <CountUp value={1} prefix="$" /> on most
+                chains (<CountUp value={5} prefix="$" /> on Ethereum), so a
+                first try costs next to nothing.
+              </p>
+            </div>
+            <Link
+              to={ROUTES.swap}
+              className="inline-flex h-12 shrink-0 items-center gap-2 rounded-pill bg-lime px-7 text-sm font-semibold text-lime-ink transition-opacity hover:opacity-90"
+            >
+              Open Ferry
+              <ArrowRight className="size-4" />
+            </Link>
           </div>
-          <Link
-            to={ROUTES.swap}
-            className="inline-flex h-12 shrink-0 items-center gap-2 rounded-pill bg-lime px-7 text-sm font-semibold text-lime-ink transition-opacity hover:opacity-90"
-          >
-            Open Ferry
-            <ArrowRight className="size-4" />
-          </Link>
-        </div>
+        </ScrollReveal>
       </section>
       <Faq />
     </div>

@@ -1,5 +1,6 @@
 import { lazy, Suspense, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
+import { ScrollReveal } from './MotionPrimitives';
 import {
   ChainTiles,
   PaidCard,
@@ -22,31 +23,34 @@ function Tile({
   children,
   className,
   tone = 'plain',
+  delay = 0,
 }: {
   title: ReactNode;
   body: string;
   children: ReactNode;
   className?: string;
   tone?: 'plain' | 'deep';
+  delay?: number;
 }) {
   return (
-    <article
-      className={cn(
-        'relative flex flex-col overflow-hidden rounded-card border border-hairline p-6 sm:p-8',
-        tone === 'deep' ? 'bg-olive-ink' : 'bg-surface-1',
-        className,
-      )}
-    >
-      <h3 className="max-w-xs text-2xl font-semibold leading-tight tracking-[-0.03em] text-text sm:text-[28px]">
-        {title}
-      </h3>
-      <p className="mt-3 max-w-sm text-sm leading-relaxed text-text-muted">
-        {body}
-      </p>
-      <div className="mt-6 flex flex-1 items-end justify-center">
-        {children}
-      </div>
-    </article>
+    <ScrollReveal delay={delay} className={cn('flex', className)}>
+      <article
+        className={cn(
+          'relative flex w-full flex-col overflow-hidden rounded-card border border-hairline p-6 transition-colors hover:border-lime/25 sm:p-8',
+          tone === 'deep' ? 'bg-olive-ink' : 'bg-surface-1',
+        )}
+      >
+        <h3 className="max-w-xs text-2xl font-semibold leading-tight tracking-[-0.03em] text-text sm:text-[28px]">
+          {title}
+        </h3>
+        <p className="mt-3 max-w-sm text-sm leading-relaxed text-text-muted">
+          {body}
+        </p>
+        <div className="mt-6 flex flex-1 items-end justify-center">
+          {children}
+        </div>
+      </article>
+    </ScrollReveal>
   );
 }
 
@@ -55,18 +59,21 @@ export function FeatureBento() {
   return (
     <section
       aria-labelledby="features-heading"
-      className="mx-auto mt-24 max-w-6xl px-4 sm:px-6"
+      className="mx-auto mt-20 max-w-6xl px-4 sm:px-6"
     >
-      <h2
-        id="features-heading"
-        className="max-w-2xl text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl"
-      >
-        Everything a stablecoin needs to reach Bitcoin Cash
-      </h2>
+      <ScrollReveal>
+        <h2
+          id="features-heading"
+          className="max-w-2xl text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl"
+        >
+          Everything a stablecoin needs to reach Bitcoin Cash
+        </h2>
+      </ScrollReveal>
 
       <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-6">
         <Tile
           tone="deep"
+          delay={0}
           className="md:col-span-3"
           title={
             <>
@@ -85,6 +92,7 @@ export function FeatureBento() {
         </Tile>
 
         <Tile
+          delay={90}
           className="md:col-span-3"
           title="Six EVM chains, one contract address"
           body="Ethereum, Base, Arbitrum, BNB Chain, Arc and Robinhood Chain. USDC, USDT and USDG on one side; PUSD and MUSD on the other."
@@ -95,6 +103,7 @@ export function FeatureBento() {
         </Tile>
 
         <Tile
+          delay={0}
           className="md:col-span-2"
           title="Get paid with a link"
           body="Ask for an amount in PUSD or MUSD. The payer pays in whatever stablecoin and chain they hold."
@@ -103,6 +112,7 @@ export function FeatureBento() {
         </Tile>
 
         <Tile
+          delay={80}
           className="md:col-span-2"
           title="Send to someone on another chain"
           body="Lock on Bitcoin Cash and share a link. Only the address you named can claim it."
@@ -111,6 +121,7 @@ export function FeatureBento() {
         </Tile>
 
         <Tile
+          delay={160}
           className="md:col-span-2"
           title="Your money comes back"
           body="If the solver won't finish a swap from an EVM chain, it returns your lock at once. Every lock also refunds on its own deadline."

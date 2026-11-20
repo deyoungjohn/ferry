@@ -3,6 +3,15 @@ import { Check, Clock, FileDown, Link2, Undo2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { chainIconUrl, tokenIconUrl } from '../../lib/icons';
 import { cn } from '../../lib/cn';
+import { CountUp } from './MotionPrimitives';
+
+function AnimatedAmount({ amount }: { amount: string }) {
+  const numeric = Number(amount.replace(/,/g, ''));
+  if (!Number.isFinite(numeric)) return <>{amount}</>;
+  const dot = amount.indexOf('.');
+  const decimals = dot >= 0 ? amount.length - dot - 1 : 0;
+  return <CountUp value={numeric} decimals={decimals} />;
+}
 
 /**
  * Product pictures for the public pages, drawn in code from the app's own parts and real
@@ -91,12 +100,12 @@ export function SwapLine({
       <span className="flex items-center gap-2.5">
         <TokenMark token={from.token} chain={from.chain} size={30} />
         <span className="text-sm font-semibold tabular-nums text-text">
-          {from.amount} {from.token}
+          <AnimatedAmount amount={from.amount} /> {from.token}
         </span>
       </span>
       <span className="flex items-center gap-2.5">
         <span className="text-sm font-semibold tabular-nums text-text">
-          {to.amount} {to.token}
+          <AnimatedAmount amount={to.amount} /> {to.token}
         </span>
         <TokenMark token={to.token} chain={to.chain} size={30} />
       </span>
@@ -235,7 +244,9 @@ export function PaidCard() {
         <span className="mx-auto mb-3 inline-flex size-10 items-center justify-center rounded-full bg-lime text-lime-ink">
           <Check className="size-5" strokeWidth={3} />
         </span>
-        <p className="text-sm font-semibold text-text">Paid 20.00 PUSD</p>
+        <p className="text-sm font-semibold text-text">
+          Paid <CountUp value={20} decimals={2} /> PUSD
+        </p>
         <p className="mt-1 text-xs text-text-muted">
           The payer sent USDT on BNB Chain
         </p>
@@ -256,7 +267,7 @@ export function SendLinkCard() {
         ferry.incepture.dev/send/0x9ed…
       </div>
       <p className="mt-3 text-lg font-semibold tabular-nums text-text">
-        25.00 USDC
+        <CountUp value={25} decimals={2} /> USDC
       </p>
       <p className="text-xs text-text-muted">to 0x87Ea…FaDd on Arbitrum</p>
       <div className="mt-4 flex h-9 items-center justify-center rounded-pill bg-lime text-xs font-semibold text-lime-ink">
@@ -280,7 +291,7 @@ export function ReleaseCard() {
               The solver returned your funds
             </p>
             <p className="text-[11px] text-text-muted">
-              9.00 USDC back on Arbitrum
+              <CountUp value={9} decimals={2} /> USDC back on Arbitrum
             </p>
           </div>
         </div>
@@ -288,7 +299,7 @@ export function ReleaseCard() {
       <UiCard className="flex items-center justify-center gap-2 px-4 py-2.5">
         <Clock className="size-3.5 text-text-dim" />
         <p className="whitespace-nowrap text-[11px] text-text-muted">
-          Otherwise refundable after 4.5 h
+          Otherwise refundable after <CountUp value={4.5} decimals={1} /> h
         </p>
       </UiCard>
     </div>
@@ -322,7 +333,10 @@ export function SwapCardPreview() {
     <UiCard className="w-full max-w-sm p-3">
       <div className="mb-2 flex items-center justify-between px-1 text-[11px] text-text-muted">
         <span>
-          Available: <span className="font-semibold text-text">412 PUSD</span>
+          Available:{' '}
+          <span className="font-semibold text-text">
+            <CountUp value={412} /> PUSD
+          </span>
         </span>
         <span className="rounded-pill bg-olive-soft px-2.5 py-0.5 text-lime">
           Fast
@@ -332,7 +346,7 @@ export function SwapCardPreview() {
         <p className="text-[11px] text-text-muted">You send</p>
         <div className="mt-1 flex items-center justify-between">
           <span className="text-2xl font-semibold tabular-nums text-text">
-            8.00
+            <CountUp value={8} decimals={2} />
           </span>
           <span className="flex items-center gap-2 rounded-pill border border-hairline bg-surface-1 py-1 pl-1 pr-3 text-xs font-semibold text-text">
             <TokenMark token="USDC" chain={42161} size={22} />
@@ -344,7 +358,7 @@ export function SwapCardPreview() {
         <p className="text-[11px] text-text-muted">You receive</p>
         <div className="mt-1 flex items-center justify-between">
           <span className="text-2xl font-semibold tabular-nums text-text">
-            7.96
+            <CountUp value={7.96} decimals={2} />
           </span>
           <span className="flex items-center gap-2 rounded-pill border border-hairline bg-surface-1 py-1 pl-1 pr-3 text-xs font-semibold text-text">
             <TokenMark token="PUSD" chain="bch" size={22} />
@@ -353,8 +367,13 @@ export function SwapCardPreview() {
         </div>
       </div>
       <div className="mt-2 flex items-center justify-between px-1 font-mono text-[10px] text-text-dim">
-        <span>USDC $1.00 · PUSD $1.00</span>
-        <span>spread 0.4%</span>
+        <span>
+          USDC <CountUp value={1} decimals={2} prefix="$" /> · PUSD{' '}
+          <CountUp value={1} decimals={2} prefix="$" />
+        </span>
+        <span>
+          spread <CountUp value={0.4} decimals={1} suffix="%" />
+        </span>
       </div>
       <div className="mt-2.5 flex h-10 items-center justify-center rounded-pill bg-lime text-sm font-semibold text-lime-ink">
         Ferry it
@@ -375,7 +394,9 @@ export function PayLinkQrCard() {
           aria-hidden="true"
         />
       </div>
-      <p className="mt-3 text-sm font-semibold text-text">Pay 20.00 PUSD</p>
+      <p className="mt-3 text-sm font-semibold text-text">
+        Pay <CountUp value={20} decimals={2} /> PUSD
+      </p>
       <p className="text-[11px] text-text-muted">
         In any stablecoin, on any of six chains
       </p>

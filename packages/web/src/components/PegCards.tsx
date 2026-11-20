@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSolver } from '../lib/solver/useSolver';
 import { PEG_SOURCES, formatPegSources } from '../lib/copy';
 import type { PegPrice } from '../lib/solver/types';
+import { CountUp } from './marketing/MotionPrimitives';
 
 function Sparkline({ points }: { points: readonly number[] }) {
   if (points.length < 2) return null;
@@ -97,12 +98,16 @@ export function PegCards() {
                     peg.change24hPercent >= 0 ? 'text-ok' : 'text-danger'
                   }`}
                 >
-                  {peg.change24hPercent >= 0 ? '+' : ''}
-                  {peg.change24hPercent.toFixed(2)}%
+                  <CountUp
+                    value={peg.change24hPercent}
+                    decimals={2}
+                    prefix={peg.change24hPercent >= 0 ? '+' : ''}
+                    suffix="%"
+                  />
                 </span>
               </div>
               <p className="mt-1 font-mono text-2xl font-semibold text-text">
-                ${peg.priceUsd.toFixed(2)}
+                <CountUp value={peg.priceUsd} decimals={2} prefix="$" />
               </p>
               <div className="mt-1 flex items-center gap-2 text-[11px] text-text-dim">
                 <span>Target $1.00 USD</span>
