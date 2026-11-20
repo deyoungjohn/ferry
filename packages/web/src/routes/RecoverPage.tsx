@@ -31,6 +31,7 @@ import {
   getOrDeriveRecoveryRoot,
 } from '../lib/recovery/recovery-key-service';
 import { DEFAULT_MAINNET_FULCRUM } from '../lib/live/bch-chain';
+import { RescueKeyPrompt } from '../components/RescueKeyPrompt';
 import {
   getEvmWalletRecoveryActions,
   inspectEvmWalletRecovery,
@@ -92,6 +93,13 @@ export function RecoverPage() {
   const [bchSwaps, setBchSwaps] = useState<readonly BchWalletSwap[]>([]);
   const [bchBusy, setBchBusy] = useState(false);
   const [bchError, setBchError] = useState<string | null>(null);
+  const [bchProgress, setBchProgress] = useState<string | null>(null);
+  const [walletOrders, setWalletOrders] = useState<
+    ReadonlyMap<
+      string,
+      { orderId: string; state: string; bchTokenAmount: string | null }
+    >
+  >(new Map());
 
   /** The contract's lock id for this file's EVM lock (not the order id). */
   function evmLockIdOf(file: RecoveryFile): Hex32 {
@@ -315,6 +323,7 @@ export function RecoverPage() {
   async function recoverWithEvmWallet() {
     setWalletError(null);
     setWalletSwaps([]);
+    setWalletOrders(new Map());
     const evm = walletContext?.evm;
     if (!evm || evm.status !== 'connected' || !evm.address) {
       evm?.connect();
@@ -335,6 +344,44 @@ export function RecoverPage() {
         gap: 20,
       });
       setWalletSwaps(result.swaps);
+      const solverUrl = (
+        import.meta.env?.VITE_SOLVER_URLS as string | undefined
+      )
+        ?.split(',')[0]
+        ?.trim();
+      if (solverUrl && result.swaps.length > 0) {
+        const found = new Map<
+          string,
+          { orderId: string; state: string; bchTokenAmount: string | null }
+        >();
+        await Promise.all(
+          result.swaps.map(async (swap) => {
+            try {
+              const response = await fetch(
+                `${solverUrl.replace(/\/+$/, '')}/v1/orders/by-hash-lock/${swap.hashLock}`,
+              );
+              if (!response.ok) return;
+              const body = (await response.json()) as {
+                orderId?: string;
+                state?: string;
+                summary?: { bchTokenAmount?: string };
+              };
+              if (body.state && body.orderId) {
+                found.set(swap.lockId, {
+                  orderId: body.orderId,
+                  state: body.state,
+                  bchTokenAmount: body.summary?.bchTokenAmount ?? null,
+                });
+              }
+            } catch {
+              return;
+            }
+          }),
+        );
+        setWalletOrders(found);
+      } else {
+        setWalletOrders(new Map());
+      }
       if (result.errors.length > 0) {
         setWalletError(
           `Some chains could not be read: ${result.errors.map((item) => item.chain).join(', ')}.`,
@@ -395,6 +442,7 @@ export function RecoverPage() {
         addresses,
         urls: DEFAULT_MAINNET_FULCRUM,
         network: 'mainnet',
+        onProgress: ({ message }) => setBchProgress(message),
       });
       setBchSwaps(swaps);
       if (swaps.length === 0) {
@@ -410,6 +458,7 @@ export function RecoverPage() {
       );
     } finally {
       setBchBusy(false);
+      setBchProgress(null);
     }
   }
 
@@ -670,11 +719,29 @@ export function RecoverPage() {
                   <span className="font-medium text-text">
                     {swap.chainName} · {swap.status} · index {swap.index}
                   </span>
-                  <span className="text-text-muted">{walletAction(swap)}</span>
+                  <span className="text-text-muted">
+                    {walletOrders.get(swap.lockId)
+                      ? `Solver order ${walletOrders.get(swap.lockId)!.state}${
+                          walletOrders.get(swap.lockId)!.bchTokenAmount
+                            ? ` · BCH ${walletOrders.get(swap.lockId)!.bchTokenAmount}`
+                            : ''
+                        }`
+                      : walletAction(swap)}
+                  </span>
                 </div>
                 <div className="mt-1 font-mono text-[10px] text-text-dim break-all">
                   {swap.lockId}
                 </div>
+                {walletOrders.get(swap.lockId) && (
+                  <Link
+                    to={ROUTES.swapOrder(
+                      walletOrders.get(swap.lockId)!.orderId,
+                    )}
+                    className="mt-1 inline-flex text-[11px] font-semibold text-lime hover:underline"
+                  >
+                    Open solver order to claim or refund
+                  </Link>
+                )}
               </li>
             ))}
           </ul>
@@ -688,6 +755,7 @@ export function RecoverPage() {
             output to find reverse swaps. The root comes from the EVM signature
             when connected, or the browser rescue key otherwise.
           </p>
+          {walletContext?.evm.address === null && <RescueKeyPrompt />}
           <button
             type="button"
             onClick={() => void recoverWithBchWallet()}
@@ -696,6 +764,11 @@ export function RecoverPage() {
           >
             {bchBusy ? 'Scanning…' : 'Scan Bitcoin Cash wallet'}
           </button>
+          {bchProgress && (
+            <p className="mt-3 text-xs text-text-muted" role="status">
+              {bchProgress}
+            </p>
+          )}
           {bchError && (
             <p className="mt-3 text-xs text-warn" role="status">
               {bchError}
