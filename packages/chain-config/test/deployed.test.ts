@@ -6,9 +6,19 @@ import {
 } from '../src/index.js';
 
 describe('listDeployedContracts', () => {
-  it('returns an empty array when deployments are superseded / pending redeploy', () => {
+  it('lists the six recorded mainnet deployments at the one address', () => {
     const deployed = listDeployedContracts(loadChainData());
-    expect(deployed).toEqual([]);
+    expect(deployed.map((item) => item.chain).sort()).toEqual([
+      'arbitrum',
+      'arc',
+      'base',
+      'bnb',
+      'ethereum',
+      'robinhood',
+    ]);
+    for (const item of deployed) {
+      expect(item.address).toBe(PREDICTED_FERRY_HTLC_ADDRESS);
+    }
   });
 
   it('lists recorded mainnet deployments when populated', () => {
@@ -33,8 +43,7 @@ describe('listDeployedContracts', () => {
     baseChain.mainnet.deployment.evidence.status = 'verified';
 
     const deployed = listDeployedContracts(cloned);
-    expect(deployed.length).toBe(1);
-    const first = deployed[0]!;
+    const first = deployed.find((item) => item.chain === 'base')!;
     expect(first.chain).toBe('base');
     expect(first.address).toBe(PREDICTED_FERRY_HTLC_ADDRESS);
     expect(first.deployBlock).toBe(58633459);

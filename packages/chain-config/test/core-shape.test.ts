@@ -19,12 +19,12 @@ describe('core EvmChainConfig shape', () => {
     }
   });
 
-  it('omits deployBlock when deployment is superseded / pending redeploy', () => {
+  it('carries the recorded Base deployBlock', () => {
     const base = loadChainConfig({ env: {} }).coreChains.find(
       (chain) => chain.id === 'base',
     );
     expect(base).toBeDefined();
-    expect(base?.deployBlock).toBeUndefined();
+    expect(base?.deployBlock).toBe(59737013);
     expect(EvmChainConfigSchema.safeParse(base).success).toBe(true);
   });
 
