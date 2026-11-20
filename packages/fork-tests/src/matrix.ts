@@ -15,10 +15,17 @@ import {
   startRealEngineSolver,
 } from '../../e2e/test/support/real-engine-solver.js';
 import { FakeBchChain } from '../../e2e/test/support/fake-bch-chain.js';
+import { runForwardFlow, runReverseFlow } from './flows.js';
 import { chainConfig, FORK_CHAINS, rpcFor } from './chains.js';
 import { deployHtlc } from './contract.js';
-import { setBalance, setIntervalMining, startFork } from './fork.js';
-import { setErc20Balance } from './token.js';
+import {
+  impersonateAccount,
+  setBalance,
+  setIntervalMining,
+  startFork,
+  stopImpersonatingAccount,
+} from './fork.js';
+import { findTokenHolder, setErc20Balance, transferToken } from './token.js';
 
 export type CaseStatus = 'pass' | 'fail' | 'skip';
 
@@ -51,12 +58,13 @@ async function runCase(
     const detail = await operation();
     return { chain, case: name, status: 'pass', detail: detail ?? 'ok' };
   } catch (error) {
-    return {
-      chain,
-      case: name,
-      status: 'fail',
-      detail: error instanceof Error ? error.message : String(error),
-    };
+    const detail =
+      error && typeof error === 'object' && 'details' in error
+        ? String((error as { details?: unknown }).details)
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    return { chain, case: name, status: 'fail', detail };
   }
 }
 
@@ -75,17 +83,6 @@ export async function runChain(
     ];
   }
 
-  if (chain === 'arc') {
-    return [
-      {
-        chain,
-        case: 'chain',
-        status: 'skip',
-        detail:
-          'Arc native USDC balance cannot be set through a standard ERC-20 storage slot; manual checklist',
-      },
-    ];
-  }
   const facts = chainConfig().facts.find((item) => item.id === chain);
   if (!facts) {
     return [
@@ -178,6 +175,7 @@ export async function runChain(
     }
 
     let htlc: Address;
+    const deployBlock = await publicClient.getBlockNumber();
     try {
       htlc = await deployHtlc(
         deployWallet,
@@ -206,33 +204,77 @@ export async function runChain(
 
     const tokenAddress = token.address as Address;
     const decimals = token.decimals;
+    const tokenPermit = token.permit;
     const amount = 1_000_000n * 10n ** BigInt(decimals);
+    let tokenStage = 'finding a token holder';
     try {
-      await setErc20Balance({
-        rpcUrl: fork.rpcUrl,
-        publicClient,
-        token: tokenAddress,
-        account: user.address,
-        amount,
-      });
-      await setErc20Balance({
-        rpcUrl: fork.rpcUrl,
-        publicClient,
-        token: tokenAddress,
-        account: solverWallet.account!.address,
-        amount,
-      });
+      if (chain === 'arc') {
+        const holder = await findTokenHolder({
+          publicClient,
+          token: tokenAddress,
+          minimum: amount * 2n,
+          lookback: 200n,
+        });
+        if (!holder) throw new Error('no Arc USDC holder found in recent logs');
+        tokenStage = 'impersonating the token holder';
+        await impersonateAccount(fork.rpcUrl, holder);
+        await setBalance(fork.rpcUrl, holder, GAS);
+        try {
+          tokenStage = 'transferring USDC to the user';
+          await transferToken({
+            rpcUrl: fork.rpcUrl,
+            publicClient,
+            token: tokenAddress,
+            from: holder,
+            to: user.address,
+            amount,
+          });
+          tokenStage = 'transferring USDC to the solver';
+          await transferToken({
+            rpcUrl: fork.rpcUrl,
+            publicClient,
+            token: tokenAddress,
+            from: holder,
+            to: solverWallet.account!.address,
+            amount,
+          });
+        } finally {
+          await stopImpersonatingAccount(fork.rpcUrl, holder).catch(
+            () => undefined,
+          );
+        }
+      } else {
+        tokenStage = 'setting the user token balance';
+        await setErc20Balance({
+          rpcUrl: fork.rpcUrl,
+          publicClient,
+          token: tokenAddress,
+          account: user.address,
+          amount,
+        });
+        tokenStage = 'setting the solver token balance';
+        await setErc20Balance({
+          rpcUrl: fork.rpcUrl,
+          publicClient,
+          token: tokenAddress,
+          account: solverWallet.account!.address,
+          amount,
+        });
+      }
     } catch (error) {
       rows.push({
         chain,
         case: 'token-balance',
         status: 'fail',
-        detail: error instanceof Error ? error.message : String(error),
+        detail: `${tokenStage}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       });
       return rows;
     }
 
     const bch = new FakeBchChain();
+    const solverBch = makeBchIdentity(0x52);
     const solver = await startRealEngineSolver({
       rpcUrl: fork.rpcUrl,
       chain: {
@@ -244,12 +286,15 @@ export async function runChain(
       htlcAddress: htlc,
       tokenAddress,
       tokenDecimals: decimals,
-      tokenPermit: token.permit,
+      tokenPermit,
       solverEvmKey: solverKey,
       bchChain: bch,
-      solverBch: makeBchIdentity(0x52),
+      solverBch,
+      referenceActions: true,
+      deployBlock,
     });
 
+    solver.evmConfirmations.value = 0;
     try {
       let orderId: Hex32 | null = null;
       let terms: Record<string, unknown> | null = null;
@@ -285,13 +330,67 @@ export async function runChain(
         }),
       );
 
+      const flowContext = {
+        solver,
+        chain: bch,
+        chainConfig: {
+          id: facts.chainId,
+          name: facts.name,
+          nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+          rpcUrls: { default: { http: [fork.rpcUrl] } },
+        },
+        publicClient,
+        user,
+        userWallet,
+        solverEvmAddress: solverWallet.account!.address,
+        token: tokenAddress,
+        tokenDecimals: decimals,
+        tokenPermit,
+        userBch: makeBchIdentity(0x31),
+        solverBch,
+      };
+      rows.push(
+        await runCase(chain, 'forward-swap', () => runForwardFlow(flowContext)),
+      );
+      rows.push(
+        await runCase(chain, 'reverse-swap', () => runReverseFlow(flowContext)),
+      );
+      for (const [name, detail] of [
+        [
+          'finality-boundaries',
+          'not run within the stop: the real ports are wired, the boundary and reorg assertions are not written',
+        ],
+        [
+          'two-chains-same-lock',
+          'not run: the harness starts one fork at a time; two simultaneous forks need a second anvil process',
+        ],
+        [
+          'release-keeper',
+          'not run: the early-release and keeper paths are unit-tested in the solver package, not yet driven here',
+        ],
+        [
+          'crash-safety',
+          'not run: the restart hook exists, the kill-at-each-step rows are not written',
+        ],
+        [
+          'wallet-amounts',
+          'partial: minimum, maximum, wrong token and wrong chain are covered; insufficient balance/allowance, bad permits and rounding are not',
+        ],
+        [
+          'gas',
+          'not run: gas spike, replacement and nonce-gap rows are not written',
+        ],
+      ] as const) {
+        rows.push({ chain, case: name, status: 'skip', detail });
+      }
+
       rows.push(
         await runCase(chain, 'relay-lock', async () => {
           if (!orderId || !terms || !hashLock) {
             throw new Error('quote did not produce terms');
           }
           const orderTerms = terms as unknown as OrderTerms;
-          if (!token.permit) {
+          if (!tokenPermit) {
             const unsigned = await solver.evmAdapter.buildUserLock(orderTerms);
             const payload = unsigned.payload as {
               mode: 'approve-lock';
@@ -337,7 +436,7 @@ export async function runChain(
           if (lock.status !== 'locked') {
             throw new Error(`lock status is ${lock.status}`);
           }
-          return token.permit
+          return tokenPermit
             ? `lock ${lock.status} (permit)`
             : `lock ${lock.status} (approve)`;
         }),
@@ -444,8 +543,15 @@ export async function runChain(
 }
 
 export async function runMatrix(): Promise<MatrixRow[]> {
+  const requested = process.env['FERRY_FORK_CHAINS']
+    ?.split(',')
+    .map((item) => item.trim())
+    .filter((item) => item !== '');
+  const chains = requested?.length
+    ? FORK_CHAINS.filter((chain) => requested.includes(chain))
+    : FORK_CHAINS;
   const rows: MatrixRow[] = [];
-  for (const chain of FORK_CHAINS) {
+  for (const chain of chains) {
     rows.push(...(await runChain(chain)));
   }
   return rows;

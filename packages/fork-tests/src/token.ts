@@ -1,12 +1,14 @@
 import {
   encodeAbiParameters,
+  encodeFunctionData,
   getAddress,
   keccak256,
   parseAbi,
+  parseAbiItem,
   toHex,
 } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
-import { setStorageAt } from './fork.js';
+import { sendTransaction, setStorageAt } from './fork.js';
 
 const ERC20 = parseAbi([
   'function balanceOf(address account) external view returns (uint256)',
@@ -55,4 +57,75 @@ export async function setErc20Balance(params: {
     await setStorageAt(params.rpcUrl, params.token, key, original ?? '0x0');
   }
   throw new Error(`could not find the token balance slot for ${params.token}`);
+}
+
+const TRANSFER = parseAbiItem(
+  'event Transfer(address indexed from, address indexed to, uint256 value)',
+);
+
+export async function findTokenHolder(params: {
+  publicClient: PublicClient;
+  token: Address;
+  minimum: bigint;
+  lookback?: bigint;
+}): Promise<Address | null> {
+  const latest = await params.publicClient.getBlockNumber();
+  const lookback = params.lookback ?? 200n;
+  const floor = latest > lookback ? latest - lookback : 0n;
+  let toBlock = latest;
+  while (toBlock >= floor) {
+    const fromBlock = toBlock > floor + 9n ? toBlock - 9n : floor;
+    try {
+      const logs = await params.publicClient.getLogs({
+        address: params.token,
+        event: TRANSFER,
+        fromBlock,
+        toBlock,
+      });
+      for (const log of [...logs].reverse()) {
+        const holder = log.args.to;
+        if (!holder) continue;
+        const balance = await params.publicClient.readContract({
+          address: params.token,
+          abi: ERC20,
+          functionName: 'balanceOf',
+          args: [holder],
+        });
+        if (balance >= params.minimum) return holder;
+      }
+    } catch {
+      // A server with a smaller log range is retried in the next window.
+    }
+    if (fromBlock === floor) break;
+    toBlock = fromBlock - 1n;
+  }
+  return null;
+}
+
+export async function transferToken(params: {
+  rpcUrl: string;
+  publicClient: PublicClient;
+  token: Address;
+  from: Address;
+  to: Address;
+  amount: bigint;
+}): Promise<string> {
+  const data = encodeFunctionData({
+    abi: parseAbi([
+      'function transfer(address to, uint256 amount) returns (bool)',
+    ]),
+    functionName: 'transfer',
+    args: [params.to, params.amount],
+  });
+  const hash = await sendTransaction(
+    params.rpcUrl,
+    params.from,
+    params.token,
+    data,
+  );
+  await params.publicClient.waitForTransactionReceipt({
+    hash: hash as Hex,
+    timeout: 60_000,
+  });
+  return hash;
 }
