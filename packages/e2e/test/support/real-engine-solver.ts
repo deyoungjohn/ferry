@@ -97,6 +97,10 @@ export interface RealEngineSolver {
     predicate: () => boolean | Promise<boolean>,
     timeoutMs?: number,
   ) => Promise<void>;
+  /** An anvil snapshot of the EVM chain. */
+  snapshot: () => Promise<string>;
+  /** Revert the EVM chain to a snapshot. */
+  revert: (snapshot: string) => Promise<void>;
   /** A new engine and server over the same database, as after a restart. */
   restart: () => Promise<void>;
   stop: () => Promise<void>;
@@ -371,6 +375,19 @@ export async function startRealEngineSolver(params: {
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
+    },
+    snapshot: async () => {
+      const id = await publicClient.request({
+        method: 'evm_snapshot',
+      } as never);
+      return String(id);
+    },
+    revert: async (snapshot) => {
+      const ok = await publicClient.request({
+        method: 'evm_revert',
+        params: [snapshot],
+      } as never);
+      if (!ok) throw new Error('anvil refused the snapshot revert');
     },
     restart: async () => {
       harness.engine.stop();
