@@ -110,6 +110,8 @@ export interface QuoteInput {
    * (the price the page showed, less its tolerance). A worse quote stops here.
    */
   readonly minReceive?: bigint;
+  /** The pay link this payment is for (marks the swap as that link's payment). */
+  readonly payLinkId?: string;
 }
 
 export interface WaitOptions {
@@ -288,6 +290,7 @@ export class UserSwapSession {
             ? { fastOptIn: input.fastOptIn }
             : {}),
           ...(input.dryRun === true ? { dryRun: true } : {}),
+          ...(input.payLinkId ? { payLinkId: input.payLinkId } : {}),
         };
         try {
           [bchTipHeight, response] = await Promise.all([

@@ -622,6 +622,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       hashLock: raw.hashLock,
       lane: raw.lane ?? 'safe',
       ...(raw.fastOptIn !== undefined ? { fastOptIn: raw.fastOptIn } : {}),
+      ...(raw.payLinkId !== undefined ? { payLinkId: raw.payLinkId } : {}),
     };
 
     const parseResult = CoreQuoteRequestSchema.safeParse(normalizedBody);
@@ -1013,11 +1014,28 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       terms.hashLock,
     );
 
+    // The pay link this payment is for, when the request names one that is open and matches the
+    // token and the recipient: the order is then marked as that link's payment.
+    let payLinkId: string | undefined;
+    if (request.payLinkId) {
+      const link = db.getPayLink(request.payLinkId);
+      if (
+        link &&
+        (link.status === 'open' || link.status === 'reserved') &&
+        link.token === request.token &&
+        link.recipientLockingBytecode.toLowerCase() ===
+          request.userBchLockingBytecode.toLowerCase()
+      ) {
+        payLinkId = link.id;
+      }
+    }
+
     if (!isDryRun) {
       db.saveOrder({
         id: orderIdHex,
         direction: terms.direction,
         status: 'QUOTED',
+        ...(payLinkId ? { payLinkId } : {}),
         userCounterAddress: terms.userEvmAddress,
         lockId,
         termsJson: JSON.stringify(terms, (_, v) =>

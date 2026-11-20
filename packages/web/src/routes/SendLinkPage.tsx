@@ -496,13 +496,14 @@ export function SendLinkPage({
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-      <div className="mb-4">
+      <div className="mb-4 flex items-center justify-between">
         <Link
           to={ROUTES.sendLink}
           className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text transition-colors"
         >
           ← All Send Links
         </Link>
+        <LinkHowItWorks kind="send" />
       </div>
 
       <div
@@ -553,9 +554,6 @@ export function SendLinkPage({
                 <p className="mt-1 text-xs text-text-muted">
                   Sent from Bitcoin Cash through Ferry atomic swap.
                 </p>
-                <div className="mt-1">
-                  <LinkHowItWorks kind="send" />
-                </div>
               </div>
 
               {link.note && (

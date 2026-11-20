@@ -1275,7 +1275,7 @@ export class SolverDatabase {
     asOf: number | null;
   } {
     const stmt = this.db.prepare(`
-      SELECT terms_json, lane, direction, created_at, updated_at,
+      SELECT id, terms_json, lane, direction, created_at, updated_at,
         (pay_link_id IS NOT NULL
           OR id IN (SELECT order_id FROM send_link_orders)
           OR id IN (SELECT order_id FROM send_link_notes)
@@ -1290,8 +1290,9 @@ export class SolverDatabase {
       updated_at: number;
       is_link: number;
       direction: string;
+      id: string;
     }>;
-    const payLinks = this.payLinkMatchers();
+    const legacyLinkOrders = this.legacyLinkOrderIds();
 
     if (rows.length === 0) {
       return {
@@ -1321,14 +1322,7 @@ export class SolverDatabase {
       // before MEDIAN_COUNTS_FROM ran on engine builds with known faults and are left out of the
       // median (they still count as completed swaps and in the volume).
       // A link's order waits for a person to pay or claim it, so its time is not the swap's speed.
-      const isLink =
-        Boolean(row.is_link) ||
-        this.isPayLinkPayment(
-          row.terms_json,
-          row.direction,
-          row.created_at,
-          payLinks,
-        );
+      const isLink = Boolean(row.is_link) || legacyLinkOrders.has(row.id);
       if (!isLink && toSeconds(row.created_at) >= MEDIAN_COUNTS_FROM) {
         fastDurations.push(
           Math.max(0, toSeconds(row.updated_at) - toSeconds(row.created_at)),
@@ -1359,57 +1353,27 @@ export class SolverDatabase {
   }
 
   /**
-   * The pay links, as the relation the server uses to tie a swap to its link (the recipient's
-   * script, the token and the amount), for leaving link payments out of swap lists and medians.
+   * When pay link payments began to carry a mark (the first start of this code). Links made
+   * before it keep the old rule (a swap to the link's recipient, token and amount), limited to
+   * swaps made before it; after it a swap belongs to a link only if it carries the link's mark.
    */
-  private payLinkMatchers(): Array<{
-    recipient: string;
-    token: string;
-    minAmount: bigint | null;
-    createdAt: number;
-  }> {
-    const rows = this.db
-      .prepare(
-        'SELECT recipient_locking_bytecode, token, amount_out, created_at FROM pay_links',
-      )
-      .all() as Array<Record<string, unknown>>;
-    return rows.map((r) => ({
-      recipient: String(r.recipient_locking_bytecode ?? '').toLowerCase(),
-      token: String(r.token ?? ''),
-      minAmount:
-        r.amount_out === null || r.amount_out === undefined
-          ? null
-          : BigInt(String(r.amount_out)),
-      createdAt: Number(r.created_at ?? 0),
-    }));
+  payLinkTaggingFrom(): number {
+    const stored = this.getSetting('pay_link_tagging_from');
+    if (stored !== null && /^\d+$/.test(stored)) return Number(stored);
+    const now = Math.floor(Date.now() / 1000);
+    this.setSetting('pay_link_tagging_from', String(now));
+    return now;
   }
 
-  private isPayLinkPayment(
-    termsJson: string,
-    direction: string,
-    orderCreatedAt: number,
-    links: ReturnType<SolverDatabase['payLinkMatchers']>,
-  ): boolean {
-    if (direction !== 'EVM_TO_BCH' && direction !== 'COUNTER_TO_BCH') {
-      return false;
-    }
-    try {
-      const terms = JSON.parse(termsJson) as Record<string, unknown>;
-      const recipient = String(
-        terms.userBchLockingBytecode ?? '',
-      ).toLowerCase();
-      const token = String(terms.bchToken ?? '');
-      const amount = termsBigInt(terms.bchTokenAmount);
-      return links.some(
-        (l) =>
-          l.recipient === recipient &&
-          l.token === token &&
-          (l.minAmount === null || amount >= l.minAmount) &&
-          toSeconds(orderCreatedAt) >= l.createdAt - 600,
-      );
-    } catch {
-      return false;
-    }
+  /**
+   * The orders the product already attached to a link (stored on the link when its page or the
+   * list read it), for the swap lists: exactly what was shown as a link's payment, not a new guess.
+   */
+  private legacyLinkOrderIds(): Set<string> {
+    const rows = this.db
+      .prepare('SELECT order_id FROM pay_links WHERE order_id IS NOT NULL')
+      .all() as Array<{ order_id: string }>;
+    return new Set(rows.map((r) => r.order_id));
   }
 
   getRecentSwaps(limit: number = 50): Array<{
@@ -1440,18 +1404,10 @@ export class SolverDatabase {
       ORDER BY updated_at DESC 
       LIMIT ?
     `);
-    // Link payments are filtered below, so read a wider window than the limit.
-    const links = this.payLinkMatchers();
+    // Payments of older links are filtered below, so read a wider window than the limit.
+    const legacy = this.legacyLinkOrderIds();
     const rows = (stmt.all(limit * 4 + 200) as Record<string, unknown>[])
-      .filter(
-        (r) =>
-          !this.isPayLinkPayment(
-            String(r.terms_json ?? '{}'),
-            String(r.direction ?? ''),
-            Number(r.created_at ?? 0),
-            links,
-          ),
-      )
+      .filter((r) => !legacy.has(String(r.id)))
       .slice(0, limit);
     const result: Array<{
       orderId: string;
@@ -1590,16 +1546,40 @@ export class SolverDatabase {
    * Quotes nobody locked against, expired and rejected orders do not count.
    */
   findOrderForPayLink(link: PayLinkRecord): OrderRecord | null {
+    // The mark first: a payment that named this link.
+    const marked = this.db
+      .prepare(
+        `SELECT * FROM orders
+         WHERE pay_link_id = ?
+           AND direction IN ('EVM_TO_BCH', 'COUNTER_TO_BCH')
+           AND status NOT IN ('QUOTED', 'EXPIRED', 'REJECTED')
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+      .get(link.id) as Record<string, unknown> | undefined;
+    if (marked) return this.mapOrderRow(marked);
+    // A link made before payments carried a mark keeps the old rule, for swaps made before it.
+    const from = this.payLinkTaggingFrom();
+    if (link.createdAt >= from) return null;
+    return this.findLegacyOrderForPayLink(link, from);
+  }
+
+  private findLegacyOrderForPayLink(
+    link: PayLinkRecord,
+    before: number,
+  ): OrderRecord | null {
     const rows = this.db
       .prepare(
         `SELECT * FROM orders
          WHERE direction IN ('EVM_TO_BCH', 'COUNTER_TO_BCH')
            AND status NOT IN ('QUOTED', 'EXPIRED', 'REJECTED')
+           AND pay_link_id IS NULL
            AND created_at >= ?
+           AND created_at < ?
          ORDER BY created_at DESC
          LIMIT 200`,
       )
-      .all(link.createdAt - 600) as Array<Record<string, unknown>>;
+      .all(link.createdAt - 600, before) as Array<Record<string, unknown>>;
     for (const row of rows) {
       const order = this.mapOrderRow(row);
       try {
