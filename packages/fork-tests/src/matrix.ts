@@ -15,6 +15,7 @@ import {
   startRealEngineSolver,
 } from '../../e2e/test/support/real-engine-solver.js';
 import { FakeBchChain } from '../../e2e/test/support/fake-bch-chain.js';
+import { runForwardFlow, runReverseFlow } from './flows.js';
 import { chainConfig, FORK_CHAINS, rpcFor } from './chains.js';
 import { deployHtlc } from './contract.js';
 import { setBalance, setIntervalMining, startFork } from './fork.js';
@@ -233,6 +234,7 @@ export async function runChain(
     }
 
     const bch = new FakeBchChain();
+    const solverBch = makeBchIdentity(0x52);
     const solver = await startRealEngineSolver({
       rpcUrl: fork.rpcUrl,
       chain: {
@@ -247,9 +249,11 @@ export async function runChain(
       tokenPermit: token.permit,
       solverEvmKey: solverKey,
       bchChain: bch,
-      solverBch: makeBchIdentity(0x52),
+      solverBch,
+      referenceActions: true,
     });
 
+    solver.evmConfirmations.value = 0;
     try {
       let orderId: Hex32 | null = null;
       let terms: Record<string, unknown> | null = null;
@@ -433,6 +437,32 @@ export async function runChain(
           }
           throw new Error('wrong-token quote was accepted');
         }),
+      );
+
+      const flowContext = {
+        solver,
+        chain: bch,
+        chainConfig: {
+          id: facts.chainId,
+          name: facts.name,
+          nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+          rpcUrls: { default: { http: [fork.rpcUrl] } },
+        },
+        publicClient,
+        user,
+        userWallet,
+        solverEvmAddress: solverWallet.account!.address,
+        token: tokenAddress,
+        tokenDecimals: decimals,
+        tokenPermit: token.permit,
+        userBch: makeBchIdentity(0x31),
+        solverBch,
+      };
+      rows.push(
+        await runCase(chain, 'forward-swap', () => runForwardFlow(flowContext)),
+      );
+      rows.push(
+        await runCase(chain, 'reverse-swap', () => runReverseFlow(flowContext)),
       );
     } finally {
       await solver.stop();

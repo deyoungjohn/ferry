@@ -220,6 +220,31 @@ export async function startRealEngineSolver(params: {
         return false;
       }
     },
+    getLockEvidence: async (txid: string) => {
+      try {
+        const receipt = await publicClient.getTransactionReceipt({
+          hash: txid as Hex,
+        });
+        if (!receipt || receipt.status !== 'success') return null;
+        const [head, block] = await Promise.all([
+          publicClient.getBlockNumber(),
+          publicClient.getBlock({ blockNumber: receipt.blockNumber }),
+        ]);
+        const confirmations = Number(
+          head >= receipt.blockNumber ? head - receipt.blockNumber + 1n : 0n,
+        );
+        return {
+          confirmations,
+          ageSeconds: Math.max(
+            0,
+            Math.floor(Date.now() / 1000) - Number(block.timestamp),
+          ),
+          finalized: confirmations >= evmConfirmations.value,
+        };
+      } catch {
+        return null;
+      }
+    },
   };
 
   const db = new SolverDatabase(':memory:');

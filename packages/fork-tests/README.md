@@ -23,9 +23,13 @@ skipped chains, not as failures.
 
 The current matrix covers health, quote, relay-lock with permit and
 approve-plus-lock tokens, and the minimum, maximum, wrong-chain and wrong-token
-refusals. Base, Ethereum, Arbitrum, BNB and Robinhood pass on the live forks. Arc
-is skipped because its USDC token does not expose a discoverable ERC-20 balance
-storage slot; use the manual checklist for it.
+refusals. Base, Ethereum, Arbitrum, BNB and Robinhood pass those rows on the live
+forks. Arc is skipped because its USDC token does not expose a discoverable
+ERC-20 balance storage slot; use the manual checklist for it.
+
+A full forward/reverse swap attempt is wired in but does not pass yet: on the
+current v2-staging fork run both stalled at `USER_LOCK_SEEN` waiting for the
+engine's Bitcoin Cash lock. It is reported as a failure row, not as a pass.
 
 The following still require a manual or harness extension pass: full BCH claim
 and refund flows, finality/reorg boundaries, quote and deadline timing, solver
