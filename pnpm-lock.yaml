@@ -213,6 +213,46 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(@types/node@22.20.5)(@vitest/coverage-v8@5.0.5)(jsdom@30.1.3(@noble/hashes@2.0.1)(canvas@3.2.3))(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
 
+  packages/fork-tests:
+    dependencies:
+      '@bitauth/libauth':
+        specifier: 3.0.0
+        version: 3.0.0
+      '@ferry/chain-config':
+        specifier: workspace:*
+        version: link:../chain-config
+      '@ferry/chain-evm':
+        specifier: workspace:*
+        version: link:../chain-evm
+      '@ferry/core':
+        specifier: workspace:*
+        version: link:../core
+      '@ferry/htlc-bch':
+        specifier: workspace:*
+        version: link:../htlc-bch
+      '@ferry/htlc-evm':
+        specifier: workspace:*
+        version: link:../htlc-evm
+      '@ferry/solver':
+        specifier: workspace:*
+        version: link:../solver
+      '@ferry/solver-client':
+        specifier: workspace:*
+        version: link:../solver-client
+      viem:
+        specifier: 2.57.10
+        version: 2.57.10(typescript@5.9.3)(zod@4.6.7)
+    devDependencies:
+      '@types/node':
+        specifier: 22.20.5
+        version: 22.20.5
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@22.20.5)(@vitest/coverage-v8@5.0.5)(jsdom@30.1.3(@noble/hashes@2.0.1)(canvas@3.2.3))(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
+
   packages/htlc-bch:
     dependencies:
       '@bitauth/libauth':
