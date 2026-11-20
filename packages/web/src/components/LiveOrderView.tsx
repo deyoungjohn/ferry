@@ -766,13 +766,21 @@ export function LiveOrderView({
               {checking ? 'Checking…' : 'Check again'}
             </button>
           )}
-        <button
-          type="button"
-          onClick={downloadFile}
-          className="h-10 rounded-pill border border-hairline px-5 text-sm text-text-muted"
-        >
-          Download recovery file
-        </button>
+        {/* A finished, released, refunded or cancelled swap has nothing left to recover. */}
+        {!done &&
+          !isReleased &&
+          !isKeeperRefund &&
+          !cancelled &&
+          state?.step !== 'refunded' && (
+            <button
+              type="button"
+              onClick={downloadFile}
+              className="h-10 rounded-pill border border-hairline px-5 text-sm text-text-muted"
+              data-testid="order-download"
+            >
+              Download recovery file
+            </button>
+          )}
       </div>
       {checkedAt && (
         <p

@@ -131,3 +131,73 @@
   opacity: 0.45;
   filter: grayscale(1);
 }
+
+/* The step in progress: a short bright arc travels around its border, and its number ring breathes.
+   Only the active step moves; a person who asked for less motion sees a plain lime border. */
+@property --step-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+[data-state='active'] {
+  position: relative;
+  isolation: isolate;
+}
+
+[data-state='active']::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--step-angle),
+    transparent 0deg,
+    transparent 250deg,
+    rgba(198, 242, 25, 0.9) 320deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  animation: step-beam 2.8s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes step-beam {
+  to {
+    --step-angle: 360deg;
+  }
+}
+
+@keyframes step-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(198, 242, 25, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(198, 242, 25, 0);
+  }
+}
+
+[data-state='active'] > span[aria-hidden='true'],
+[data-state='active'] span.rounded-full {
+  animation: step-breathe 2.4s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-state='active']::before {
+    animation: none;
+    background: rgba(198, 242, 25, 0.5);
+  }
+  [data-state='active'] > span[aria-hidden='true'],
+  [data-state='active'] span.rounded-full {
+    animation: none;
+  }
+}

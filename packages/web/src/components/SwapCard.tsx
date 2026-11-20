@@ -21,6 +21,13 @@ import { useSolver } from '../lib/solver/useSolver';
 import { WalletContext } from '../lib/wallet/context';
 import { RealPriceReader } from '../lib/pricing/real';
 import type { ChainDisplay } from '../lib/network';
+import {
+  readBchTokenBalance,
+  readEvmTokenBalance,
+  shareOfBalance,
+} from '../lib/wallet/send-balance';
+import { createBrowserBchChain } from '../lib/live/bch-chain';
+import { AmountSlider } from './swap-block/AmountSlider';
 import type { QuoteResponse, SwapLane } from '../lib/solver/types';
 import { useReducedMotion } from 'motion/react';
 import { useOptionalNavigate } from '../lib/useOptionalNavigate';
@@ -470,6 +477,71 @@ export function SwapCard({
   ]);
 
   const sendTokenSymbol = isReverse ? selectedBchToken : selectedFarToken;
+
+  // The connected wallet's balance of the token being sent, for the share slider. Nothing is
+  // drawn without a wallet (a Bitcoin Cash wallet often connects only after the first quote).
+  const [walletBalance, setWalletBalance] = useState<bigint | null>(null);
+  const [sharePercent, setSharePercent] = useState(0);
+  const sendDecimals = isReverse
+    ? 2
+    : (farTokenFacts(selectedChain.name, selectedFarToken)?.decimals ?? 6);
+  const sendBchConnected = walletContext?.bch.status === 'connected';
+  const sendEvmAddress = evm.address;
+  useEffect(() => {
+    let active = true;
+    setWalletBalance(null);
+    setSharePercent(0);
+    (async () => {
+      try {
+        if (!isReverse) {
+          const far = farTokenFacts(selectedChain.name, selectedFarToken);
+          if (!far || !sendEvmAddress || evm.status !== 'connected') return;
+          const balance = await readEvmTokenBalance(
+            Number(selectedChain.id),
+            far.address,
+            sendEvmAddress as `0x${string}`,
+          );
+          if (active) setWalletBalance(balance);
+        } else {
+          if (!sendBchConnected || !walletContext?.bch.listFundingAddresses)
+            return;
+          const solverUrl = solverUrls[0];
+          const chain = createBrowserBchChain({ solverUrl });
+          const addresses = await walletContext.bch.listFundingAddresses();
+          const balance = await readBchTokenBalance(
+            selectedBchToken,
+            addresses.map((a) => a.lockingBytecodeHex),
+            (bytecode) => chain.getUtxos(bytecode),
+          );
+          if (active) setWalletBalance(balance);
+        }
+      } catch {
+        // No figure: the slider simply stays hidden.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isReverse,
+    selectedChain.id,
+    selectedFarToken,
+    selectedBchToken,
+    sendEvmAddress,
+    evm.status,
+    sendBchConnected,
+  ]);
+
+  function applyShare(percent: number) {
+    setSharePercent(percent);
+    if (walletBalance === null) return;
+    const units = shareOfBalance(walletBalance, percent);
+    const text = (Number(units) / 10 ** sendDecimals).toFixed(
+      Math.min(sendDecimals, 2),
+    );
+    setSendAmount(percent === 0 ? '' : text);
+  }
   const receiveTokenSymbol = isReverse ? selectedFarToken : selectedBchToken;
 
   // Recovery file download handler
@@ -857,6 +929,16 @@ export function SwapCard({
             onOpenPicker={() => setPickerSide('from')}
             labels={{ youPay: copy.sendLabel }}
           />
+          {walletBalance !== null && walletBalance > 0n && (
+            <AmountSlider
+              percent={sharePercent}
+              onPercent={applyShare}
+              balanceText={(Number(walletBalance) / 10 ** sendDecimals).toFixed(
+                2,
+              )}
+              symbol={sendTokenSymbol}
+            />
+          )}
           <div className="my-1">
             <FlipButton
               rotation={isReverse ? 180 : 0}
