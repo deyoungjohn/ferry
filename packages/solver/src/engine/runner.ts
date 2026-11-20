@@ -893,11 +893,9 @@ export class SolverEngine {
           buildTx: async () => this.buildSolverEvmLock(order),
         });
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        await this.earlyReleaseUserBchLock(
-          order,
-          message || 'EVM counter-lock failed',
-        );
+        // The lock may have been sent before the error (a receipt timeout, a dropped answer):
+        // never release here. The next pass retries, and the executor adopts a lock already sent.
+        this.onOrderError?.(order.id, 'SOLVER_LOCK_FAILED', err);
         return;
       }
 
@@ -1072,14 +1070,21 @@ export class SolverEngine {
       );
     }
 
+    // Any recorded counter-lock attempt, whatever its status, may be on chain or in the mempool.
     const recordedEvmLock = this.db.getAction(order.id, 'SOLVER_LOCK');
-    if (
-      recordedEvmLock?.txid &&
-      (recordedEvmLock.status === 'BROADCAST' ||
-        recordedEvmLock.status === 'CONFIRMED')
-    ) {
+    if (recordedEvmLock) {
       throw new Error(
-        `Safety violation: refusing early release of user BCH lock because solver EVM counter-lock has been broadcast (${recordedEvmLock.txid}) for order ${order.id}`,
+        `Safety violation: refusing early release of user BCH lock because a solver EVM counter-lock was attempted (${recordedEvmLock.txid || 'no txid yet'}) for order ${order.id}`,
+      );
+    }
+    // And the chain itself: a solver lock with this hash on the order's chain.
+    const solverLock = await this.evmPort.getLock(
+      evmLockId(order.terms.solverEvmAddress, order.terms.hashLock),
+      Number(order.terms.evmChainId),
+    );
+    if (solverLock.status !== 'none') {
+      throw new Error(
+        `Safety violation: refusing early release of user BCH lock because a solver EVM lock exists (${solverLock.status}) for order ${order.id}`,
       );
     }
 

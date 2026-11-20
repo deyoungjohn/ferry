@@ -5,7 +5,6 @@ import { NETWORK_LABEL, IS_MAINNET } from '../lib/config';
 import { APP_NAV, PUBLIC_NAV } from '../lib/site-config';
 import { OPEN_WALLETS_EVENT } from '../lib/site';
 import { useScrolled } from '../lib/useScrolled';
-import { useWallets } from '../lib/wallet/context';
 import { Brand } from './Brand';
 import { GlassPopover } from './GlassPopover';
 import { WalletMenu } from './WalletMenu';
@@ -19,9 +18,7 @@ export function NavBar() {
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const scrolled = useScrolled(8);
-  const { evm, bch } = useWallets();
 
-  const isConnected = evm.status === 'connected' || bch.status === 'connected';
   // The tabs follow the page, not the wallet: public pages always show Features, How it works
   // and Stats; the app and shared links show the app tabs.
   const internal = isInternalPath(useLocation().pathname);
@@ -77,45 +74,50 @@ export function NavBar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2 lg:ml-0">
-          <GlassPopover
-            label="Network details"
-            trigger={
-              <button
-                type="button"
-                className="hidden items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 py-1.5 text-[11px] text-text-muted transition-colors hover:text-text sm:inline-flex"
-              >
-                <span
-                  className="size-1.5 rounded-full bg-ok"
-                  aria-hidden="true"
-                />
-                {NETWORK_LABEL}
-                <InfoIcon className="size-3 text-text-muted" />
-              </button>
-            }
-          >
-            <p className="font-medium text-text">
-              Network Profile: {NETWORK_LABEL}
-            </p>
-            <p className="mt-1">
-              {IS_MAINNET
-                ? 'Mainnet. Balances, signatures and transactions use real funds and cannot be reversed.'
-                : 'This environment runs on test networks only. Balances and addresses here do not use real funds.'}
-            </p>
-          </GlassPopover>
+          {internal && (
+            <GlassPopover
+              label="Network details"
+              trigger={
+                <button
+                  type="button"
+                  className="hidden items-center gap-1.5 rounded-pill border border-hairline bg-surface-2 px-3 py-1.5 text-[11px] text-text-muted transition-colors hover:text-text sm:inline-flex"
+                >
+                  <span
+                    className="size-1.5 rounded-full bg-ok"
+                    aria-hidden="true"
+                  />
+                  {NETWORK_LABEL}
+                  <InfoIcon className="size-3 text-text-muted" />
+                </button>
+              }
+            >
+              <p className="font-medium text-text">
+                Network Profile: {NETWORK_LABEL}
+              </p>
+              <p className="mt-1">
+                {IS_MAINNET
+                  ? 'Mainnet. Balances, signatures and transactions use real funds and cannot be reversed.'
+                  : 'This environment runs on test networks only. Balances and addresses here do not use real funds.'}
+              </p>
+            </GlassPopover>
+          )}
 
-          {isConnected && !internal && (
+          {/* Public pages carry no network or wallet state: one way into the app. */}
+          {!internal && (
             <Link
               to={APP_NAV[0]!.to}
-              className="hidden h-11 items-center rounded-full border border-hairline px-5 text-[14px] font-medium text-text transition-colors hover:bg-[var(--hl-soft)] sm:inline-flex"
+              className="inline-flex h-11 items-center rounded-full bg-lime px-5 text-[14px] font-semibold text-lime-ink transition-opacity hover:opacity-90"
             >
-              Open app
+              Open Ferry
             </Link>
           )}
 
-          <WalletMenu
-            open={walletSheetOpen}
-            onOpenChange={setWalletSheetOpen}
-          />
+          {internal && (
+            <WalletMenu
+              open={walletSheetOpen}
+              onOpenChange={setWalletSheetOpen}
+            />
+          )}
 
           <button
             type="button"

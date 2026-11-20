@@ -498,7 +498,7 @@ describe('Solver Early Release and Automatic Refund Keeper', () => {
       expect(order?.rejectionReason).toContain('after the quote expired');
     });
 
-    it('early-releases user BCH lock when EVM counter-lock fails (no gas / inventory / refusal)', async () => {
+    it('never releases the user BCH lock when the EVM counter-lock call fails: it may have been sent', async () => {
       const db = new SolverDatabase(':memory:');
       const terms = makeReverseTerms();
 
@@ -544,12 +544,55 @@ describe('Solver Early Release and Automatic Refund Keeper', () => {
       const engine = newTestEngine(db, bchPort, evmPort);
       await engine.reconcileOrders();
 
-      expect(releaseMock).toHaveBeenCalledTimes(1);
+      expect(releaseMock).not.toHaveBeenCalled();
 
       const order = db.getOrder('ord-rev-evm-fail');
-      expect(order?.status).toBe('RELEASED');
-      expect(order?.solverRefundTxId).toBe('release_bch_tx_03');
-      expect(order?.rejectionReason).toContain('Out of EVM inventory or gas');
+      expect(order?.status).toBe('USER_LOCK_FINAL');
+    });
+
+    it('refuses an early release when a solver EVM lock with the same hash exists on chain', async () => {
+      const db = new SolverDatabase(':memory:');
+      const terms = makeReverseTerms();
+      db.saveOrder({
+        id: 'ord-rev-onchain',
+        direction: 'BCH_TO_EVM',
+        status: 'USER_LOCK_FINAL',
+        userCounterAddress: terms.userBchLockingBytecode,
+        lockId: terms.hashLock,
+        termsJson: stringifyTerms(terms),
+        hashLock: terms.hashLock,
+        userLockTxId: '44'.repeat(32),
+        createdAt: Math.floor(Date.now() / 1000),
+        updatedAt: Math.floor(Date.now() / 1000),
+      });
+      const releaseMock = vi.fn();
+      const bchPort: BchChainPort = {
+        getTip: async () => ({ height: 330000, hash: '0x0' }),
+        isQuorumHealthy: () => true,
+        isQuotingEnabled: () => true,
+        broadcast: async () => 'x',
+        isOnChain: async () => false,
+        getScriptHashHistory: async () => [],
+        buildRelease: releaseMock,
+      };
+      const evmPort: EvmChainPort = {
+        getTip: async () => ({ height: 1000, finalized: true }),
+        getLock: async () => ({
+          status: 'locked',
+          txid: '0x' + '55'.repeat(32),
+        }),
+        isFinal: async () => true,
+        broadcast: async () => 'evm_ok',
+        isOnChain: async () => false,
+      };
+      const engine = newTestEngine(db, bchPort, evmPort);
+      await expect(
+        engine.earlyReleaseUserBchLock(
+          orderRecordToSolverOrder(db.getOrder('ord-rev-onchain')!),
+          'test',
+        ),
+      ).rejects.toThrow(/solver EVM lock exists/);
+      expect(releaseMock).not.toHaveBeenCalled();
     });
 
     it('early-releases user BCH lock when DSProof is detected on 0-conf fast-lane lock', async () => {
