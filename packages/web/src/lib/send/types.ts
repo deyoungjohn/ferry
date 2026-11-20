@@ -15,6 +15,7 @@ export interface SendLinkLiveCreationInput {
   readonly amount: number;
   readonly windowSeconds: number;
   readonly note?: string | undefined;
+  readonly viewTag?: Hex32 | undefined;
 }
 
 export interface SendLinkLiveCreationResult {

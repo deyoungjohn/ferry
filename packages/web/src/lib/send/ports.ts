@@ -4,6 +4,7 @@ import type {
   RelayClaimRequest,
   RelayClaimResponse,
   SendLinkDetailsResponse,
+  SendLinkQueryMatch,
   SendQuoteRequest,
 } from '@ferry/core/api';
 import type {
@@ -17,6 +18,9 @@ import type {
 export interface SendLinkSolverPort {
   quoteSendLink(request: SendQuoteRequest): Promise<QuoteResponse>;
   getSendLink?(id: string): Promise<SendLinkDetailsResponse>;
+  querySendLinks?(
+    tags: readonly Hex32[],
+  ): Promise<readonly SendLinkQueryMatch[]>;
   relayClaim?(
     orderId: Hex32,
     request: RelayClaimRequest,
@@ -32,7 +36,9 @@ export interface SendLinkDependencies {
   readonly bchNetwork: 'mainnet' | 'chipnet';
   readonly evmSigner?: EvmSignerPort | undefined;
   readonly evmChain?: EvmChainPort | undefined;
-  readonly secretGenerator?: () => Hex32 | Promise<Hex32>;
+  readonly secretGenerator?: (() => Hex32 | Promise<Hex32>) & {
+    lastTag?: `0x${string}` | undefined;
+  };
   /**
    * Offers the recovery file. May ask the person first and resolve once they have saved it; if it
    * rejects, nothing is locked.

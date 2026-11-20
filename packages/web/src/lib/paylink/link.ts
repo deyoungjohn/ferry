@@ -36,7 +36,13 @@ export interface SendLinkData {
   readonly txId?: string | undefined;
   readonly recoveryJson?: string | undefined;
   readonly lockStatus?:
-    'pending_lock' | 'locked' | 'claimed' | 'expired' | undefined;
+    | 'pending_lock'
+    | 'locked'
+    | 'claimed'
+    | 'refunded'
+    | 'expired'
+    | 'released'
+    | undefined;
 }
 
 /**

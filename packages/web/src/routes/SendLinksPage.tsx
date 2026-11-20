@@ -1,6 +1,9 @@
-import { MIN_TRANSACTION_USD } from '@ferry/core';
+import { MIN_TRANSACTION_USD, type Hex32 } from '@ferry/core';
 import { useState, useContext, useEffect, type FormEvent } from 'react';
-import { SEND_LINK_NOTE_MAX_LENGTH } from '@ferry/core/api';
+import {
+  SEND_LINK_NOTE_MAX_LENGTH,
+  type SendLinkQueryMatch,
+} from '@ferry/core/api';
 import { SolverClient } from '@ferry/solver-client';
 import { Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
@@ -30,6 +33,14 @@ import { SolverContext } from '../lib/solver/context';
 import { createBrowserBchChain } from '../lib/live/bch-chain';
 import { bchSignerFromWallet } from '../lib/live/ports';
 import { createLocalRecoveryStore } from '../lib/live/recovery-store';
+import {
+  createWalletSecretGenerator,
+  createRescueSecretGenerator,
+  getOrDeriveRecoveryRoot,
+  browserRecoveryStorage,
+  type SecretGenerator,
+} from '../lib/recovery/recovery-key-service';
+import { scanWalletSendLinks } from '../lib/send/wallet-send-links';
 import { downloadJson } from '../lib/send/download';
 import type {
   SendLinkDependencies,
@@ -47,11 +58,17 @@ function toRow(link: SendLinkData): LinkRow {
   const lock =
     link.lockStatus === 'pending_lock'
       ? { status: 'Pending lock', tone: 'warn' as const }
-      : link.status === 'claimed'
+      : link.status === 'claimed' || link.lockStatus === 'claimed'
         ? { status: 'Claimed', tone: 'ok' as const }
-        : link.status === 'expired'
+        : link.status === 'expired' || link.lockStatus === 'expired'
           ? { status: 'Expired', tone: 'warn' as const }
-          : { status: 'Open', tone: 'neutral' as const };
+          : link.lockStatus === 'refunded'
+            ? { status: 'Refunded', tone: 'neutral' as const }
+            : link.lockStatus === 'released'
+              ? { status: 'Released', tone: 'neutral' as const }
+              : link.lockStatus === 'locked'
+                ? { status: 'Locked', tone: 'ok' as const }
+                : { status: 'Open', tone: 'neutral' as const };
   return {
     id: link.id,
     // With the secret in the fragment (kept only in this browser), so the link opens ready to claim.
@@ -89,6 +106,8 @@ export function SendLinksPage({
   const [copied, setCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resumingId, setResumingId] = useState<string | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [isContractWallet, setIsContractWallet] = useState(false);
 
   // The recovery file is never downloaded behind the person's back: a dialog asks them to save it
   // first, and the lock waits until they have.
@@ -169,7 +188,19 @@ export function SendLinksPage({
   const isLive = propIsLive ?? import.meta.env?.VITE_LIVE_EXECUTION === '1';
 
   function resolveDependencies(): SendLinkDependencies {
-    if (propDependencies) return propDependencies;
+    let secretGenerator: SecretGenerator | undefined;
+    if (wallets?.evm.address) {
+      secretGenerator = createWalletSecretGenerator(wallets.evm);
+    } else {
+      secretGenerator = createRescueSecretGenerator();
+    }
+
+    if (propDependencies) {
+      return {
+        ...propDependencies,
+        secretGenerator: propDependencies.secretGenerator ?? secretGenerator,
+      };
+    }
 
     const bchAddress = wallets?.bch.address?.address;
     if (!bchAddress || !wallets?.bch) {
@@ -195,8 +226,110 @@ export function SendLinksPage({
       bchCashAddress: bchAddress,
       bchNetwork: NETWORK_PROFILE.bch.network,
       downloadFile: askToSaveRecoveryFile,
+      secretGenerator,
     };
   }
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadWalletLinks() {
+      const solverUrl = listSolverUrl ?? 'http://localhost:3000';
+      const queryFn = (
+        propDependencies?.solver as unknown as {
+          querySendLinks?: (
+            tags: readonly Hex32[],
+          ) => Promise<readonly SendLinkQueryMatch[]>;
+        }
+      )?.querySendLinks;
+
+      if (wallets?.evm.address && wallets.evm.status === 'connected') {
+        try {
+          setIsScanning(true);
+          const rootResult = await getOrDeriveRecoveryRoot(wallets.evm);
+
+          if (!active) return;
+
+          if (rootResult.isContract || !rootResult.root) {
+            setIsContractWallet(true);
+            setIsScanning(false);
+            return;
+          }
+
+          setIsContractWallet(false);
+          const scanResult = await scanWalletSendLinks({
+            root: rootResult.root,
+            solverUrl,
+            queryFn,
+          });
+
+          if (!active) return;
+
+          setCreatedLinks((localLinks) => {
+            const merged = [...scanResult.links];
+            for (const local of localLinks) {
+              if (!merged.some((m) => m.id === local.id)) {
+                merged.push(local);
+              }
+            }
+            merged.sort((a, b) => b.createdAt - a.createdAt);
+            return merged;
+          });
+        } catch {
+          // If scan fails, keep existing links
+        } finally {
+          if (active) setIsScanning(false);
+        }
+      } else {
+        // Without EVM wallet connected, scan using browser rescue root if present
+        try {
+          const rescueRoot =
+            await browserRecoveryStorage.get('ferry.rescue.root');
+          if (
+            rescueRoot &&
+            rescueRoot.startsWith('0x') &&
+            rescueRoot.length === 66 &&
+            active
+          ) {
+            setIsScanning(true);
+            const scanResult = await scanWalletSendLinks({
+              root: rescueRoot as Hex32,
+              solverUrl,
+              queryFn,
+            });
+
+            if (!active) return;
+
+            setCreatedLinks((localLinks) => {
+              const merged = [...scanResult.links];
+              for (const local of localLinks) {
+                if (!merged.some((m) => m.id === local.id)) {
+                  merged.push(local);
+                }
+              }
+              merged.sort((a, b) => b.createdAt - a.createdAt);
+              return merged;
+            });
+          }
+        } catch {
+          // Ignore
+        } finally {
+          if (active) setIsScanning(false);
+        }
+      }
+    }
+
+    void loadWalletLinks();
+
+    return () => {
+      active = false;
+    };
+  }, [
+    wallets?.evm.address,
+    wallets?.evm.status,
+    listSolverUrl,
+    propDependencies,
+  ]);
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
@@ -655,34 +788,60 @@ export function SendLinksPage({
           ) : null
         }
         table={
-          <LinksTable
-            title="All send links"
-            completedLabel="Claim date"
-            emptyText="Send links you create appear here."
-            rows={createdLinks.map(toRow)}
-            renderAction={(row) => {
-              const link = createdLinks.find((item) => item.id === row.id);
-              if (!link) return null;
-              return link.lockStatus === 'pending_lock' ? (
-                <button
-                  type="button"
-                  onClick={() => handleResume(link)}
-                  disabled={resumingId === link.id}
-                  className="rounded-pill border border-lime/40 bg-lime/20 px-2.5 py-1 text-xs font-semibold text-lime hover:bg-lime/30"
-                >
-                  {resumingId === link.id ? 'Resuming…' : 'Resume'}
-                </button>
-              ) : link.status !== 'open' ? null : (
-                <button
-                  type="button"
-                  onClick={() => setActiveCreated(link)}
-                  className="rounded-pill bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text hover:text-lime"
-                >
-                  View QR
-                </button>
-              );
-            }}
-          />
+          <div>
+            {isContractWallet && (
+              <div
+                data-testid="contract-wallet-notice"
+                className="mb-3 rounded-well border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-200"
+              >
+                Smart contract wallet detected: send links use per-browser
+                secrets and cannot be rebuilt on other devices from the wallet
+                signature alone.
+              </div>
+            )}
+            {isScanning && (
+              <div
+                data-testid="restoring-links-indicator"
+                className="mb-3 flex items-center gap-2 text-xs text-text-muted"
+              >
+                <span className="inline-block h-2 w-2 animate-ping rounded-full bg-lime" />
+                Restoring send links from wallet…
+              </div>
+            )}
+            <LinksTable
+              title="All send links"
+              completedLabel="Claim date"
+              emptyText="Send links you create appear here."
+              rows={createdLinks.map(toRow)}
+              renderAction={(row) => {
+                const link = createdLinks.find((item) => item.id === row.id);
+                if (!link) return null;
+                return link.lockStatus === 'pending_lock' ? (
+                  <button
+                    type="button"
+                    onClick={() => handleResume(link)}
+                    disabled={resumingId === link.id}
+                    className="rounded-pill border border-lime/40 bg-lime/20 px-2.5 py-1 text-xs font-semibold text-lime hover:bg-lime/30"
+                  >
+                    {resumingId === link.id ? 'Resuming…' : 'Resume'}
+                  </button>
+                ) : link.status !== 'open' ? null : (
+                  <button
+                    type="button"
+                    onClick={() => setActiveCreated(link)}
+                    className="rounded-pill bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text hover:text-lime"
+                  >
+                    View QR
+                  </button>
+                );
+              }}
+            />
+            <div className="mt-3 text-[11px] text-text-dim">
+              Send links created with your wallet are restored across devices
+              automatically. Links created with random secrets or before wallet
+              recovery remain stored in this browser.
+            </div>
+          </div>
         }
       />
     </div>
