@@ -1,0 +1,50 @@
+# Ferry WizardConnect Nostr pairing relay configuration
+# Runs nostr-rs-relay (MIT) in a container listening on localhost only.
+# Tuned specifically for ephemeral mobile wallet pairing traffic (NIP-59 kind 1059 gift wraps).
+
+[info]
+relay_url = "wss://relay.example.org/"
+name = "Ferry Pairing Relay"
+description = "Ephemeral pairing relay for Ferry WizardConnect sessions"
+
+[database]
+engine = "sqlite"
+data_directory = "/usr/src/app/db"
+min_conn = 1
+max_conn = 4
+
+[network]
+# Binds to container interface; mapped to 127.0.0.1:8088 on host
+address = "0.0.0.0"
+port = 8080
+remote_ip_header = "x-forwarded-for"
+
+# Ping interval in seconds: 30s to keep mobile WebSocket connections alive
+# while users navigate permissions and scan the QR code.
+ping_interval = 30
+
+[options]
+# Reject events with timestamps more than 30 minutes in the future
+reject_future_seconds = 1800
+
+[limits]
+# Rate limits: 30 events per second server-wide average, generous for pairing
+messages_per_sec = 30
+
+# Subscriptions per minute: 120 per minute across clients
+subscriptions_per_min = 120
+
+# Worker threads for SQLite queries
+max_blocking_threads = 4
+
+# Gift wraps (kind 1059) are tiny encrypted payloads (~1-2 KB).
+# Limit event, message and frame sizes to 64 KB (65536 bytes) to prevent spam/abuse.
+max_event_bytes = 65536
+max_ws_message_bytes = 65536
+max_ws_frame_bytes = 65536
+
+# Buffers: prevent memory buildup on the 4 GB Lightsail instance
+broadcast_buffer = 4096
+event_persist_buffer = 1024
+
+limit_scrapers = false
