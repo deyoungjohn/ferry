@@ -340,7 +340,16 @@ export function LiveOrderView({
   // Before the lock, an expired quote means this swap can no longer start: offer a new one.
   const mustRestart =
     state?.step === 'lock' && (quoteLapsed || errorCode === 'QUOTE_EXPIRED');
-  const forward = state?.direction === 'EVM_TO_BCH';
+  const fileTerms = (() => {
+    try {
+      return fileJson ? parseRecoveryFileJson(fileJson).terms : null;
+    } catch {
+      return null;
+    }
+  })();
+  const direction =
+    state?.direction ?? fileTerms?.direction ?? snap?.direction ?? 'EVM_TO_BCH';
+  const forward = direction === 'EVM_TO_BCH';
   const isReleased = snap?.state === 'RELEASED';
   const isKeeperRefund =
     snap?.state === 'SOLVER_REFUNDED' ||
@@ -355,9 +364,17 @@ export function LiveOrderView({
     }
   })();
   const evmUrl = (hash: string) => evmTxUrl(evmChainId, hash);
-  const refundTxUrl = snap?.txids?.evmRefund
-    ? evmUrl(snap.txids.evmRefund)
-    : null;
+  const refundTxUrl = isReleased
+    ? forward
+      ? snap?.txids?.evmRefund
+        ? evmUrl(snap.txids.evmRefund)
+        : null
+      : snap?.txids?.bchRefund
+        ? bchTxUrl(snap.txids.bchRefund)
+        : null
+    : snap?.txids?.evmRefund
+      ? evmUrl(snap.txids.evmRefund)
+      : null;
   /** Every transaction of a step, with the block explorer page that proves it. */
   function txsFor(stepId: string) {
     const t = chainTxids;
@@ -370,18 +387,30 @@ export function LiveOrderView({
     const theirs = forward ? bch : evm; // the solver's lock is on the other chain
     const claimOn = forward ? bch : evm; // the person claims on the destination chain
     const solverClaimOn = forward ? evm : bch;
+    const refundTx = isReleased
+      ? forward
+        ? t.evmRefund
+        : (t.bchRefund ?? t.evmRefund)
+      : t.evmRefund;
+    const refundUrl = forward
+      ? refundTx
+        ? evmUrl(refundTx)
+        : null
+      : refundTx
+        ? bchTxUrl(refundTx)
+        : null;
     if (stepId === 'lock')
       return [
         ...own(
           'Your lock',
           mine?.userLock ?? (forward ? t.evmLock : t.bchLock),
         ),
-        ...(t.evmRefund
+        ...(refundTx && refundUrl
           ? [
               {
                 label: isReleased ? 'Solver release' : 'Automatic refund',
-                hash: t.evmRefund,
-                url: evmUrl(t.evmRefund),
+                hash: refundTx,
+                url: refundUrl,
               },
             ]
           : []),
@@ -401,14 +430,6 @@ export function LiveOrderView({
     return [];
   }
 
-  const fileTerms = (() => {
-    try {
-      return fileJson ? parseRecoveryFileJson(fileJson).terms : null;
-    } catch {
-      return null;
-    }
-  })();
-  const direction = fileTerms?.direction ?? snap?.direction ?? null;
   // How far the server's record says the swap is (2 = price and file done), so the page does not
   // wait for the wallet and chain reads of the session to tick what the record already shows.
   const snapIndex = (() => {

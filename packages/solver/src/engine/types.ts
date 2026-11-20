@@ -44,6 +44,10 @@ export interface BchChainPort {
   buildClaim?(
     order: SolverOrderRecord,
   ): Promise<{ txid: string; txHex: string }>;
+  buildRelease?(
+    order: SolverOrderRecord,
+  ): Promise<{ txid: string; txHex: string }>;
+  getLockEvidence?(txid: string): Promise<{ ageSeconds: number } | null>;
 }
 
 export interface EvmLockState {

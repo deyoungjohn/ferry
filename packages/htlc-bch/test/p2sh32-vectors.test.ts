@@ -34,10 +34,13 @@ describe('P2SH32 vectors for the mainnet PUSD covenant', () => {
     maxFee: 1500n,
   });
   const derived = deriveHtlcAddresses(params, 'mainnet');
+  const legacyDerived = deriveHtlcAddresses(params, 'mainnet', {
+    useLegacyArtifact: true,
+  });
 
   it('hashes the redeem script to the expected locking bytecode', () => {
     const expected =
-      'aa207ed19c765b84d95e564da72d22dedafd0c7cb1124f7deab09c8a2d3c77951e3087';
+      'aa2009b7ef96562ae7a7b059d55dfdccac3446ecb84d3e0783fb54b947d56f9c964a87';
     expect(binToHex(derived.lockingBytecode)).toBe(expected);
     expect(binToHex(p2sh32LockingBytecodeFor(derived.redeemScript))).toBe(
       expected,
@@ -46,9 +49,24 @@ describe('P2SH32 vectors for the mainnet PUSD covenant', () => {
 
   it('encodes the expected plain and token-aware CashAddresses', () => {
     expect(derived.p2sh32Address).toBe(
-      'bitcoincash:pdldr8rktwzdjhjkfknj6gk7mt7scl93zf8hm64snj9z60rhj50rq5030c29k',
+      'bitcoincash:pvym0muk2c4w0fast824mlwv4s6ydm9cf5lq0qlm2ju504t0njty5mtx9yyqc',
     );
     expect(derived.tokenAddress).toBe(
+      'bitcoincash:rvym0muk2c4w0fast824mlwv4s6ydm9cf5lq0qlm2ju504t0njty5fc6ya9en',
+    );
+  });
+
+  it('preserves legacy v1 covenant vectors for backward compatibility', () => {
+    const legacyExpected =
+      'aa207ed19c765b84d95e564da72d22dedafd0c7cb1124f7deab09c8a2d3c77951e3087';
+    expect(binToHex(legacyDerived.lockingBytecode)).toBe(legacyExpected);
+    expect(binToHex(p2sh32LockingBytecodeFor(legacyDerived.redeemScript))).toBe(
+      legacyExpected,
+    );
+    expect(legacyDerived.p2sh32Address).toBe(
+      'bitcoincash:pdldr8rktwzdjhjkfknj6gk7mt7scl93zf8hm64snj9z60rhj50rq5030c29k',
+    );
+    expect(legacyDerived.tokenAddress).toBe(
       'bitcoincash:rdldr8rktwzdjhjkfknj6gk7mt7scl93zf8hm64snj9z60rhj50rqxudwptua',
     );
   });

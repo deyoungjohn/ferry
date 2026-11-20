@@ -3,6 +3,7 @@ import {
   MockNetworkProvider,
   Network,
   type NetworkProvider,
+  type SignatureTemplate,
   type Unlocker,
 } from 'cashscript';
 import {
@@ -13,6 +14,7 @@ import {
   sha256,
 } from '@bitauth/libauth';
 import artifact from './artifact.json' with { type: 'json' };
+import legacyArtifact from './legacy-artifact.json' with { type: 'json' };
 import { displayToInternalCategory } from './byte-order.js';
 import { p2sh32LockingBytecodeFor } from './p2sh32.js';
 import type {
@@ -23,12 +25,13 @@ import type {
   OrderTerms,
 } from './types.js';
 
-export { artifact };
+export { artifact, legacyArtifact };
 
 export type HtlcContract = Contract & {
   unlock: {
     claim: (secret: Uint8Array) => Unlocker;
     refund: () => Unlocker;
+    release: (pk: Uint8Array, s: SignatureTemplate | Unlocker) => Unlocker;
   };
 };
 
@@ -179,7 +182,12 @@ export function encodeHtlcParameters(
 
 export function getHtlcContract(
   params: BchHtlcParameters,
-  options?: { provider?: NetworkProvider; network?: CashAddressNetwork },
+  options?: {
+    provider?: NetworkProvider;
+    network?: CashAddressNetwork;
+    artifact?: typeof artifact;
+    useLegacyArtifact?: boolean;
+  },
 ): HtlcContract {
   let provider = options?.provider;
   if (!provider) {
@@ -199,7 +207,11 @@ export function getHtlcContract(
     params.maxFee,
   ];
 
-  return new Contract(artifact, constructorArgs, {
+  const targetArtifact =
+    options?.artifact ??
+    (options?.useLegacyArtifact ? legacyArtifact : artifact);
+
+  return new Contract(targetArtifact, constructorArgs, {
     provider,
   }) as unknown as HtlcContract;
 }
@@ -207,8 +219,12 @@ export function getHtlcContract(
 export function deriveHtlcAddresses(
   params: BchHtlcParameters,
   network: CashAddressNetwork = 'chipnet',
+  options?: {
+    artifact?: typeof artifact;
+    useLegacyArtifact?: boolean;
+  },
 ): HtlcAddressDerivationResult {
-  const contract = getHtlcContract(params, { network });
+  const contract = getHtlcContract(params, { network, ...options });
   const redeemScript = hexToBin(contract.bytecode);
   // The output hash comes from the redeem script itself; the library's own
   // value must agree, or the two derivations have drifted apart.
@@ -248,6 +264,13 @@ export function deriveHtlcAddresses(
   };
 }
 
+export function deriveLegacyHtlcAddresses(
+  params: BchHtlcParameters,
+  network: CashAddressNetwork = 'chipnet',
+): HtlcAddressDerivationResult {
+  return deriveHtlcAddresses(params, network, { useLegacyArtifact: true });
+}
+
 /**
  * Recompute HTLC locking bytecode and addresses from canonical terms and verify
  * that a candidate address/bytecode matches before funding.
@@ -256,11 +279,24 @@ export function verifyHtlcAddressMatch(
   terms: OrderTerms | HtlcInputTerms,
   candidateAddressOrBytecode: string | Uint8Array,
   network: CashAddressNetwork = 'chipnet',
-): { matches: boolean; derived: HtlcAddressDerivationResult } {
+): {
+  matches: boolean;
+  isLegacy?: boolean;
+  derived: HtlcAddressDerivationResult;
+} {
   const params = encodeHtlcParameters(terms);
-  const derived = deriveHtlcAddresses(params, network);
+  const derivedCurrent = deriveHtlcAddresses(params, network);
   const candidateBytecode = resolveLockingBytecode(candidateAddressOrBytecode);
-  const matches =
-    binToHex(candidateBytecode) === binToHex(derived.lockingBytecode);
-  return { matches, derived };
+  const candidateHex = binToHex(candidateBytecode);
+
+  if (candidateHex === binToHex(derivedCurrent.lockingBytecode)) {
+    return { matches: true, isLegacy: false, derived: derivedCurrent };
+  }
+
+  const derivedLegacy = deriveLegacyHtlcAddresses(params, network);
+  if (candidateHex === binToHex(derivedLegacy.lockingBytecode)) {
+    return { matches: true, isLegacy: true, derived: derivedLegacy };
+  }
+
+  return { matches: false, isLegacy: false, derived: derivedCurrent };
 }

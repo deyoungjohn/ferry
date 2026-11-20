@@ -8,6 +8,7 @@ import type { CashAddressNetwork } from '@ferry/htlc-bch';
 import {
   buildSolverBchClaim as buildSolverBchClaimHelper,
   buildSolverBchLock as buildSolverBchLockHelper,
+  buildSolverBchRelease as buildSolverBchReleaseHelper,
   deriveBchKeyDetails,
   getHtlcScriptHash,
 } from '../bch/lock-builder.js';
@@ -255,6 +256,54 @@ export class SolverEngine {
       order,
       utxo,
       secret: order.secret,
+      network: this.bchNetwork,
+    });
+  }
+
+  async buildSolverBchRelease(
+    order: SolverOrderRecord,
+  ): Promise<{ txid: string; txHex: string }> {
+    if (this.bchPort.buildRelease) {
+      return this.bchPort.buildRelease(order);
+    }
+    const wif = this.solverBchWif;
+    if (!wif) {
+      throw new Error(
+        'Cannot build the solver Bitcoin Cash release: no solver key is configured',
+      );
+    }
+    const shHex = getHtlcScriptHash(order.terms, this.bchNetwork);
+    let userUtxo:
+      { tx_hash: string; tx_pos: number; value: number } | undefined;
+    if (this.bchPort.listUnspent) {
+      const utxos = await this.bchPort.listUnspent(shHex, 'include_tokens');
+      userUtxo =
+        utxos.find((u) => u.tx_hash === order.userLockTxId) ?? utxos[0];
+      if (!userUtxo) {
+        const legacyHash = order.terms.hashLock.slice(2);
+        const legacyUtxos = await this.bchPort.listUnspent(
+          legacyHash,
+          'include_tokens',
+        );
+        userUtxo =
+          legacyUtxos.find((u) => u.tx_hash === order.userLockTxId) ??
+          legacyUtxos[0];
+      }
+    }
+    if (!userUtxo) {
+      throw new Error(
+        'Cannot build the solver Bitcoin Cash release: the user lock output was not found on chain',
+      );
+    }
+    const utxo = {
+      txid: userUtxo.tx_hash,
+      vout: userUtxo.tx_pos,
+      satoshis: userUtxo.value,
+    };
+    return buildSolverBchReleaseHelper({
+      order,
+      utxo,
+      signerKey: wif,
       network: this.bchNetwork,
     });
   }
@@ -775,10 +824,10 @@ export class SolverEngine {
             );
             if (dsproofResult.hasProof) {
               // Contested double-spend detected: refuse counter-lock!
-              this.applyEvent(order, {
-                type: 'INVALID_TERMS',
-                reason: 'Double-spend proof detected on 0-conf lock',
-              });
+              await this.earlyReleaseUserBchLock(
+                order,
+                'Double-spend proof detected on 0-conf lock',
+              );
               return;
             }
           }
@@ -800,13 +849,24 @@ export class SolverEngine {
 
     // Step 2: Solver counter-locks on EVM
     if (order.status === 'USER_LOCK_FINAL') {
+      if (
+        order.userLockTxId &&
+        (await this.bchLockMadeAfterQuoteExpiry(order, order.userLockTxId, now))
+      ) {
+        await this.earlyReleaseUserBchLock(
+          order,
+          'The lock was made after the quote expired',
+        );
+        return;
+      }
+
       const bchTip = await this.bchPort.getTip();
       const timingDecision = checkCounterLockTiming(order, bchTip.height, now);
       if (!timingDecision.allowed) {
-        this.applyEvent(order, {
-          type: 'INVALID_TERMS',
-          reason: `Timing invariant R failed: ${timingDecision.reason}`,
-        });
+        await this.earlyReleaseUserBchLock(
+          order,
+          `Timing invariant R failed: ${timingDecision.reason}`,
+        );
         return;
       }
 
@@ -825,11 +885,21 @@ export class SolverEngine {
       }
 
       // Execute EVM counter-lock via evmExecutor
-      const lockResult = await this.evmExecutor.executeOrAdopt({
-        orderId: order.id,
-        actionType: 'SOLVER_LOCK',
-        buildTx: async () => this.buildSolverEvmLock(order),
-      });
+      let lockResult;
+      try {
+        lockResult = await this.evmExecutor.executeOrAdopt({
+          orderId: order.id,
+          actionType: 'SOLVER_LOCK',
+          buildTx: async () => this.buildSolverEvmLock(order),
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        await this.earlyReleaseUserBchLock(
+          order,
+          message || 'EVM counter-lock failed',
+        );
+        return;
+      }
 
       this.applyEvent(order, {
         type: 'SOLVER_LOCK_BROADCAST',
@@ -961,6 +1031,84 @@ export class SolverEngine {
     );
     if (!evidence) return false;
     return now - evidence.ageSeconds > expiry;
+  }
+
+  /**
+   * Whether the user locked on Bitcoin Cash after the quote lapsed.
+   */
+  private async bchLockMadeAfterQuoteExpiry(
+    order: SolverOrderRecord,
+    txid: string,
+    now: number,
+  ): Promise<boolean> {
+    const expiry = order.terms.quoteExpiry;
+    if (!expiry) return false;
+    if (this.bchPort.getLockEvidence) {
+      const evidence = await this.bchPort.getLockEvidence(txid);
+      if (evidence) {
+        return now - evidence.ageSeconds > expiry;
+      }
+    }
+    return now > expiry;
+  }
+
+  async earlyReleaseUserBchLock(
+    order: SolverOrderRecord,
+    reason: string,
+  ): Promise<void> {
+    // STRICT INVARIANT: Solver NEVER releases user BCH lock once solver has locked on EVM!
+    if (
+      order.solverLockTxId ||
+      order.status === 'SOLVER_LOCK_BROADCAST' ||
+      order.status === 'SOLVER_LOCK_SEEN' ||
+      order.status === 'SECRET_KNOWN' ||
+      order.status === 'USER_CLAIM_SEEN' ||
+      order.status === 'SOLVER_CLAIM_BROADCAST' ||
+      order.status === 'SOLVER_CLAIM_FINAL' ||
+      order.status === 'DONE'
+    ) {
+      throw new Error(
+        `Safety violation: refusing early release of user BCH lock because solver EVM counter-lock or claim exists for order ${order.id}`,
+      );
+    }
+
+    const recordedEvmLock = this.db.getAction(order.id, 'SOLVER_LOCK');
+    if (
+      recordedEvmLock?.txid &&
+      (recordedEvmLock.status === 'BROADCAST' ||
+        recordedEvmLock.status === 'CONFIRMED')
+    ) {
+      throw new Error(
+        `Safety violation: refusing early release of user BCH lock because solver EVM counter-lock has been broadcast (${recordedEvmLock.txid}) for order ${order.id}`,
+      );
+    }
+
+    try {
+      this.onEngineEvent?.(
+        { orderId: order.id, reason },
+        'Early release of user BCH lock',
+      );
+
+      const releaseResult = await this.bchExecutor.executeOrAdopt({
+        orderId: order.id,
+        actionType: 'SOLVER_RELEASE',
+        buildTx: async () => this.buildSolverBchRelease(order),
+      });
+
+      this.applyEvent(order, {
+        type: 'SOLVER_RELEASED',
+        txId: releaseResult.txid,
+        reason,
+      });
+      return;
+    } catch (err) {
+      this.onOrderError?.(order.id, 'EARLY_RELEASE_ERROR', err);
+    }
+
+    this.applyEvent(order, {
+      type: 'INVALID_TERMS',
+      reason,
+    });
   }
 
   async earlyReleaseUserLock(

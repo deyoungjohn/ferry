@@ -23,6 +23,11 @@ export const ferryHtlcTemplate: XOTemplate = {
       description:
         'The party refunding tokens after the refund height has passed.',
     },
+    releaser: {
+      name: 'Releaser',
+      description:
+        'The recipient releasing tokens back to the refunder before claim.',
+    },
   },
   start: [],
   actions: {
@@ -83,6 +88,22 @@ export const ferryHtlcTemplate: XOTemplate = {
       },
       transaction: 'refundTransaction',
     },
+    release: {
+      name: 'Release',
+      description:
+        'Release tokens back to refunder signed by the recipient before claim.',
+      roles: {
+        releaser: {
+          requirements: {
+            variables: ['recipientPublicKey', 'recipientSignature'],
+          },
+        },
+      },
+      requirements: {
+        participants: [{ role: 'releaser', slots: { min: 1, max: 1 } }],
+      },
+      transaction: 'releaseTransaction',
+    },
   },
   transactions: {
     lockTransaction: {
@@ -103,6 +124,13 @@ export const ferryHtlcTemplate: XOTemplate = {
         'Refund HTLC covenant to refunder after refund block height.',
       locktime: '$(<refundHeight>)',
       inputs: [{ input: 'refundHtlcInput', inputIndex: 0 }],
+      outputs: [{ output: 'refundOutput', outputIndex: 0 }],
+    },
+    releaseTransaction: {
+      name: 'Release Transaction',
+      description:
+        'Release HTLC covenant back to refundLockingBytecode signed by recipient.',
+      inputs: [{ input: 'releaseHtlcInput', inputIndex: 0 }],
       outputs: [{ output: 'refundOutput', outputIndex: 0 }],
     },
   },
@@ -129,6 +157,17 @@ export const ferryHtlcTemplate: XOTemplate = {
       },
       sequenceNumber: 4294967294,
       unlockingScript: 'refundUnlockingBytecode',
+    },
+    releaseHtlcInput: {
+      name: 'HTLC UTXO for Release',
+      description: 'The HTLC covenant UTXO being released.',
+      valueSatoshis: '$(<bchCarrySats>)',
+      token: {
+        category: '$(<tokenCategory>)',
+        amount: '$(<tokenAmount>)',
+        nft: null,
+      },
+      unlockingScript: 'releaseUnlockingBytecode',
     },
   },
   outputs: {
@@ -176,11 +215,13 @@ export const ferryHtlcTemplate: XOTemplate = {
   },
   scripts: {
     htlcCoreBytecode:
-      'OP_7 OP_PICK OP_0 OP_NUMEQUAL OP_IF OP_8 OP_PICK OP_SIZE OP_NIP <32> OP_NUMEQUALVERIFY OP_8 OP_ROLL OP_SHA256 OP_EQUALVERIFY OP_INPUTINDEX OP_0 OP_NUMEQUALVERIFY OP_TXINPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_TXOUTPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_0 OP_OUTPUTBYTECODE OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_ROT OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENAMOUNT OP_ROT OP_NUMEQUALVERIFY OP_0 OP_OUTPUTVALUE OP_0 OP_UTXOVALUE OP_4 OP_ROLL OP_SUB OP_GREATERTHANOREQUAL OP_NIP OP_NIP OP_NIP OP_ELSE OP_7 OP_ROLL OP_1 OP_NUMEQUALVERIFY OP_5 OP_ROLL OP_CHECKLOCKTIMEVERIFY OP_DROP OP_INPUTINDEX OP_0 OP_NUMEQUALVERIFY OP_TXINPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_TXOUTPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_0 OP_OUTPUTBYTECODE OP_3 OP_ROLL OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_3 OP_ROLL OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENAMOUNT OP_3 OP_ROLL OP_NUMEQUALVERIFY OP_0 OP_OUTPUTVALUE OP_0 OP_UTXOVALUE OP_4 OP_ROLL OP_SUB OP_GREATERTHANOREQUAL OP_NIP OP_NIP OP_ENDIF',
+      'OP_7 OP_PICK OP_0 OP_NUMEQUAL OP_IF OP_8 OP_PICK OP_SIZE OP_NIP <32> OP_NUMEQUALVERIFY OP_8 OP_ROLL OP_SHA256 OP_EQUALVERIFY OP_INPUTINDEX OP_0 OP_NUMEQUALVERIFY OP_TXINPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_TXOUTPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_0 OP_OUTPUTBYTECODE OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_ROT OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENAMOUNT OP_ROT OP_NUMEQUALVERIFY OP_0 OP_OUTPUTVALUE OP_0 OP_UTXOVALUE OP_4 OP_ROLL OP_SUB OP_GREATERTHANOREQUAL OP_NIP OP_NIP OP_NIP OP_ELSE OP_7 OP_PICK OP_1 OP_NUMEQUAL OP_IF OP_5 OP_ROLL OP_CHECKLOCKTIMEVERIFY OP_DROP OP_INPUTINDEX OP_0 OP_NUMEQUALVERIFY OP_TXINPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_TXOUTPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_0 OP_OUTPUTBYTECODE OP_3 OP_ROLL OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_3 OP_ROLL OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENAMOUNT OP_3 OP_ROLL OP_NUMEQUALVERIFY OP_0 OP_OUTPUTVALUE OP_0 OP_UTXOVALUE OP_4 OP_ROLL OP_SUB OP_GREATERTHANOREQUAL OP_NIP OP_NIP OP_NIP OP_ELSE OP_7 OP_ROLL OP_2 OP_NUMEQUALVERIFY OP_SWAP <0x76a914> OP_8 OP_PICK OP_HASH160 OP_CAT <0x88ac> OP_CAT OP_EQUALVERIFY OP_7 OP_ROLL OP_7 OP_ROLL OP_CHECKSIGVERIFY OP_INPUTINDEX OP_0 OP_NUMEQUALVERIFY OP_TXINPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_TXOUTPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_0 OP_OUTPUTBYTECODE OP_ROT OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_ROT OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENAMOUNT OP_ROT OP_NUMEQUALVERIFY OP_0 OP_OUTPUTVALUE OP_0 OP_UTXOVALUE OP_4 OP_ROLL OP_SUB OP_GREATERTHANOREQUAL OP_NIP OP_NIP OP_ENDIF OP_ENDIF',
     htlcLockingBytecode:
       '<maxFee> <refundHeight> <tokenAmount> <tokenCategory> <refundLockingBytecode> <recipientLockingBytecode> <hashLock> htlcCoreBytecode',
     claimUnlockingBytecode: '<secret> <0> <htlcLockingBytecode>',
     refundUnlockingBytecode: '<1> <htlcLockingBytecode>',
+    releaseUnlockingBytecode:
+      '<recipientSignature> <recipientPublicKey> <2> <htlcLockingBytecode>',
   },
   constants: {},
   variables: {
@@ -228,6 +269,17 @@ export const ferryHtlcTemplate: XOTemplate = {
     secret: {
       name: 'Preimage Secret',
       description: '32-byte secret preimage revealed on claim.',
+      type: 'bytes',
+    },
+    recipientPublicKey: {
+      name: 'Recipient Public Key',
+      description: 'Full 33-byte compressed public key of recipient.',
+      type: 'bytes',
+    },
+    recipientSignature: {
+      name: 'Recipient Signature',
+      description:
+        'Schnorr or ECDSA signature from recipient authorizing release.',
       type: 'bytes',
     },
   },

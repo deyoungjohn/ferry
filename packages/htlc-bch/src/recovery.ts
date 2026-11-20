@@ -1,6 +1,10 @@
 import { binToHex } from '@bitauth/libauth';
 import { RecoveryFileSchema, type RecoveryFile } from '@ferry/core';
-import { deriveHtlcAddresses, encodeHtlcParameters } from './contract.js';
+import {
+  deriveHtlcAddresses,
+  deriveLegacyHtlcAddresses,
+  encodeHtlcParameters,
+} from './contract.js';
 import {
   buildClaimTransaction,
   buildRefundTransaction,
@@ -35,14 +39,30 @@ export function buildBchRecoveryTransaction(
 ): BchRecoveryTransactionResult {
   const file = RecoveryFileSchema.parse(options.file);
   const params = encodeHtlcParameters(file.terms);
-  const derived = deriveHtlcAddresses(params, file.contracts.bch.network);
-  const derivedLockingHex = binToHex(derived.lockingBytecode);
+  const derivedCurrent = deriveHtlcAddresses(
+    params,
+    file.contracts.bch.network,
+  );
+  const derivedCurrentHex = binToHex(derivedCurrent.lockingBytecode);
   const fileLockingHex = normalizeHex(file.contracts.bch.lockingBytecode);
 
-  if (derivedLockingHex !== fileLockingHex) {
-    throw new Error(
-      `Recovery file BCH lockingBytecode (${fileLockingHex}) does not match derived contract (${derivedLockingHex})`,
+  let useLegacyArtifact = false;
+  let derivedLockingHex = derivedCurrentHex;
+
+  if (derivedCurrentHex !== fileLockingHex) {
+    const derivedLegacy = deriveLegacyHtlcAddresses(
+      params,
+      file.contracts.bch.network,
     );
+    const derivedLegacyHex = binToHex(derivedLegacy.lockingBytecode);
+    if (derivedLegacyHex === fileLockingHex) {
+      useLegacyArtifact = true;
+      derivedLockingHex = derivedLegacyHex;
+    } else {
+      throw new Error(
+        `Recovery file BCH lockingBytecode (${fileLockingHex}) does not match derived contract (${derivedCurrentHex}) or legacy contract (${derivedLegacyHex})`,
+      );
+    }
   }
 
   const matchingUtxo = options.utxos.find(
@@ -67,6 +87,7 @@ export function buildBchRecoveryTransaction(
       utxo: matchingUtxo,
       secret: file.secret,
       network: file.contracts.bch.network,
+      useLegacyArtifact,
       ...(options.feeSats !== undefined ? { feeSats: options.feeSats } : {}),
     });
     return {
@@ -81,6 +102,7 @@ export function buildBchRecoveryTransaction(
     params,
     utxo: matchingUtxo,
     network: file.contracts.bch.network,
+    useLegacyArtifact,
     ...(options.feeSats !== undefined ? { feeSats: options.feeSats } : {}),
     ...(options.locktime !== undefined ? { locktime: options.locktime } : {}),
   });

@@ -195,7 +195,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     if (order.solverClaimTxId)
       out[forward ? 'evmClaim' : 'bchClaim'] = hex(order.solverClaimTxId);
     if (order.solverRefundTxId) {
-      if (order.status === 'RELEASED' || (forward && !order.solverLockTxId)) {
+      if (order.status === 'RELEASED') {
+        out[forward ? 'evmRefund' : 'bchRefund'] = hex(order.solverRefundTxId);
+      } else if (forward && !order.solverLockTxId) {
         out.evmRefund = hex(order.solverRefundTxId);
       } else {
         out[forward ? 'bchRefund' : 'evmRefund'] = hex(order.solverRefundTxId);
@@ -1013,10 +1015,13 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           ? order.solverRefundTxId
           : `0x${order.solverRefundTxId}`
       ) as Hex32;
-      if (
-        order.status === 'RELEASED' ||
-        (isEvmToBch && !order.solverLockTxId)
-      ) {
+      if (order.status === 'RELEASED') {
+        if (isEvmToBch) {
+          txids.evmRefund = tx;
+        } else {
+          txids.bchRefund = tx;
+        }
+      } else if (isEvmToBch && !order.solverLockTxId) {
         txids.evmRefund = tx;
       } else if (isEvmToBch) {
         txids.bchRefund = tx;
