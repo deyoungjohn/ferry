@@ -648,10 +648,18 @@ export function RecoverPage() {
             const isKeeperRefund =
               orderSnapshot?.state === 'SOLVER_REFUNDED' ||
               Boolean(orderSnapshot?.txids?.evmRefund && !isReleased);
-            const refundTxHash = orderSnapshot?.txids?.evmRefund;
+            const isForward = recoveryFile?.terms.direction === 'EVM_TO_BCH';
+            const refundTxHash = isReleased
+              ? isForward
+                ? orderSnapshot?.txids?.evmRefund
+                : (orderSnapshot?.txids?.bchRefund ??
+                  orderSnapshot?.txids?.evmRefund)
+              : orderSnapshot?.txids?.evmRefund;
             const refundTxUrl =
               refundTxHash && recoveryFile
-                ? evmTxUrl(recoveryFile.contracts.evm.chainId, refundTxHash)
+                ? isForward
+                  ? evmTxUrl(recoveryFile.contracts.evm.chainId, refundTxHash)
+                  : bchTxUrl(refundTxHash)
                 : null;
 
             return (

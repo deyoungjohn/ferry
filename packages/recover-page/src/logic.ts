@@ -25,6 +25,8 @@ export interface BchReading {
   readonly tipHeight: number;
   /** Unspent outputs sitting on the swap's Bitcoin Cash contract. */
   readonly utxos: readonly HtlcUtxo[];
+  readonly refundTx?: string | undefined;
+  readonly refundKind?: 'release' | 'refund' | undefined;
 }
 
 /** The two things the page reads from the outside world. Replaced by fakes in tests. */

@@ -20,6 +20,7 @@ describe('XO Template: ferry-htlc (BCH-E-01)', () => {
     expect(parsed.actions.lock).toBeDefined();
     expect(parsed.actions.claim).toBeDefined();
     expect(parsed.actions.refund).toBeDefined();
+    expect(parsed.actions.release).toBeDefined();
 
     const serialized = serializeFerryHtlcTemplate();
     expect(typeof serialized).toBe('string');
@@ -63,10 +64,10 @@ describe('XO Template: ferry-htlc (BCH-E-01)', () => {
     const cashScriptContract = getHtlcContract(params);
     const cashScriptRedeemHex = cashScriptContract.bytecode;
 
-    const fixedBytecode = artifact.bytecode.replace(
-      '20 OP_NUMEQUALVERIFY',
-      '<32> OP_NUMEQUALVERIFY',
-    );
+    const fixedBytecode = artifact.bytecode
+      .replace('20 OP_NUMEQUALVERIFY', '<32> OP_NUMEQUALVERIFY')
+      .replace('76a914', '<0x76a914>')
+      .replace('88ac', '<0x88ac>');
     const xoScript =
       `<1500> <500000> <1000> <0x${internalCatHex}> <0x${libauth.binToHex(refundBytecode)}> <0x${libauth.binToHex(recipientBytecode)}> <0x${libauth.binToHex(hashLock)}> ` +
       fixedBytecode;

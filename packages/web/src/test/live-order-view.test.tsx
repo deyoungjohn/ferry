@@ -272,6 +272,32 @@ describe('the order page', () => {
     vi.unstubAllGlobals();
   });
 
+  it('shows "The solver returned your funds" with BCH explorer link for release in reverse swap', async () => {
+    vi.stubEnv('VITE_SOLVER_URLS', 'https://solver.test');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          ...SNAPSHOT,
+          direction: 'BCH_TO_EVM',
+          state: 'RELEASED',
+          txids: {
+            ...SNAPSHOT.txids,
+            bchRefund:
+              '333322223333444455556666777788889999aaaabbbbccccddddeeeeffff0000',
+          },
+        }),
+      ),
+    );
+    renderPage(false);
+    const releasedEl = await screen.findByTestId('order-released');
+    expect(releasedEl).toHaveTextContent('The solver returned your funds');
+    const link = await screen.findByTestId('order-release-tx');
+    expect(link.getAttribute('href')).toContain('bchexplorer.info/tx/33332222');
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
   it('shows "Refunded automatically" with explorer link for keeper refund', async () => {
     vi.stubEnv('VITE_SOLVER_URLS', 'https://solver.test');
     vi.stubGlobal(

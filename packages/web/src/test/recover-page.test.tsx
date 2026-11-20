@@ -241,6 +241,55 @@ describe('RecoverPage (/recover) - Swap Recovery Port', () => {
     vi.unstubAllGlobals();
   });
 
+  it('displays "The solver returned your funds" with BCH explorer link for BCH release in reverse swap', async () => {
+    vi.stubEnv('VITE_SOLVER_URLS', 'https://solver.test');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          state: 'RELEASED',
+          txids: {
+            bchRefund:
+              '0x7777888899990000111122223333444455556666777788889999000011112222',
+          },
+        }),
+      ),
+    );
+    const reverseTerms = {
+      ...validRecoveryFile.terms,
+      direction: 'BCH_TO_EVM' as const,
+    };
+    const reverseOrderId = computeOrderId({
+      ...sampleTerms,
+      direction: 'BCH_TO_EVM',
+    });
+    const validReverseRecoveryFile = {
+      ...validRecoveryFile,
+      orderId: reverseOrderId,
+      terms: reverseTerms,
+    };
+    render(
+      <MemoryRouter>
+        <RecoverPage />
+      </MemoryRouter>,
+    );
+    const textarea = screen.getByLabelText(/Or paste recovery file JSON:/i);
+    fireEvent.change(textarea, {
+      target: { value: JSON.stringify(validReverseRecoveryFile) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Load File/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('recovery-released')).toHaveTextContent(
+        'The solver returned your funds',
+      );
+    });
+    const link = screen.getByTestId('recovery-release-link');
+    expect(link.getAttribute('href')).toContain('bchexplorer.info/tx/77778888');
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
   it('displays "Refunded automatically" with explorer link for keeper refund', async () => {
     vi.stubEnv('VITE_SOLVER_URLS', 'https://solver.test');
     vi.stubGlobal(

@@ -3,6 +3,7 @@ import {
   assertP2sh32Matches,
   buildClaimTransaction,
   buildLockTransaction,
+  buildReleaseTransaction,
   deriveHtlcAddresses,
   encodeHtlcParameters,
   parseHtlcSpendInput,
@@ -244,6 +245,71 @@ export function buildSolverBchClaim(params: {
     secret: secretHex,
     network,
     ...(params.feeSats !== undefined ? { feeSats: params.feeSats } : {}),
+  });
+
+  return {
+    txid: result.txid,
+    txHex: result.txHex,
+  };
+}
+
+/**
+ * Reverse swap: builds the solver's real Bitcoin Cash release transaction.
+ * Signed by the solver (the recipient) to return locked funds directly to the user (refundLockingBytecode).
+ * Verifies in local Libauth script VM before returning.
+ */
+export function buildSolverBchRelease(params: {
+  order: SolverOrderRecord;
+  utxo: {
+    txid: string;
+    vout: number;
+    satoshis: bigint | number;
+    lockingBytecode?: string | Uint8Array;
+  };
+  signerKey: Uint8Array | string;
+  network?: CashAddressNetwork;
+  feeSats?: bigint | number;
+  useLegacyArtifact?: boolean;
+}): {
+  txid: string;
+  txHex: string;
+} {
+  const network = params.network ?? 'chipnet';
+  const canonicalParams = encodeHtlcParameters(params.order.terms);
+
+  let useLegacyArtifact = params.useLegacyArtifact;
+  if (useLegacyArtifact === undefined && params.utxo.lockingBytecode) {
+    const rawLocking =
+      typeof params.utxo.lockingBytecode === 'string'
+        ? params.utxo.lockingBytecode.replace(/^0x/i, '').toLowerCase()
+        : libauth.binToHex(params.utxo.lockingBytecode);
+    const legacyAddrs = deriveHtlcAddresses(canonicalParams, network, {
+      useLegacyArtifact: true,
+    });
+    if (rawLocking === libauth.binToHex(legacyAddrs.lockingBytecode)) {
+      useLegacyArtifact = true;
+    }
+  }
+
+  const result = buildReleaseTransaction({
+    params: canonicalParams,
+    utxo: {
+      txid: params.utxo.txid,
+      vout: params.utxo.vout,
+      satoshis: params.utxo.satoshis,
+      ...(params.utxo.lockingBytecode
+        ? {
+            lockingBytecode:
+              typeof params.utxo.lockingBytecode === 'string'
+                ? params.utxo.lockingBytecode
+                : libauth.binToHex(params.utxo.lockingBytecode),
+          }
+        : {}),
+    },
+    signerKey: params.signerKey,
+    network,
+    ...(params.feeSats !== undefined ? { feeSats: params.feeSats } : {}),
+    ...(useLegacyArtifact !== undefined ? { useLegacyArtifact } : {}),
   });
 
   return {

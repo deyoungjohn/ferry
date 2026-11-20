@@ -8,7 +8,13 @@ import {
   type LockChainStatus,
   type RecoveryFile,
 } from '@ferry/core';
-import { FulcrumClient, type HtlcUtxo } from '@ferry/htlc-bch';
+import {
+  FulcrumClient,
+  deriveHtlcAddresses,
+  deriveLegacyHtlcAddresses,
+  encodeHtlcParameters,
+  type HtlcUtxo,
+} from '@ferry/htlc-bch';
 import { ferryHtlcAbi } from '@ferry/htlc-evm/abi';
 import { createPublicClient, http, parseAbiItem, type Address } from 'viem';
 import type { BchReading, EvmReading, RecoveryPorts } from './logic.js';
@@ -168,21 +174,89 @@ export function createBrowserPorts(options: PortOptions): RecoveryPorts {
       const urls = options.fulcrumOverride
         ? [options.fulcrumOverride]
         : FULCRUM_URLS[file.contracts.bch.network];
-      const scriptHash = scriptHashOf(file.contracts.bch.lockingBytecode);
+      let scriptHash = scriptHashOf(file.contracts.bch.lockingBytecode);
+      let lockingBytecodeToUse = file.contracts.bch.lockingBytecode;
       const failures: string[] = [];
       for (const url of urls) {
         const client = new FulcrumClient(url, { timeoutMs: 15_000 });
         try {
           await client.connect();
           const tipHeight = await client.getTipHeight();
-          const rows = await client.listUnspent(scriptHash, 'include_tokens');
+          let rows = await client.listUnspent(scriptHash, 'include_tokens');
+
+          // If no unspent UTXO found, check alternate covenant (current vs legacy)
+          if (rows.length === 0) {
+            try {
+              const canonicalParams = encodeHtlcParameters(file.terms);
+              const legacyAddrs = deriveLegacyHtlcAddresses(
+                canonicalParams,
+                file.contracts.bch.network,
+              );
+              const legacyScriptHash = scriptHashOf(
+                binToHex(legacyAddrs.lockingBytecode),
+              );
+              const currentAddrs = deriveHtlcAddresses(
+                canonicalParams,
+                file.contracts.bch.network,
+              );
+              const currentScriptHash = scriptHashOf(
+                binToHex(currentAddrs.lockingBytecode),
+              );
+
+              const alternateScriptHash =
+                scriptHash === currentScriptHash
+                  ? legacyScriptHash
+                  : currentScriptHash;
+              const alternateLockingBytecode = (
+                scriptHash === currentScriptHash
+                  ? `0x${binToHex(legacyAddrs.lockingBytecode)}`
+                  : `0x${binToHex(currentAddrs.lockingBytecode)}`
+              ) as `0x${string}`;
+
+              if (alternateScriptHash !== scriptHash) {
+                const altRows = await client.listUnspent(
+                  alternateScriptHash,
+                  'include_tokens',
+                );
+                if (altRows.length > 0) {
+                  rows = altRows;
+                  scriptHash = alternateScriptHash;
+                  lockingBytecodeToUse = alternateLockingBytecode;
+                }
+              }
+            } catch {
+              // ignore derivation failure
+            }
+          }
+
+          let refundTx: string | undefined;
+          let refundKind: 'release' | 'refund' | undefined;
+          if (rows.length === 0 && file.terms.direction === 'BCH_TO_EVM') {
+            try {
+              const history = await client.getHistory(scriptHash);
+              if (history.length >= 2) {
+                const last = history[history.length - 1];
+                if (last) {
+                  refundTx = last.tx_hash;
+                  refundKind = 'release';
+                }
+              }
+            } catch {
+              // ignore history probe error
+            }
+          }
+
           const utxos: HtlcUtxo[] = rows.map((row) => ({
             txid: row.tx_hash,
             vout: row.tx_pos,
             satoshis: BigInt(row.value),
-            lockingBytecode: file.contracts.bch.lockingBytecode,
+            lockingBytecode: lockingBytecodeToUse,
           }));
-          return { tipHeight, utxos };
+          return {
+            tipHeight,
+            utxos,
+            ...(refundTx ? { refundTx, refundKind } : {}),
+          };
         } catch (error) {
           failures.push(`${url}: ${messageOf(error)}`);
         } finally {

@@ -4,6 +4,8 @@ import {
   decodeTransaction,
   encodeTransaction,
   hexToBin,
+  ripemd160,
+  secp256k1,
   sha256,
   type Transaction,
 } from '@bitauth/libauth';
@@ -11,6 +13,7 @@ import { TransactionBuilder } from 'cashscript';
 import {
   buildClaimTransaction,
   buildRefundTransaction,
+  buildReleaseTransaction,
   deriveHtlcAddresses,
   displayHexToInternalHex,
   encodeHtlcParameters,
@@ -435,5 +438,197 @@ describe('FerryHTLC Libauth VM suite (BCH-U-01 .. BCH-U-13)', () => {
         sourceOutputs: [nftSource],
       }),
     ).not.toBe(true);
+  });
+
+  describe('Early release tests (BCH-U-14 .. BCH-U-20)', () => {
+    const RECIPIENT_PRIV = new Uint8Array(32).fill(0x55);
+    const RECIPIENT_PUB = secp256k1.derivePublicKeyCompressed(
+      RECIPIENT_PRIV,
+    ) as Uint8Array;
+    const RECIPIENT_PKH = ripemd160.hash(sha256.hash(RECIPIENT_PUB));
+    const REAL_RECIPIENT_LOCKING = new Uint8Array([
+      0x76,
+      0xa9,
+      0x14,
+      ...RECIPIENT_PKH,
+      0x88,
+      0xac,
+    ]);
+
+    const OTHER_PRIV = new Uint8Array(32).fill(0x77);
+
+    function releaseParams() {
+      return encodeHtlcParameters({
+        hashLock: HASH_LOCK,
+        recipientLockingBytecode: REAL_RECIPIENT_LOCKING,
+        refundLockingBytecode: REFUND_BYTECODE,
+        tokenCategory: DISPLAY_CATEGORY,
+        tokenAmount: 1000n,
+        refundHeight: 500_000,
+        maxFee: 1500n,
+      });
+    }
+
+    it('BCH-U-14: early release spend signed by recipient verifies cleanly in Libauth VM', () => {
+      const built = buildReleaseTransaction({
+        params: releaseParams(),
+        utxo: BASE_UTXO,
+        recipientPrivateKey: RECIPIENT_PRIV,
+      });
+
+      const verified = verifyBchTransactionWithVm({
+        transaction: built.libauthTx,
+        sourceOutputs: [built.sourceOutput],
+      });
+      expect(verified).toBe(true);
+
+      // Verify the output pays to refundLockingBytecode
+      expect(built.libauthTx.outputs[0]?.lockingBytecode).toEqual(
+        REFUND_BYTECODE,
+      );
+      expect(built.libauthTx.outputs[0]?.token?.amount).toBe(1000n);
+    });
+
+    it('BCH-U-15: early release spend with unauthorized key is rejected', () => {
+      expect(() =>
+        buildReleaseTransaction({
+          params: releaseParams(),
+          utxo: BASE_UTXO,
+          recipientPrivateKey: OTHER_PRIV,
+        }),
+      ).toThrow(/Recipient private key does not match/);
+    });
+
+    it('BCH-U-16: early release spend redirected to non-refund output is rejected by VM', () => {
+      const built = buildReleaseTransaction({
+        params: releaseParams(),
+        utxo: BASE_UTXO,
+        recipientPrivateKey: RECIPIENT_PRIV,
+      });
+      const tx = decodeTransaction(hexToBin(built.txHex)) as Transaction;
+      tx.outputs[0] = {
+        ...tx.outputs[0]!,
+        lockingBytecode: OTHER_BYTECODE,
+      };
+      expect(
+        verifyBchTransactionWithVm({
+          transaction: tx,
+          sourceOutputs: [built.sourceOutput],
+        }),
+      ).not.toBe(true);
+    });
+
+    it('BCH-U-17: early release spend tampering with token amount or category is rejected by VM', () => {
+      const built = buildReleaseTransaction({
+        params: releaseParams(),
+        utxo: BASE_UTXO,
+        recipientPrivateKey: RECIPIENT_PRIV,
+      });
+      const txAmount = decodeTransaction(hexToBin(built.txHex)) as Transaction;
+      txAmount.outputs[0] = {
+        ...txAmount.outputs[0]!,
+        token: {
+          ...txAmount.outputs[0]!.token!,
+          amount: 500n, // Less tokens refunded!
+        },
+      };
+      expect(
+        verifyBchTransactionWithVm({
+          transaction: txAmount,
+          sourceOutputs: [built.sourceOutput],
+        }),
+      ).not.toBe(true);
+
+      const txCat = decodeTransaction(hexToBin(built.txHex)) as Transaction;
+      txCat.outputs[0] = {
+        ...txCat.outputs[0]!,
+        token: {
+          ...txCat.outputs[0]!.token!,
+          category: new Uint8Array(32).fill(0x88),
+        },
+      };
+      expect(
+        verifyBchTransactionWithVm({
+          transaction: txCat,
+          sourceOutputs: [built.sourceOutput],
+        }),
+      ).not.toBe(true);
+    });
+
+    it('BCH-U-18: early release spend with fee exceeding maxFee is rejected by VM', () => {
+      const built = buildReleaseTransaction({
+        params: releaseParams(),
+        utxo: BASE_UTXO,
+        recipientPrivateKey: RECIPIENT_PRIV,
+      });
+      const tx = decodeTransaction(hexToBin(built.txHex)) as Transaction;
+      // Burning more fee than maxFee allowed
+      tx.outputs[0] = {
+        ...tx.outputs[0]!,
+        valueSatoshis: BASE_UTXO.satoshis - 2000n, // maxFee is 1500n
+      };
+      expect(
+        verifyBchTransactionWithVm({
+          transaction: tx,
+          sourceOutputs: [built.sourceOutput],
+        }),
+      ).not.toBe(true);
+    });
+
+    it('BCH-U-19: early release spend with extra input or output is rejected by VM', () => {
+      const built = buildReleaseTransaction({
+        params: releaseParams(),
+        utxo: BASE_UTXO,
+        recipientPrivateKey: RECIPIENT_PRIV,
+      });
+      const txOut = decodeTransaction(hexToBin(built.txHex)) as Transaction;
+      txOut.outputs.push({
+        lockingBytecode: OTHER_BYTECODE,
+        valueSatoshis: 546n,
+      });
+      expect(
+        verifyBchTransactionWithVm({
+          transaction: txOut,
+          sourceOutputs: [built.sourceOutput],
+        }),
+      ).not.toBe(true);
+
+      const txIn = decodeTransaction(hexToBin(built.txHex)) as Transaction;
+      txIn.inputs.push({
+        outpointIndex: 1,
+        outpointTransactionHash: new Uint8Array(32).fill(0x99),
+        sequenceNumber: 0xffffffff,
+        unlockingBytecode: new Uint8Array(0),
+      });
+      expect(
+        verifyBchTransactionWithVm({
+          transaction: txIn,
+          sourceOutputs: [
+            built.sourceOutput,
+            { lockingBytecode: OTHER_BYTECODE, valueSatoshis: 1000n },
+          ],
+        }),
+      ).not.toBe(true);
+    });
+
+    it('BCH-U-20: legacy covenant (v1) lock can still be refunded cleanly via useLegacyArtifact', () => {
+      const legacyParams = baseParams();
+      const legacyAddresses = deriveHtlcAddresses(legacyParams, 'chipnet', {
+        useLegacyArtifact: true,
+      });
+      const builtRefund = buildRefundTransaction({
+        params: legacyParams,
+        utxo: BASE_UTXO,
+        useLegacyArtifact: true,
+      });
+      const verifiedRefund = verifyBchTransactionWithVm({
+        transaction: builtRefund.libauthTx,
+        sourceOutputs: [builtRefund.sourceOutput],
+      });
+      expect(verifiedRefund).toBe(true);
+      expect(builtRefund.sourceOutput.lockingBytecode).toEqual(
+        legacyAddresses.lockingBytecode,
+      );
+    });
   });
 });

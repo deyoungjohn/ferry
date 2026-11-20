@@ -1,14 +1,18 @@
 import {
   MockNetworkProvider,
   Network,
+  SignatureTemplate,
   TransactionBuilder,
   type NetworkProvider,
 } from 'cashscript';
 import {
   binToHex,
   createVirtualMachineBCH,
+  decodePrivateKeyWif,
   decodeTransaction,
   hexToBin,
+  ripemd160,
+  secp256k1,
   sha256,
   type Output,
   type Transaction,
@@ -64,6 +68,7 @@ export interface BuildClaimTxOptions {
   feeSats?: bigint | number;
   network?: CashAddressNetwork;
   provider?: NetworkProvider;
+  useLegacyArtifact?: boolean;
 }
 
 export interface BuildRefundTxOptions {
@@ -73,6 +78,19 @@ export interface BuildRefundTxOptions {
   network?: CashAddressNetwork;
   provider?: NetworkProvider;
   locktime?: number;
+  useLegacyArtifact?: boolean;
+}
+
+export interface BuildReleaseTxOptions {
+  params: BchHtlcParameters;
+  utxo: HtlcUtxo;
+  /** Private key as Uint8Array (32 bytes), WIF string, or hex string */
+  signerKey?: Uint8Array | string;
+  recipientPrivateKey?: Uint8Array | string;
+  feeSats?: bigint | number;
+  network?: CashAddressNetwork;
+  provider?: NetworkProvider;
+  useLegacyArtifact?: boolean;
 }
 
 export interface HtlcSourceOutput extends Output {
@@ -162,6 +180,9 @@ export function buildClaimTransaction(
   const contract = getHtlcContract(options.params, {
     provider,
     ...(options.network !== undefined ? { network: options.network } : {}),
+    ...(options.useLegacyArtifact !== undefined
+      ? { useLegacyArtifact: options.useLegacyArtifact }
+      : {}),
   });
   const fee = BigInt(options.feeSats ?? 500n);
   if (fee > options.params.maxFee) {
@@ -266,6 +287,9 @@ export function buildRefundTransaction(
   const contract = getHtlcContract(options.params, {
     provider,
     ...(options.network !== undefined ? { network: options.network } : {}),
+    ...(options.useLegacyArtifact !== undefined
+      ? { useLegacyArtifact: options.useLegacyArtifact }
+      : {}),
   });
   const fee = BigInt(options.feeSats ?? 500n);
   if (fee > options.params.maxFee) {
@@ -333,6 +357,167 @@ export function buildRefundTransaction(
   });
   if (vmResult !== true) {
     throw new Error(`BCH refund script VM verification failed: ${vmResult}`);
+  }
+
+  return {
+    txHex,
+    txid,
+    libauthTx: decodedTx,
+    sourceOutput,
+    builder,
+  };
+}
+
+export function resolvePrivateKeyBytes(key: Uint8Array | string): Uint8Array {
+  if (typeof key !== 'string') {
+    if (key.length !== 32) {
+      throw new Error(
+        `Invalid private key length: expected 32 bytes, got ${key.length}`,
+      );
+    }
+    return key;
+  }
+  const trimmed = key.trim();
+  if (/^[5KLc9][1-9A-HJ-NP-Za-km-z]{50,51}$/.test(trimmed)) {
+    const decoded = decodePrivateKeyWif(trimmed);
+    if (typeof decoded === 'string') {
+      throw new Error(`Failed to decode WIF private key: ${decoded}`);
+    }
+    return decoded.privateKey;
+  }
+  const cleanHex = trimmed.startsWith('0x') ? trimmed.slice(2) : trimmed;
+  const bytes = hexToBin(cleanHex);
+  if (bytes.length !== 32) {
+    throw new Error(
+      `Invalid private key hex length: expected 32 bytes, got ${bytes.length}`,
+    );
+  }
+  return bytes;
+}
+
+/**
+ * Build a release transaction for FerryHTLC.release(pubkey, sig).
+ * Signed by the recipient (solver) to return locked funds directly to refundLockingBytecode (user).
+ * Verifies that the recipient key matches the covenant recipientLockingBytecode,
+ * validates utxo.lockingBytecode, and verifies the resulting transaction in the Libauth VM.
+ */
+export function buildReleaseTransaction(
+  options: BuildReleaseTxOptions,
+): BuiltTransaction {
+  const keyToResolve = options.recipientPrivateKey ?? options.signerKey;
+  if (!keyToResolve) {
+    throw new Error('signerKey or recipientPrivateKey is required');
+  }
+  const privKey = resolvePrivateKeyBytes(keyToResolve);
+  const pubKey = secp256k1.derivePublicKeyCompressed(privKey);
+  if (typeof pubKey === 'string') {
+    throw new Error(`Failed to derive compressed public key: ${pubKey}`);
+  }
+
+  const pkh = ripemd160.hash(sha256.hash(pubKey));
+  const expectedP2pkhBytecode = new Uint8Array([
+    0x76,
+    0xa9,
+    0x14,
+    ...pkh,
+    0x88,
+    0xac,
+  ]);
+  if (
+    binToHex(expectedP2pkhBytecode) !==
+    binToHex(options.params.recipientLockingBytecode)
+  ) {
+    throw new Error(
+      'Recipient private key does not match HTLC recipient locking bytecode (only recipient can release)',
+    );
+  }
+
+  let provider = options.provider;
+  if (!provider) {
+    const mock = new MockNetworkProvider();
+    mock.network =
+      options.network === 'mainnet' ? Network.MAINNET : Network.CHIPNET;
+    provider = mock;
+  }
+
+  const contract = getHtlcContract(options.params, {
+    provider,
+    ...(options.network !== undefined ? { network: options.network } : {}),
+    ...(options.useLegacyArtifact !== undefined
+      ? { useLegacyArtifact: options.useLegacyArtifact }
+      : {}),
+  });
+
+  // Release transaction includes Schnorr signature (64B) and pubkey (33B), requiring >= 600 sats for 1 sat/B
+  const fee = BigInt(
+    options.feeSats ??
+      (options.params.maxFee >= 600n ? 600n : options.params.maxFee),
+  );
+  if (fee > options.params.maxFee) {
+    throw new Error(`Fee ${fee} exceeds maxFee ${options.params.maxFee}`);
+  }
+
+  const utxoSatoshis = BigInt(options.utxo.satoshis);
+  if (utxoSatoshis < fee) {
+    throw new Error(
+      `UTXO satoshis ${utxoSatoshis} insufficient for fee ${fee}`,
+    );
+  }
+
+  const utxoLockingBytecode = resolveValidatedUtxoLockingBytecode(
+    options.utxo.lockingBytecode,
+    contract.lockingBytecode,
+  );
+  const outputAmount = utxoSatoshis - fee;
+  const displayCategory = internalToDisplayCategory(
+    options.params.tokenCategory,
+  );
+
+  const utxo = {
+    txid: options.utxo.txid,
+    vout: options.utxo.vout,
+    satoshis: utxoSatoshis,
+    lockingBytecode: utxoLockingBytecode,
+    token: {
+      category: displayCategory,
+      amount: options.params.tokenAmount,
+    },
+  };
+
+  const sigTemplate = new SignatureTemplate(privKey);
+  const builder = new TransactionBuilder({ provider });
+  builder.addInput(utxo, contract.unlock.release(pubKey, sigTemplate));
+  builder.addOutput({
+    to: options.params.refundLockingBytecode,
+    amount: outputAmount,
+    token: {
+      category: displayCategory,
+      amount: options.params.tokenAmount,
+    },
+  });
+
+  const txHex = builder.build();
+  const decodedTx = decodeTransaction(hexToBin(txHex));
+  if (typeof decodedTx === 'string') {
+    throw new Error(`Failed to decode built release transaction: ${decodedTx}`);
+  }
+  const txid = computeTxId(txHex);
+
+  const sourceOutput: HtlcSourceOutput = {
+    lockingBytecode: hexToBin(utxo.lockingBytecode),
+    valueSatoshis: utxoSatoshis,
+    token: {
+      category: hexToBin(displayCategory),
+      amount: options.params.tokenAmount,
+    },
+  };
+
+  const vmResult = verifyBchTransactionWithVm({
+    transaction: decodedTx,
+    sourceOutputs: [sourceOutput],
+  });
+  if (vmResult !== true) {
+    throw new Error(`BCH release script VM verification failed: ${vmResult}`);
   }
 
   return {

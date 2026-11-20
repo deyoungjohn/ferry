@@ -280,6 +280,16 @@ function explorerTxUrl(chainId: number, hash: string): string | null {
   return base ? `${base.replace(/\/+$/, '')}/tx/${hash}` : null;
 }
 
+function bchExplorerTxUrl(
+  network: 'mainnet' | 'chipnet',
+  hash: string,
+): string {
+  const clean = hash.replace(/^0x/i, '');
+  return network === 'chipnet'
+    ? `https://chipnet.bchexplorer.info/tx/${clean}`
+    : `https://bchexplorer.info/tx/${clean}`;
+}
+
 function render(result: Inspection) {
   const parts: Child[] = [summary(result.file)];
   if (result.errors.evm) {
@@ -327,6 +337,35 @@ function render(result: Inspection) {
       ),
     );
   }
+  if (result.bch?.refundTx) {
+    const isRelease = result.bch.refundKind === 'release';
+    const heading = isRelease ? 'The solver returned your funds' : 'Refunded';
+    const txHash = result.bch.refundTx;
+    const url = bchExplorerTxUrl(result.file.contracts.bch.network, txHash);
+    parts.push(
+      h(
+        'section',
+        { class: 'card', 'data-testid': 'refund-status' },
+        h('h2', {}, heading),
+        url
+          ? h(
+              'p',
+              {},
+              h(
+                'a',
+                {
+                  href: url,
+                  target: '_blank',
+                  rel: 'noopener noreferrer',
+                  'data-testid': 'refund-explorer-link',
+                },
+                'View transaction on block explorer',
+              ),
+            )
+          : null,
+      ),
+    );
+  }
   if (result.plan) {
     const summaryText =
       result.evm?.lockStatus === 'refunded'
@@ -335,7 +374,11 @@ function render(result: Inspection) {
           : result.evm.refundKind === 'keeper'
             ? 'Refunded automatically'
             : result.plan.summary
-        : result.plan.summary;
+        : result.bch?.refundTx
+          ? result.bch.refundKind === 'release'
+            ? 'The solver returned your funds'
+            : 'Refunded'
+          : result.plan.summary;
     parts.push(
       h(
         'section',
