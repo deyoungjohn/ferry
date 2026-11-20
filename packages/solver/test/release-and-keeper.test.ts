@@ -174,7 +174,52 @@ describe('Solver Early Release and Automatic Refund Keeper', () => {
     const order = db.getOrder('ord-expired-quote');
     expect(order?.status).toBe('RELEASED');
     expect(order?.solverRefundTxId).toBe('0x' + 'bb'.repeat(32));
-    expect(order?.rejectionReason).toContain('Quote expired');
+    expect(order?.rejectionReason).toContain('after the quote expired');
+  });
+
+  it('does not release a lock that was made in time just because the chain was slow to finalize it', async () => {
+    const db = new SolverDatabase(':memory:');
+    const nowSec = Math.floor(Date.now() / 1000);
+    // The quote lapsed 10 seconds ago; the user locked 10 minutes ago, well inside it.
+    const terms = makeTerms({ quoteExpiry: nowSec - 10 });
+    db.saveOrder({
+      id: 'ord-slow-chain',
+      direction: 'EVM_TO_BCH',
+      status: 'USER_LOCK_FINAL',
+      userCounterAddress: terms.userEvmAddress,
+      lockId: terms.hashLock,
+      termsJson: stringifyTerms(terms),
+      hashLock: terms.hashLock,
+      userLockTxId: '0x' + '11'.repeat(32),
+      createdAt: nowSec - 700,
+      updatedAt: nowSec - 700,
+    });
+    const releaseMock = vi.fn();
+    const bchPort: BchChainPort = {
+      getTip: async () => ({ height: 330000, hash: '0x0' }),
+      isQuorumHealthy: () => true,
+      isQuotingEnabled: () => true,
+      broadcast: async () => 'bch_ok',
+      isOnChain: async () => false,
+      getScriptHashHistory: async () => [],
+    };
+    const evmPort: EvmChainPort = {
+      getTip: async () => ({ height: 1000, finalized: true }),
+      getLock: async () => ({ status: 'locked' }),
+      isFinal: async () => true,
+      broadcast: async () => 'evm_ok',
+      isOnChain: async () => false,
+      release: releaseMock,
+      getLockEvidence: async () => ({
+        confirmations: 50,
+        ageSeconds: 600,
+        finalized: true,
+      }),
+    };
+    const engine = newTestEngine(db, bchPort, evmPort);
+    await engine.reconcileOrders();
+    expect(releaseMock).not.toHaveBeenCalled();
+    expect(db.getOrder('ord-slow-chain')?.status).not.toBe('RELEASED');
   });
 
   it('exposes txids.evmRefund and status RELEASED via GET /v1/orders/:id', async () => {

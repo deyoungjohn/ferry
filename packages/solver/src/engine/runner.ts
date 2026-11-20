@@ -521,10 +521,10 @@ export class SolverEngine {
           });
         }
 
-        if (order.terms.quoteExpiry && now > order.terms.quoteExpiry) {
+        if (await this.lockMadeAfterQuoteExpiry(order, lockState.txid, now)) {
           await this.earlyReleaseUserLock(
             order,
-            'Quote expired while waiting for user lock confirmation',
+            'The lock was made after the quote expired',
           );
           return;
         }
@@ -555,10 +555,13 @@ export class SolverEngine {
         return;
       }
 
-      if (order.terms.quoteExpiry && now > order.terms.quoteExpiry) {
+      if (
+        order.userLockTxId &&
+        (await this.lockMadeAfterQuoteExpiry(order, order.userLockTxId, now))
+      ) {
         await this.earlyReleaseUserLock(
           order,
-          'Quote expired before counter-lock',
+          'The lock was made after the quote expired',
         );
         return;
       }
@@ -938,6 +941,27 @@ export class SolverEngine {
   }
 
   private readonly keeperAttempted = new Set<string>();
+
+  /**
+   * Whether the user locked after the quote lapsed. The deadline is the user's: a lock made in time
+   * is never released because the chain took long to finalize it. A port that cannot say when the
+   * lock was made (the local harness) falls back to the processing time; a failed read releases nothing.
+   */
+  private async lockMadeAfterQuoteExpiry(
+    order: SolverOrderRecord,
+    txid: string,
+    now: number,
+  ): Promise<boolean> {
+    const expiry = order.terms.quoteExpiry;
+    if (!expiry) return false;
+    if (!this.evmPort.getLockEvidence) return now > expiry;
+    const evidence = await this.evmPort.getLockEvidence(
+      txid,
+      Number(order.terms.evmChainId),
+    );
+    if (!evidence) return false;
+    return now - evidence.ageSeconds > expiry;
+  }
 
   async earlyReleaseUserLock(
     order: SolverOrderRecord,
