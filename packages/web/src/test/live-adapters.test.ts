@@ -101,7 +101,7 @@ describe('browser Bitcoin Cash chain', () => {
       createClient: fake({ 'wss://a': 'fail' }, []),
     });
     expect(await rejection(dead.getUtxos('00'))).toMatch(
-      /No Bitcoin Cash server answered/,
+      /Could not reach Bitcoin Cash: the Ferry server did not answer/,
     );
   });
 
@@ -190,7 +190,7 @@ describe('browser Bitcoin Cash chain', () => {
       }),
     });
     expect(await rejection(chain.broadcast('00'))).toMatch(
-      /timeout after send/,
+      /Could not confirm the Bitcoin Cash broadcast/,
     );
     expect(log).toEqual(['connect wss://a', 'send wss://a']);
   });
@@ -221,8 +221,10 @@ describe('browser Bitcoin Cash chain', () => {
       urls: ['wss://a'],
       solverUrl: 'https://solver.test',
       fetchFn: (async (url: string) =>
-        String(url).includes('/v1/health')
-          ? new Response(JSON.stringify({ tips: { bchHeight: 1234 } }))
+        String(url).includes('/v1/bch/tip')
+          ? new Response(
+              JSON.stringify({ height: 1234, hash: '00', timestamp: 1 }),
+            )
           : new Response('', { status: 500 })) as unknown as typeof fetch,
       createClient: fake({}, []),
     });
