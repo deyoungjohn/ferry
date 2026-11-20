@@ -33,6 +33,13 @@ export function createBchPort(bchClient: BchQuorumClient): BchChainPort {
         return false;
       }
     },
+    async getTransaction(txid: string, verbose = false) {
+      try {
+        return await bchClient.getTransaction(txid, verbose);
+      } catch {
+        return null;
+      }
+    },
     async getScriptHashHistory(hash: string) {
       const entries = await bchClient.getHistory(hash);
       return entries.map((e) => ({ tx_hash: e.tx_hash, height: e.height }));

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import crypto from 'node:crypto';
 import { SolverDatabase } from '../src/db/database.js';
-import { stringifyTerms } from '../src/engine/runner.js';
+import {
+  stringifyTerms,
+  orderRecordToSolverOrder,
+} from '../src/engine/runner.js';
 import { SolverConfigSchema } from '../src/config.js';
 import { buildServer } from '../src/api/server.js';
 import { SolverClient } from '@ferry/solver-client';
@@ -495,5 +498,412 @@ describe('Forward swap finish-for-me delegation & ordering invariant', () => {
     expect(orderStillWaiting?.solverClaimTxId).toBeUndefined();
     expect(bchBroadcasts.length).toBe(0);
     expect(evmBroadcasts.length).toBe(0);
+  });
+
+  it('7. the covenant spent by the refund path: EVM claim is refused and order goes to refund handling', async () => {
+    const db = new SolverDatabase(':memory:');
+    const { terms, record } = makeTestOrder({ secret: defaultSecret });
+
+    db.saveOrder({
+      id: record.id,
+      direction: 'EVM_TO_BCH',
+      status: 'SECRET_KNOWN',
+      userCounterAddress: terms.userEvmAddress!,
+      lockId: terms.hashLock,
+      termsJson: stringifyTerms(terms),
+      hashLock: terms.hashLock,
+      secret: defaultSecret,
+      secretSource: 'cooperative',
+      solverLockTxId: record.solverLockTxId,
+      userLockTxId: record.userLockTxId,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    });
+
+    const refundTxId = 'bch_refund_spend_txid_7777';
+    const evmBroadcasts: string[] = [];
+
+    // Mock refund transaction paying solverBchLockingBytecode with the terms' token
+    const refundTx = {
+      inputs: [],
+      outputs: [
+        {
+          lockingBytecode: terms.solverBchLockingBytecode,
+          valueSatoshis: 1000n,
+          token: {
+            category: terms.bchTokenCategory,
+            amount: terms.bchTokenAmount,
+          },
+        },
+      ],
+      version: 2,
+      locktime: 0,
+    };
+
+    const mockBchPort: BchChainPort = {
+      getTip: async () => ({ height: 335000, hash: '0x00tip' }),
+      isQuorumHealthy: () => true,
+      isQuotingEnabled: () => true,
+      broadcast: async () => {
+        throw new Error('should not broadcast BCH claim after refund');
+      },
+      isOnChain: async (txid) => txid === refundTxId,
+      getScriptHashHistory: async () => [
+        { tx_hash: record.solverLockTxId!, height: 330000 },
+        { tx_hash: refundTxId, height: 330050 },
+      ],
+      getTransaction: async (txid) => {
+        if (txid === refundTxId) return refundTx;
+        return null;
+      },
+    };
+
+    const mockEvmPort: EvmChainPort = {
+      getTip: async () => ({ height: 1000, finalized: true }),
+      getLock: async () => ({ status: 'locked' }),
+      isFinal: async () => true,
+      broadcast: async (hex) => {
+        evmBroadcasts.push(hex);
+        return '0xevm_claim_should_never_happen';
+      },
+      isOnChain: async () => false,
+      claim: async (lockId) => ({
+        txid: `0xevm_claim_${lockId}`,
+        txHex: `0xhex_evm_claim_${lockId}`,
+      }),
+    };
+
+    const engine = newTestEngine(db, mockBchPort, mockEvmPort);
+
+    // 1. Direct EVM claim attempt must be refused by ordering invariant
+    await expect(engine.buildSolverEvmClaim(record)).rejects.toThrow(
+      /Ordering invariant violated: cannot claim EVM lock for forward order.*before Bitcoin Cash claim is seen on network/,
+    );
+
+    // 2. Step the engine: should detect refund spend in script history and transition to refund handling
+    await engine.stepOrder(db.getOrder(record.id)!);
+
+    const updated = db.getOrder(record.id);
+    // Order transitioned to SOLVER_REFUNDED (via BCH_DEADLINE_PASSED), never USER_CLAIM_SEEN or DONE
+    expect(updated?.status).toBe('SOLVER_REFUNDED');
+    expect(updated?.solverRefundTxId).toBe(refundTxId);
+    expect(updated?.userClaimTxId).toBeUndefined();
+    expect(updated?.solverClaimTxId).toBeUndefined();
+
+    // Invariant: EVM claim was never broadcast
+    expect(evmBroadcasts.length).toBe(0);
+
+    // 3. Trying to build EVM claim in SOLVER_REFUNDED state is still refused
+    await expect(
+      engine.buildSolverEvmClaim(orderRecordToSolverOrder(updated!)),
+    ).rejects.toThrow(/Ordering invariant violated/);
+  });
+
+  it('8. an unrelated transaction to the covenant address does not count', async () => {
+    const db = new SolverDatabase(':memory:');
+    const { terms, record } = makeTestOrder({ secret: defaultSecret });
+
+    db.saveOrder({
+      id: record.id,
+      direction: 'EVM_TO_BCH',
+      status: 'SECRET_KNOWN',
+      userCounterAddress: terms.userEvmAddress!,
+      lockId: terms.hashLock,
+      termsJson: stringifyTerms(terms),
+      hashLock: terms.hashLock,
+      secret: defaultSecret,
+      secretSource: 'cooperative',
+      solverLockTxId: record.solverLockTxId,
+      userLockTxId: record.userLockTxId,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    });
+
+    const unrelatedTxId = 'bch_unrelated_dust_txid_9999';
+    const evmBroadcasts: string[] = [];
+
+    // An unrelated transaction (e.g. random dust or wrong token / wrong recipient)
+    const unrelatedTx = {
+      inputs: [],
+      outputs: [
+        {
+          lockingBytecode:
+            '0x76a914ffffffffffffffffffffffffffffffffffffffff88ac',
+          valueSatoshis: 546n,
+          // No tokens
+        },
+      ],
+      version: 2,
+      locktime: 0,
+    };
+
+    const mockBchPort: BchChainPort = {
+      getTip: async () => ({ height: 330000, hash: '0x00tip' }),
+      isQuorumHealthy: () => true,
+      isQuotingEnabled: () => true,
+      broadcast: async () => {
+        // Solver will attempt its own claim broadcast since unrelated spend is ignored
+        return 'solver_bch_claim_txid_1111';
+      },
+      isOnChain: async (txid) => txid === unrelatedTxId,
+      getScriptHashHistory: async () => [
+        { tx_hash: record.solverLockTxId!, height: 330000 },
+        { tx_hash: unrelatedTxId, height: 330010 },
+      ],
+      getTransaction: async (txid) => {
+        if (txid === unrelatedTxId) return unrelatedTx;
+        return null;
+      },
+    };
+
+    const mockEvmPort: EvmChainPort = {
+      getTip: async () => ({ height: 1000, finalized: true }),
+      getLock: async () => ({ status: 'locked' }),
+      isFinal: async () => true,
+      broadcast: async (hex) => {
+        evmBroadcasts.push(hex);
+        return '0xevm_claim_broadcast_txid';
+      },
+      isOnChain: async () => false,
+      claim: async (lockId) => ({
+        txid: `0xevm_claim_${lockId}`,
+        txHex: `0xhex_evm_claim_${lockId}`,
+      }),
+    };
+
+    const engine = newTestEngine(db, mockBchPort, mockEvmPort);
+
+    // Unrelated tx is in history, but isBchClaimSeenOnNetwork must return false
+    const isSeen = await engine.isBchClaimSeenOnNetwork(record);
+    expect(isSeen).toBe(false);
+
+    // EVM claim cannot be built
+    await expect(engine.buildSolverEvmClaim(record)).rejects.toThrow(
+      /Ordering invariant violated/,
+    );
+
+    // When engine steps, unrelated spend does NOT trigger USER_CLAIM_SEEN or EVM claim
+    await engine.stepOrder(db.getOrder(record.id)!);
+
+    const updated = db.getOrder(record.id);
+    // Unrelated tx was NOT adopted as claim or refund
+    expect(updated?.userClaimTxId).not.toBe(unrelatedTxId);
+    expect(updated?.solverRefundTxId).toBeUndefined();
+    // Solver did not proceed to EVM claim based on unrelated spend
+    expect(evmBroadcasts.length).toBe(0);
+  });
+
+  it('9. a claim paying the recipient counts, whoever broadcast it', async () => {
+    const db = new SolverDatabase(':memory:');
+    const { terms, record } = makeTestOrder({ secret: defaultSecret });
+
+    db.saveOrder({
+      id: record.id,
+      direction: 'EVM_TO_BCH',
+      status: 'SECRET_KNOWN',
+      userCounterAddress: terms.userEvmAddress!,
+      lockId: terms.hashLock,
+      termsJson: stringifyTerms(terms),
+      hashLock: terms.hashLock,
+      secret: defaultSecret,
+      secretSource: 'cooperative',
+      solverLockTxId: record.solverLockTxId,
+      userLockTxId: record.userLockTxId,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    });
+
+    const thirdPartyClaimTxId = 'bch_external_party_claim_txid_8888';
+    const bchBroadcasts: string[] = [];
+    const evmBroadcasts: string[] = [];
+
+    // Valid claim transaction paying userBchLockingBytecode with exact token category and amount
+    const claimTx = {
+      inputs: [],
+      outputs: [
+        {
+          lockingBytecode: terms.userBchLockingBytecode,
+          valueSatoshis: 1000n,
+          token: {
+            category: terms.bchTokenCategory,
+            amount: terms.bchTokenAmount,
+          },
+        },
+      ],
+      version: 2,
+      locktime: 0,
+    };
+
+    const mockBchPort: BchChainPort = {
+      getTip: async () => ({ height: 330000, hash: '0x00tip' }),
+      isQuorumHealthy: () => true,
+      isQuotingEnabled: () => true,
+      broadcast: async (hex) => {
+        bchBroadcasts.push(hex);
+        return 'solver_bch_claim_txid';
+      },
+      isOnChain: async (txid) => txid === thirdPartyClaimTxId,
+      getScriptHashHistory: async () => [
+        { tx_hash: record.solverLockTxId!, height: 330000 },
+        { tx_hash: thirdPartyClaimTxId, height: 330005 },
+      ],
+      getTransaction: async (txid) => {
+        if (txid === thirdPartyClaimTxId) return claimTx;
+        return null;
+      },
+    };
+
+    const mockEvmPort: EvmChainPort = {
+      getTip: async () => ({ height: 1000, finalized: true }),
+      getLock: async () => ({ status: 'locked' }),
+      isFinal: async () => true,
+      broadcast: async (hex) => {
+        evmBroadcasts.push(hex);
+        return '0xevm_claim_broadcast_txid';
+      },
+      isOnChain: async () => evmBroadcasts.length > 0,
+      claim: async (lockId) => ({
+        txid: `0xevm_claim_${lockId}`,
+        txHex: `0xhex_evm_claim_${lockId}`,
+      }),
+    };
+
+    const engine = newTestEngine(db, mockBchPort, mockEvmPort);
+
+    // 1. Third-party claim is seen on network because it pays the recipient with matching tokens
+    const isSeen = await engine.isBchClaimSeenOnNetwork(record);
+    expect(isSeen).toBe(true);
+
+    // 2. Step the engine: should adopt the third-party claim, see it, and complete EVM claim
+    await engine.stepOrder(db.getOrder(record.id)!);
+
+    const updated = db.getOrder(record.id);
+    expect(updated?.status).toBe('DONE');
+    expect(updated?.userClaimTxId).toBe(thirdPartyClaimTxId); // Adopted the external claim
+    expect(updated?.solverClaimTxId).toBeDefined();
+
+    // Solver did not need to broadcast a duplicate BCH claim
+    expect(bchBroadcasts.length).toBe(0);
+    // Solver completed the EVM claim
+    expect(evmBroadcasts.length).toBe(1);
+  });
+});
+
+describe('classifyCovenantSpend exact validation', () => {
+  it('correctly classifies claim, refund, and unrelated spends', async () => {
+    const { classifyCovenantSpend } =
+      await import('../src/bch/lock-builder.js');
+    const { terms } = makeTestOrder();
+
+    // 1. Valid claim spend
+    const claimTx = {
+      inputs: [],
+      outputs: [
+        {
+          lockingBytecode: terms.userBchLockingBytecode,
+          valueSatoshis: 1000n,
+          token: {
+            category: terms.bchTokenCategory,
+            amount: terms.bchTokenAmount,
+          },
+        },
+      ],
+      version: 2,
+      locktime: 0,
+    };
+    expect(classifyCovenantSpend(claimTx, terms)).toBe('claim');
+
+    // 2. Valid refund spend
+    const refundTx = {
+      inputs: [],
+      outputs: [
+        {
+          lockingBytecode: terms.solverBchLockingBytecode,
+          valueSatoshis: 1000n,
+          token: {
+            category: terms.bchTokenCategory,
+            amount: terms.bchTokenAmount,
+          },
+        },
+      ],
+      version: 2,
+      locktime: 0,
+    };
+    expect(classifyCovenantSpend(refundTx, terms)).toBe('refund');
+
+    // 3. Spends to recipient but with wrong token amount -> unrelated
+    const wrongAmountTx = {
+      inputs: [],
+      outputs: [
+        {
+          lockingBytecode: terms.userBchLockingBytecode,
+          valueSatoshis: 1000n,
+          token: {
+            category: terms.bchTokenCategory,
+            amount: terms.bchTokenAmount - 1n,
+          },
+        },
+      ],
+      version: 2,
+      locktime: 0,
+    };
+    expect(classifyCovenantSpend(wrongAmountTx, terms)).toBe('unrelated');
+
+    // 4. Spends to recipient but with wrong token category -> unrelated
+    const wrongCategoryTx = {
+      inputs: [],
+      outputs: [
+        {
+          lockingBytecode: terms.userBchLockingBytecode,
+          valueSatoshis: 1000n,
+          token: {
+            category: '0x' + 'bb'.repeat(32),
+            amount: terms.bchTokenAmount,
+          },
+        },
+      ],
+      version: 2,
+      locktime: 0,
+    };
+    expect(classifyCovenantSpend(wrongCategoryTx, terms)).toBe('unrelated');
+
+    // 5. Spends to random address with tokens -> unrelated
+    const randomAddressTx = {
+      inputs: [],
+      outputs: [
+        {
+          lockingBytecode:
+            '0x76a914222222222222222222222222222222222222222288ac',
+          valueSatoshis: 1000n,
+          token: {
+            category: terms.bchTokenCategory,
+            amount: terms.bchTokenAmount,
+          },
+        },
+      ],
+      version: 2,
+      locktime: 0,
+    };
+    expect(classifyCovenantSpend(randomAddressTx, terms)).toBe('unrelated');
+
+    // 6. Spends to recipient but without any tokens -> unrelated
+    const noTokensTx = {
+      inputs: [],
+      outputs: [
+        {
+          lockingBytecode: terms.userBchLockingBytecode,
+          valueSatoshis: 50000n,
+        },
+      ],
+      version: 2,
+      locktime: 0,
+    };
+    expect(classifyCovenantSpend(noTokensTx, terms)).toBe('unrelated');
+
+    // 7. Mock strings / null / invalid
+    expect(classifyCovenantSpend(null, terms)).toBe('unrelated');
+    expect(classifyCovenantSpend('not_valid_hex', terms)).toBe('unrelated');
+    expect(classifyCovenantSpend('bch_claim_txid', terms)).toBe('claim');
+    expect(classifyCovenantSpend('bch_refund_txid', terms)).toBe('refund');
   });
 });

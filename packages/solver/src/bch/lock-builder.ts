@@ -5,13 +5,16 @@ import {
   buildLockTransaction,
   buildReleaseTransaction,
   deriveHtlcAddresses,
+  displayToInternalCategory,
   encodeHtlcParameters,
   parseHtlcSpendInput,
+  resolveLockingBytecode,
   type CashAddressNetwork,
   type ElectrumUtxo,
   type LockUtxo,
 } from '@ferry/htlc-bch';
 import { assertValidSecret, isValidSecret, type OrderTerms } from '@ferry/core';
+import { isForwardDirection } from '../state-machine/transitions.js';
 import type { SolverOrderRecord } from '../state-machine/types.js';
 
 export function computeTxId(txHex: string): string {
@@ -141,6 +144,132 @@ export function extractSecretFromSpendTx(
   }
 
   return null;
+}
+
+export type CovenantSpendClassification = 'claim' | 'refund' | 'unrelated';
+
+/**
+ * Validates whether a transaction spending or interacting with a forward swap covenant
+ * is an exact claim paying the recipient script with the terms' token category and amount,
+ * a refund spend paying the refund script, or an unrelated transaction.
+ */
+export function classifyCovenantSpend(
+  txHexOrTx: unknown,
+  terms: OrderTerms,
+): CovenantSpendClassification {
+  if (!txHexOrTx) return 'unrelated';
+
+  let tx: libauth.Transaction;
+  if (typeof txHexOrTx === 'string') {
+    if (
+      txHexOrTx.startsWith('hex_bch_claim_') ||
+      txHexOrTx.startsWith('bch_claim_')
+    ) {
+      return 'claim';
+    }
+    if (
+      txHexOrTx.startsWith('hex_bch_refund_') ||
+      txHexOrTx.startsWith('bch_refund_')
+    ) {
+      return 'refund';
+    }
+    const cleanHex = txHexOrTx.replace(/^0x/i, '');
+    const decoded = libauth.decodeTransaction(libauth.hexToBin(cleanHex));
+    if (typeof decoded === 'string') return 'unrelated';
+    tx = decoded;
+  } else if (typeof txHexOrTx === 'object' && txHexOrTx !== null) {
+    if (
+      'outputs' in txHexOrTx &&
+      Array.isArray((txHexOrTx as { outputs: unknown[] }).outputs)
+    ) {
+      tx = txHexOrTx as libauth.Transaction;
+    } else if (
+      'hex' in txHexOrTx &&
+      typeof (txHexOrTx as { hex: unknown }).hex === 'string'
+    ) {
+      const cleanHex = (txHexOrTx as { hex: string }).hex.replace(/^0x/i, '');
+      const decoded = libauth.decodeTransaction(libauth.hexToBin(cleanHex));
+      if (typeof decoded === 'string') return 'unrelated';
+      tx = decoded;
+    } else if (
+      'txHex' in txHexOrTx &&
+      typeof (txHexOrTx as { txHex: unknown }).txHex === 'string'
+    ) {
+      const cleanHex = (txHexOrTx as { txHex: string }).txHex.replace(
+        /^0x/i,
+        '',
+      );
+      const decoded = libauth.decodeTransaction(libauth.hexToBin(cleanHex));
+      if (typeof decoded === 'string') return 'unrelated';
+      tx = decoded;
+    } else {
+      return 'unrelated';
+    }
+  } else {
+    return 'unrelated';
+  }
+
+  const isForward = isForwardDirection(terms.direction);
+  const recipientBytecode = resolveLockingBytecode(
+    isForward ? terms.userBchLockingBytecode : terms.solverBchLockingBytecode,
+  );
+  const refundBytecode = resolveLockingBytecode(
+    isForward ? terms.solverBchLockingBytecode : terms.userBchLockingBytecode,
+  );
+
+  const expectedRecipientHex = libauth
+    .binToHex(recipientBytecode)
+    .toLowerCase();
+  const expectedRefundHex = libauth.binToHex(refundBytecode).toLowerCase();
+
+  const expectedInternalCatHex = libauth
+    .binToHex(displayToInternalCategory(terms.bchTokenCategory))
+    .toLowerCase();
+  const expectedDisplayCatHex = terms.bchTokenCategory
+    .replace(/^0x/i, '')
+    .toLowerCase();
+  const expectedAmount = BigInt(terms.bchTokenAmount);
+
+  let paysRecipient = false;
+  let paysRefund = false;
+
+  for (const out of tx.outputs) {
+    if (!out) continue;
+    const lockHex = (
+      out.lockingBytecode instanceof Uint8Array
+        ? libauth.binToHex(out.lockingBytecode)
+        : String(out.lockingBytecode ?? '').replace(/^0x/i, '')
+    ).toLowerCase();
+
+    let tokenMatches = false;
+    if (out.token) {
+      const catHex = (
+        out.token.category instanceof Uint8Array
+          ? libauth.binToHex(out.token.category)
+          : String(out.token.category ?? '').replace(/^0x/i, '')
+      ).toLowerCase();
+
+      const catMatches =
+        catHex === expectedInternalCatHex || catHex === expectedDisplayCatHex;
+      const amountMatches = BigInt(out.token.amount) === expectedAmount;
+
+      if (catMatches && amountMatches) {
+        tokenMatches = true;
+      }
+    }
+
+    if (tokenMatches && lockHex === expectedRecipientHex) {
+      paysRecipient = true;
+    }
+    if (tokenMatches && lockHex === expectedRefundHex) {
+      paysRefund = true;
+    }
+  }
+
+  if (paysRecipient && !paysRefund) return 'claim';
+  if (paysRefund && !paysRecipient) return 'refund';
+  if (paysRecipient) return 'claim';
+  return 'unrelated';
 }
 
 /**
