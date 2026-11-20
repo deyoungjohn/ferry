@@ -1,5 +1,6 @@
 import {
   listDeployedContracts,
+  loadChainConfig,
   PREDICTED_FERRY_HTLC_ADDRESS,
   PREVIOUS_FERRY_HTLC_ADDRESS,
 } from '@ferry/chain-config/browser';
@@ -16,8 +17,13 @@ import {
   type RecoveryPlan,
   formatDuration,
   evmLockId,
+  EVM_RECOVERY_KEY_TYPED_DATA,
   type Hex32,
 } from '@ferry/core';
+import {
+  scanEvmSignature,
+  type WalletEvmSwap,
+} from '@ferry/recover-cli/wallet-scan';
 import {
   getEvmWalletRecoveryActions,
   inspectEvmWalletRecovery,
@@ -36,6 +42,26 @@ import { useToast } from '../lib/toast/ToastContext';
 import { readOrderTxids, type OrderSnapshot } from '../lib/paylink/order-steps';
 
 const deployed = listDeployedContracts(chainsData);
+const walletRecoveryChains = loadChainConfig({
+  data: chainsData,
+  network: 'mainnet',
+}).facts.map((chain) => ({
+  chainId: chain.chainId,
+  name: chain.name,
+  rpcUrls: chain.rpcUrls,
+  htlcAddresses: [
+    PREDICTED_FERRY_HTLC_ADDRESS,
+    PREVIOUS_FERRY_HTLC_ADDRESS,
+    ...deployed
+      .filter((item) => item.chain === chain.id)
+      .map((item) => item.address),
+  ].filter(
+    (address, index, all) =>
+      all.findIndex(
+        (candidate) => candidate.toLowerCase() === address.toLowerCase(),
+      ) === index,
+  ),
+}));
 
 export function RecoverPage() {
   const walletContext = useContext(WalletContext);
@@ -53,6 +79,9 @@ export function RecoverPage() {
   const [orderSnapshot, setOrderSnapshot] = useState<OrderSnapshot | null>(
     null,
   );
+  const [walletSwaps, setWalletSwaps] = useState<readonly WalletEvmSwap[]>([]);
+  const [walletBusy, setWalletBusy] = useState(false);
+  const [walletError, setWalletError] = useState<string | null>(null);
 
   /** The contract's lock id for this file's EVM lock (not the order id). */
   function evmLockIdOf(file: RecoveryFile): Hex32 {
@@ -273,6 +302,55 @@ export function RecoverPage() {
     }
   }
 
+  async function recoverWithEvmWallet() {
+    setWalletError(null);
+    setWalletSwaps([]);
+    const evm = walletContext?.evm;
+    if (!evm || evm.status !== 'connected' || !evm.address) {
+      evm?.connect();
+      setWalletError(
+        'Connect your EVM wallet in the dialog that opened, then press Recover with wallet again.',
+      );
+      return;
+    }
+    setWalletBusy(true);
+    try {
+      const signature = await evm.signTypedData(
+        EVM_RECOVERY_KEY_TYPED_DATA as Parameters<typeof evm.signTypedData>[0],
+      );
+      const result = await scanEvmSignature({
+        signature,
+        owner: evm.address,
+        chains: walletRecoveryChains,
+        gap: 20,
+      });
+      setWalletSwaps(result.swaps);
+      if (result.errors.length > 0) {
+        setWalletError(
+          `Some chains could not be read: ${result.errors.map((item) => item.chain).join(', ')}.`,
+        );
+      } else if (result.swaps.length === 0) {
+        setWalletError('No Ferry locks were found for this wallet.');
+      }
+    } catch (err) {
+      setWalletError(
+        err instanceof Error ? err.message : 'The wallet scan did not finish.',
+      );
+    } finally {
+      setWalletBusy(false);
+    }
+  }
+
+  function walletAction(swap: WalletEvmSwap): string {
+    if (swap.status === 'refunded') return 'Already refunded';
+    if (swap.status === 'claimed') return 'Already claimed';
+    if (swap.evmDeadline === null) return 'Locked';
+    const now = Math.floor(Date.now() / 1000);
+    return BigInt(now) >= swap.evmDeadline
+      ? 'Refund is available'
+      : `Refund after ${new Date(Number(swap.evmDeadline) * 1000).toUTCString()}`;
+  }
+
   function handleFileUpload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -487,6 +565,59 @@ export function RecoverPage() {
         >
           ← Back to Swap
         </Link>
+      </div>
+
+      {/* Wallet recovery */}
+      <div
+        data-testid="recover-with-wallet"
+        className="mb-6 rounded-card border border-lime/30 bg-lime/5 p-5 shadow-elev-card"
+      >
+        <h2 className="text-sm font-semibold text-text mb-1">
+          Recover with your wallet
+        </h2>
+        <p className="text-xs text-text-muted leading-relaxed mb-3">
+          Sign one fixed message with your EVM wallet. Ferry derives the swap
+          secrets locally and scans every chain; the signature cannot move
+          funds.
+        </p>
+        <button
+          type="button"
+          onClick={() => void recoverWithEvmWallet()}
+          disabled={walletBusy}
+          className="rounded-pill bg-lime px-4 py-1.5 text-xs font-semibold text-bg hover:bg-lime/90 transition-colors disabled:opacity-60"
+        >
+          {walletBusy ? 'Scanning…' : 'Recover with wallet'}
+        </button>
+        {walletError && (
+          <p className="mt-3 text-xs text-warn" role="status">
+            {walletError}
+          </p>
+        )}
+        {walletSwaps.length > 0 && (
+          <ul className="mt-4 divide-y divide-hairline/60">
+            {walletSwaps.map((swap) => (
+              <li
+                key={`${swap.chainId}-${swap.index}-${swap.lockId}`}
+                className="py-2 text-xs"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium text-text">
+                    {swap.chainName} · {swap.status} · index {swap.index}
+                  </span>
+                  <span className="text-text-muted">{walletAction(swap)}</span>
+                </div>
+                <div className="mt-1 font-mono text-[10px] text-text-dim break-all">
+                  {swap.lockId}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-3 text-[11px] text-text-dim">
+          Reverse swaps whose receiver is a typed address still need the Bitcoin
+          Cash history scan (standalone page). The per-swap file remains
+          available below.
+        </p>
       </div>
 
       {/* Upload Well */}

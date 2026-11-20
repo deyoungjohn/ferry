@@ -41,7 +41,8 @@
     "react-router": "8.5.0",
     "vaul": "1.1.2",
     "viem": "2.57.10",
-    "wagmi": "3.7.9"
+    "wagmi": "3.7.9",
+    "@ferry/recover-cli": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",

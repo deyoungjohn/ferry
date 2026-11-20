@@ -11,3 +11,7 @@ export {
   type ExecuteEvmRecoveryOptions,
 } from './recover.js';
 export { parseCliArgs, runRecoverCli, type ParsedCliArgs } from './cli.js';
+
+export * from './wallet-scan.js';
+
+export * from './wallet-cli.js';
