@@ -183,23 +183,70 @@ export function WalletPanel({
 
         {bch.status !== 'connected' && (
           <div className="space-y-2">
-            <button
-              type="button"
-              onClick={() => {
-                // The wallet's own QR dialog opens on top; ours must get out of its way.
-                bch.connect();
-                onClose();
-              }}
-              className="flex w-full items-center justify-center gap-2 rounded-pill bg-surface-3 border border-hairline px-4 py-2.5 text-xs font-semibold text-text hover:bg-surface-4 transition-colors cursor-pointer"
-            >
-              <WalletIcon className="size-4 text-lime" />
-              <span>
-                {/* Never a dead button: while waiting, pressing it shows a fresh QR code. */}
-                {bch.status === 'connecting'
-                  ? 'Waiting for the scan. Show the QR code again'
-                  : 'Connect BCH Wallet'}
-              </span>
-            </button>
+            {bch.pairingFailed ? (
+              <div className="space-y-2">
+                <div
+                  role="alert"
+                  className="rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn flex items-start gap-2"
+                >
+                  <AlertTriangleIcon className="size-4 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-medium text-text">Pairing interrupted</p>
+                    <p className="text-text-muted text-[11px] leading-relaxed">
+                      {bch.error ||
+                        'The pairing connection was dropped. The wallet or relay disconnected.'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (bch.showQrAgain) {
+                      bch.showQrAgain();
+                    } else {
+                      bch.connect();
+                    }
+                    onClose();
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-pill bg-lime py-2.5 text-xs font-semibold text-surface-0 hover:brightness-110 transition-all cursor-pointer"
+                >
+                  <WalletIcon className="size-4 text-surface-0" />
+                  <span>Show the QR again</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (bch.reconnectWallet) {
+                      bch.reconnectWallet();
+                    } else {
+                      bch.connect();
+                    }
+                    onClose();
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-pill bg-surface-3 border border-hairline py-2 text-xs font-semibold text-text hover:bg-surface-4 transition-colors cursor-pointer"
+                >
+                  <span>Reconnect wallet</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  // The wallet's own QR dialog opens on top; ours must get out of its way.
+                  bch.connect();
+                  onClose();
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-pill bg-surface-3 border border-hairline px-4 py-2.5 text-xs font-semibold text-text hover:bg-surface-4 transition-colors cursor-pointer"
+              >
+                <WalletIcon className="size-4 text-lime" />
+                <span>
+                  {/* Never a dead button: while waiting, pressing it shows a fresh QR code. */}
+                  {bch.status === 'connecting'
+                    ? 'Waiting for the scan. Show the QR code again'
+                    : 'Connect BCH Wallet'}
+                </span>
+              </button>
+            )}
             {bch.status === 'connecting' && (
               <button
                 type="button"
@@ -235,7 +282,7 @@ export function WalletPanel({
         )}
 
         {/* BCH Error / Network Prefix Mismatch Notice */}
-        {bch.error && (
+        {bch.error && !bch.pairingFailed && (
           <div className="mt-2.5 rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-xs text-warn flex items-start gap-2">
             <AlertTriangleIcon className="size-4 shrink-0 mt-0.5" />
             <span>{bch.error}</span>
