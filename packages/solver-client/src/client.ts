@@ -28,6 +28,8 @@ import {
   SendLinkDetailsResponseSchema,
   SendQuoteRequestSchema,
   StatsResponseSchema,
+  SwitchSendLinkRouteRequestSchema,
+  SwitchSendLinkRouteResponseSchema,
   type CancelPayLinkRequest,
   type CancelPayLinkResponse,
   type ChainsResponse,
@@ -53,6 +55,8 @@ import {
   type SendLinkDetailsResponse,
   type SendQuoteRequest,
   type StatsResponse,
+  type SwitchSendLinkRouteRequest,
+  type SwitchSendLinkRouteResponse,
 } from '@ferry/core/api';
 import type { z } from 'zod';
 import {
@@ -374,6 +378,21 @@ export class SolverClient {
       `/v1/send-links/${encodeURIComponent(id)}`,
       SendLinkDetailsResponseSchema,
       undefined,
+      options,
+    );
+  }
+
+  async switchSendLinkRoute(
+    id: string,
+    request: SwitchSendLinkRouteRequest,
+    options?: RequestCallOptions,
+  ): Promise<SwitchSendLinkRouteResponse> {
+    const body = SwitchSendLinkRouteRequestSchema.parse(request);
+    return this.requestJson(
+      'POST',
+      `/v1/send-links/${encodeURIComponent(id)}/switch-route`,
+      SwitchSendLinkRouteResponseSchema,
+      body,
       options,
     );
   }
