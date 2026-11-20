@@ -2374,7 +2374,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       points: Array<{ at: number; usdPrice: string }>;
     }> = [];
     for (const asset of ['PUSD', 'MUSD']) {
-      let price = '1.00';
+      let price: string;
       try {
         const reading = await priceSource.getPrice(asset);
         price = formatUsdMicrosToDecimal(reading.usdPrice);
