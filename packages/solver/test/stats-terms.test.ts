@@ -41,7 +41,7 @@ describe('amounts in stored terms', () => {
 
     const stats = db.getStatsSummary(40, 0n);
     expect(stats.completedSwaps).toBe(1);
-    expect(stats.volumeUsdMicros).toBe(1_000_000n);
+    expect(stats.volumeUsdMicros).toBe(990_000n);
     expect(stats.medianFastSeconds).toBe(120);
 
     const recent = db.getRecentSwaps(10);
@@ -49,7 +49,7 @@ describe('amounts in stored terms', () => {
     expect(recent[0]?.counterAmount).toBe(1_000_000n);
     expect(recent[0]?.bchTokenAmount).toBe(99n);
 
-    expect(db.getOpenExposureUsdMicros()).toBe(1_000_000n);
+    expect(db.getOpenExposureUsdMicros()).toBe(990_000n);
 
     // Swaps that began before the cut-off do not count towards the median.
     db.saveOrder({
@@ -74,5 +74,42 @@ describe('liquidity units', () => {
     expect(exposureInAssetUnits('PUSD', 1_000_000n)).toBe(100n);
     expect(exposureInAssetUnits('tMUSD', 5_000_000n)).toBe(500n);
     expect(exposureInAssetUnits('USDC', 1_000_000n)).toBe(1_000_000n);
+  });
+});
+
+describe('dollar figures for an 18-decimal token', () => {
+  it('count a $5 BNB USDT swap as five dollars, in volume and in open exposure', () => {
+    const db = new SolverDatabase(':memory:');
+    const now = Math.floor(Date.now() / 1000);
+    const terms = JSON.stringify({
+      evmAmount: '4990000000000000000n',
+      bchTokenAmount: '498n',
+      bchToken: 'PUSD',
+      evmChainId: 56,
+    });
+    const base = {
+      direction: 'EVM_TO_BCH' as const,
+      userCounterAddress: '0x1111111111111111111111111111111111111111',
+      termsJson: terms,
+      createdAt: now - 60,
+      updatedAt: now,
+    };
+    db.saveOrder({
+      ...base,
+      id: '0x' + 'e1'.repeat(32),
+      status: 'DONE',
+      lockId: '0x' + 'e1'.repeat(32),
+      hashLock: '0x' + 'e1'.repeat(32),
+      lane: 'safe',
+    });
+    db.saveOrder({
+      ...base,
+      id: '0x' + 'e2'.repeat(32),
+      status: 'USER_LOCK_FINAL',
+      lockId: '0x' + 'e2'.repeat(32),
+      hashLock: '0x' + 'e2'.repeat(32),
+    });
+    expect(db.getStatsSummary(40, 0n).volumeUsdMicros).toBe(4_980_000n);
+    expect(db.getOpenExposureUsdMicros()).toBe(4_980_000n);
   });
 });

@@ -222,17 +222,18 @@ function useRealBchWallet(
   // A pairing the user started waits for the scan; only a restored session is
   // dropped by the 8s limit.
   const [userStarted, setUserStarted] = useState(false);
+  // Cleared only by a completed connection: a pairing can pass through "disconnected" (a relay
+  // reconnect) and back to "connecting" while its QR is on screen.
   useEffect(() => {
-    if (wizard.state === 'connected' || wizard.state === 'disconnected') {
-      setUserStarted(false);
-    }
+    if (wizard.state === 'connected') setUserStarted(false);
   }, [wizard.state]);
 
   const reconnectTimedOut = useBchReconnectTimeout(
     wizard.state,
     () => wizard.disconnect(),
     8000,
-    !userStarted,
+    // Never while a pairing link (the QR) exists: it waits for the scan.
+    !userStarted && !wizard.uri,
   );
 
   const signAbort = useRef<AbortController | null>(null);

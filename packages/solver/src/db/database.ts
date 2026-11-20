@@ -1,7 +1,6 @@
 import DatabaseConstructor, {
   type Database as DatabaseType,
 } from 'better-sqlite3';
-import { convertCeil } from '@ferry/core';
 import type {
   ActionIntent,
   ActionRecord,
@@ -600,8 +599,9 @@ export class SolverDatabase {
       }
       try {
         const terms = JSON.parse(order.termsJson);
-        const amount = termsBigInt(terms.evmAmount);
-        totalMicros += convertCeil(amount, 6, 6);
+        // From the PUSD or MUSD amount (2 decimals, a cent per unit): the same for every EVM token,
+        // whatever its decimals (BNB Chain's USDT has 18).
+        totalMicros += termsBigInt(terms.bchTokenAmount) * 10_000n;
       } catch {
         // ignore malformed terms
       }
@@ -803,8 +803,7 @@ export class SolverDatabase {
     for (const row of rows) {
       try {
         const terms = JSON.parse(row.terms_json);
-        const amount = termsBigInt(terms.evmAmount);
-        totalVolumeMicros += amount;
+        totalVolumeMicros += termsBigInt(terms.bchTokenAmount) * 10_000n;
       } catch {
         // ignore
       }
