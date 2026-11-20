@@ -35,8 +35,18 @@ bad() { printf '  [FAIL] %s\n' "$*"; failures=$((failures + 1)); }
 warn() { printf '  [warn] %s\n' "$*"; }
 section() { printf '\n== %s ==\n' "$*"; }
 
+_sudo() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif sudo -n true 2>/dev/null; then
+    sudo "$@"
+  else
+    "$@"
+  fi
+}
+
 need_dir() {
-  if [ ! -d "$FERRY_DIR/.git" ]; then
+  if [ ! -e "$FERRY_DIR/.git" ]; then
     say "Cannot find the repository at $FERRY_DIR (set FERRY_DIR if it lives elsewhere)." >&2
     exit 2
   fi
@@ -116,7 +126,7 @@ cmd_health() {
   if [ -n "$recent" ]; then warn "warnings or errors in the log:"; printf '%s\n' "$recent" | sed 's/^/    /'; else ok "no warnings or errors"; fi
 
   section "Relay (optional)"
-  if command -v docker >/dev/null 2>&1 && sudo docker inspect -f '{{.State.Status}}' "$RELAY_CONTAINER" 2>/dev/null | grep -q "^running$"; then
+  if command -v docker >/dev/null 2>&1 && _sudo docker inspect -f '{{.State.Status}}' "$RELAY_CONTAINER" 2>/dev/null | grep -q "^running$"; then
     ok "relay is running ($RELAY_CONTAINER on 127.0.0.1:$RELAY_PORT)"
   else
     say "  [info] relay is not running (optional: $0 relay install)"
@@ -266,13 +276,13 @@ cmd_relay() {
         return 1
       fi
       section "Installing Ferry WizardConnect Relay"
-      sudo install -d -m 0777 "${RELAY_DATA_DIR}/db"
-      if sudo docker inspect "$RELAY_CONTAINER" >/dev/null 2>&1; then
+      _sudo install -d -m 0777 "${RELAY_DATA_DIR}/db"
+      if _sudo docker inspect "$RELAY_CONTAINER" >/dev/null 2>&1; then
         say "Stopping and removing existing $RELAY_CONTAINER container..."
-        sudo docker rm -f "$RELAY_CONTAINER" >/dev/null 2>&1 || true
+        _sudo docker rm -f "$RELAY_CONTAINER" >/dev/null 2>&1 || true
       fi
       say "Launching pinned nostr-rs-relay container..."
-      sudo docker run -d \
+      _sudo docker run -d \
         --name "$RELAY_CONTAINER" \
         --restart unless-stopped \
         -p "127.0.0.1:${RELAY_PORT}:8080" \
@@ -283,7 +293,7 @@ cmd_relay() {
         "$RELAY_IMAGE" \
         ./nostr-rs-relay --config /usr/src/app/config.toml --db /usr/src/app/db
       sleep 2
-      if sudo docker inspect -f '{{.State.Status}}' "$RELAY_CONTAINER" 2>/dev/null | grep -q "^running$"; then
+      if _sudo docker inspect -f '{{.State.Status}}' "$RELAY_CONTAINER" 2>/dev/null | grep -q "^running$"; then
         ok "Relay container $RELAY_CONTAINER is running on 127.0.0.1:$RELAY_PORT"
       else
         bad "Relay container failed to start. Check logs: $0 relay logs"
@@ -295,13 +305,13 @@ cmd_relay() {
         say "Docker is not installed."
         return 1
       fi
-      if ! sudo docker inspect "$RELAY_CONTAINER" >/dev/null 2>&1; then
+      if ! _sudo docker inspect "$RELAY_CONTAINER" >/dev/null 2>&1; then
         say "Relay container $RELAY_CONTAINER does not exist (run: $0 relay install)."
         return 0
       fi
       section "Relay Container Status"
       local state
-      state="$(sudo docker inspect -f '{{.State.Status}}' "$RELAY_CONTAINER" 2>/dev/null || echo "unknown")"
+      state="$(_sudo docker inspect -f '{{.State.Status}}' "$RELAY_CONTAINER" 2>/dev/null || echo "unknown")"
       say "  Container:   $RELAY_CONTAINER ($state)"
       say "  Image:       $RELAY_IMAGE"
 
@@ -315,7 +325,7 @@ cmd_relay() {
       say "  Version:     $version"
 
       local mem="0B"
-      mem="$(sudo docker stats --no-stream --format '{{.MemUsage}}' "$RELAY_CONTAINER" 2>/dev/null || echo "unknown")"
+      mem="$(_sudo docker stats --no-stream --format '{{.MemUsage}}' "$RELAY_CONTAINER" 2>/dev/null || echo "unknown")"
       say "  Memory:      $mem (cap: 256MB)"
 
       local conns=0
@@ -334,16 +344,16 @@ cmd_relay() {
       say "  Events:      $events stored in ephemeral SQLite (backup-free)"
       ;;
     logs)
-      sudo docker logs -f --tail 50 "$RELAY_CONTAINER"
+      _sudo docker logs -f --tail 50 "$RELAY_CONTAINER"
       ;;
     restart)
       say "Restarting relay container $RELAY_CONTAINER..."
-      sudo docker restart "$RELAY_CONTAINER"
+      _sudo docker restart "$RELAY_CONTAINER"
       ok "Relay container restarted."
       ;;
     remove)
       say "Removing relay container $RELAY_CONTAINER..."
-      sudo docker rm -f "$RELAY_CONTAINER" >/dev/null 2>&1 || true
+      _sudo docker rm -f "$RELAY_CONTAINER" >/dev/null 2>&1 || true
       say "Relay container removed. Ephemeral DB directory (${RELAY_DATA_DIR}/db) preserved."
       ;;
     probe)
