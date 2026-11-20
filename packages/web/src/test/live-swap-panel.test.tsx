@@ -180,7 +180,7 @@ describe('live swap panel', () => {
     expect(onStart).toHaveBeenCalledWith(`0x${'cd'.repeat(32)}`);
   });
 
-  it('with connected EVM wallet, enables start swap without requiring file download and never fires automatic download', async () => {
+  it('with a connected EVM wallet there is one confirmation: Start swap prepares and locks, and no download is fired', async () => {
     const downloadSpy = vi.fn();
     URL.createObjectURL = downloadSpy;
     render(
@@ -200,21 +200,13 @@ describe('live swap panel', () => {
       />,
     );
 
-    await screen.findByTestId('live-preview-note');
-    fireEvent.click(screen.getByTestId('live-continue'));
-    const note = await screen.findByTestId('live-keep-file-note');
+    const note = await screen.findByTestId('live-preview-note');
     expect(note).toHaveTextContent(
-      'This swap can be recovered with your wallet on any device. If anything stops, your refund stays available.',
+      'This swap can be recovered with your wallet on any device.',
     );
-
-    // No automatic download fired
-    expect(downloadSpy).not.toHaveBeenCalled();
-
-    // Lock button is enabled directly without clicking download
-    const lock = screen.getByTestId('live-lock') as HTMLButtonElement;
-    expect(lock.disabled).toBe(false);
-
-    fireEvent.click(lock);
+    // No second dialog step: the one button starts the swap.
+    expect(screen.queryByTestId('live-continue')).toBeNull();
+    fireEvent.click(screen.getByTestId('live-start'));
     await screen.findByTestId('live-done');
     expect(calls).toEqual(['preview', 'prepare', 'execute']);
     expect(downloadSpy).not.toHaveBeenCalled();

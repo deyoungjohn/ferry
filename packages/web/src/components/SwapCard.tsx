@@ -25,6 +25,7 @@ import {
   readBchTokenBalance,
   readEvmTokenBalance,
   shareOfBalance,
+  floorUnitsToText,
 } from '../lib/wallet/send-balance';
 import { createBrowserBchChain } from '../lib/live/bch-chain';
 import { AmountSlider } from './swap-block/AmountSlider';
@@ -536,9 +537,8 @@ export function SwapCard({
     setSharePercent(percent);
     if (walletBalance === null) return;
     const units = shareOfBalance(walletBalance, percent);
-    const text = (Number(units) / 10 ** sendDecimals).toFixed(
-      Math.min(sendDecimals, 2),
-    );
+    // Cut off, never rounded up: the amount must not exceed what the wallet holds.
+    const text = floorUnitsToText(units, sendDecimals, 2);
     setSendAmount(percent === 0 ? '' : text);
   }
   const receiveTokenSymbol = isReverse ? selectedFarToken : selectedBchToken;
