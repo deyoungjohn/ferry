@@ -2,7 +2,8 @@
 # Everyday operations on the Ferry server. Run it from anywhere:
 #
 #   /opt/ferry/deploy/ferry-ops.sh health      check that everything works (changes nothing)
-#   /opt/ferry/deploy/ferry-ops.sh update      pull, build, publish the site, restart, then check
+#   /opt/ferry/deploy/ferry-ops.sh update [-y] [-b <branch>]   pull, build, publish the site, restart, then check
+#                                              -b <branch> deploys that branch (to review a pull request live); -b main goes back
 #   /opt/ferry/deploy/ferry-ops.sh caddy       show and apply a changed Caddyfile
 #   /opt/ferry/deploy/ferry-ops.sh env         what is wrong with the settings file (shows no secret)
 #   /opt/ferry/deploy/ferry-ops.sh logs        follow the solver's log
@@ -139,8 +140,18 @@ cmd_health() {
 
 cmd_update() {
   need_dir
-  local assume_yes=0
-  [ "${1:-}" = "-y" ] && assume_yes=1
+  local assume_yes=0 branch=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -y) assume_yes=1 ;;
+      -b|--branch)
+        branch="${2:-}"
+        if [ -z "$branch" ]; then say "Usage: $0 update [-y] [-b <branch>]" >&2; exit 2; fi
+        shift ;;
+      *) say "Unknown option: $1. Usage: $0 update [-y] [-b <branch>]" >&2; exit 2 ;;
+    esac
+    shift
+  done
   cd "$FERRY_DIR"
   if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
     say "The repository has local changes. Stopping so nothing is lost:" >&2
@@ -149,7 +160,8 @@ cmd_update() {
   fi
   local before after
   before="$(git rev-parse HEAD)"
-  say "Current commit: $(git log -1 --format='%h %s' HEAD)"
+  say "Current commit: $(git log -1 --format='%h %s' HEAD) ($(git rev-parse --abbrev-ref HEAD))"
+  [ -n "$branch" ] && say "Deploying branch: $branch"
   if [ "$assume_yes" -ne 1 ]; then
     say "Take a Lightsail snapshot first if this update is large."
     read -r -p "Update now? [y/N] " answer
@@ -157,6 +169,10 @@ cmd_update() {
   fi
 
   section "Pull"
+  if [ -n "$branch" ]; then
+    git fetch origin "$branch"
+    git switch -C "$branch" "origin/$branch"
+  fi
   git pull --ff-only
   after="$(git rev-parse HEAD)"
   if [ "$before" = "$after" ]; then say "Already up to date ($(git log -1 --format='%h' HEAD))."; else git log --oneline "$before..$after"; fi
@@ -379,16 +395,22 @@ cmd_relay() {
   esac
 }
 
-case "${1:-}" in
-  health) cmd_health ;;
-  update) shift; cmd_update "$@" ;;
-  caddy) cmd_caddy ;;
-  env) cmd_env ;;
-  logs) cmd_logs ;;
-  rollback) shift; cmd_rollback "$@" ;;
-  relay) shift; cmd_relay "$@" ;;
-  *)
-    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
-    exit 2
-    ;;
-esac
+# The whole script is read before anything runs: `update -b` switches branches, which rewrites this
+# file on disk, and bash must not read on from a changed file.
+main() {
+  case "${1:-}" in
+    health) cmd_health ;;
+    update) shift; cmd_update "$@" ;;
+    caddy) cmd_caddy ;;
+    env) cmd_env ;;
+    logs) cmd_logs ;;
+    rollback) shift; cmd_rollback "$@" ;;
+    relay) shift; cmd_relay "$@" ;;
+    *)
+      sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"; exit $?
