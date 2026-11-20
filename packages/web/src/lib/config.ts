@@ -78,7 +78,7 @@ export const NETWORK_CONFIG_ERRORS = networkConfigErrors(
   setting.error,
 );
 
-export const SPREAD_BPS = 40; // 0.40%
+export const SPREAD_BPS = 5; // 0.05%: the solver's current setting (used only for a price estimate when the solver gives none)
 export const FIXED_FEE_USD = 0.05; // $0.05 fixed network cost offset
 
 export const REOWN_PROJECT_ID =

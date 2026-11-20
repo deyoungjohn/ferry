@@ -4,7 +4,7 @@ import { ROUTES } from '../lib/routes';
 import { useParams, useNavigate, Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
 import { getModeCopy } from '../lib/copy';
-import { NETWORK_PROFILE } from '../lib/config';
+import { NETWORK_PROFILE, SPREAD_BPS } from '../lib/config';
 import { useSolver } from '../lib/solver/useSolver';
 import { WalletContext } from '../lib/wallet/context';
 import { chunkCashaddr } from '../lib/paylink/link';
@@ -165,7 +165,7 @@ export function PayLinkPage() {
       ? quote
         ? quote.fromAmount.toFixed(2)
         : quoteProblem
-          ? '—'
+          ? `≈ ${(Math.ceil((requestedAmount / (1 - SPREAD_BPS / 10_000)) * 100) / 100).toFixed(2)}`
           : '…'
       : '0.00';
 
@@ -313,11 +313,18 @@ export function PayLinkPage() {
           lane: 'fast' as const,
           fastOptIn: true,
         };
-        const { amountIn } = await amountInForExactOut(
-          deps,
-          base,
-          BigInt(Math.round(requestedAmount * 100)),
-        );
+        // A fixed link: find what to send so the recipient gets exactly the amount. An open link:
+        // the payer pays exactly what they typed, fees and spread included.
+        const amountIn = isOpen
+          ? BigInt(Math.round(typedPay * 100)) *
+            10n ** BigInt(Math.max(0, far.decimals - 2))
+          : (
+              await amountInForExactOut(
+                deps,
+                base,
+                BigInt(Math.round(requestedAmount * 100)),
+              )
+            ).amountIn;
         const prepared = await prepareSwap(deps, { ...base, amountIn });
         await new Promise<void>((resolve, reject) => {
           setFileToSave({ ...prepared.recovery, resolve, reject });
@@ -463,6 +470,7 @@ export function PayLinkPage() {
                 lock: 'Your payment is locked',
                 waitCounterLock: `The solver locks ${token} on Bitcoin Cash`,
                 claim: `The owner is paid in ${token}`,
+                doneMessage: `Payment complete. The creator receives the ${token} in their Bitcoin Cash wallet once it confirms.`,
               }}
             />
           ) : showSteps ? (
@@ -575,16 +583,24 @@ export function PayLinkPage() {
                         Bitcoin Cash
                       </span>
                     </div>
-                    {pusdIconUrl(token) && (
-                      <img
-                        src={pusdIconUrl(token)!}
-                        alt=""
-                        className="my-4 size-16 rounded-full"
-                      />
-                    )}
+                    <div className="flex flex-1 items-center py-4">
+                      {pusdIconUrl(token) && (
+                        <img
+                          src={pusdIconUrl(token)!}
+                          alt=""
+                          className="size-16 rounded-full"
+                        />
+                      )}
+                    </div>
                     <div className="mt-auto text-xl font-semibold text-text print:text-black">
                       {ready.amount === undefined
-                        ? `${openReceive !== null ? openReceive.toFixed(2) : '0.00'} ${token}`
+                        ? `${
+                            openReceive !== null
+                              ? openReceive.toFixed(2)
+                              : quoteProblem && typedPay > 0
+                                ? `≈ ${(Math.floor(typedPay * (1 - SPREAD_BPS / 10_000) * 100) / 100).toFixed(2)}`
+                                : '0.00'
+                          } ${token}`
                         : `${requestedAmount.toFixed(2)} ${token}`}
                     </div>
                   </div>

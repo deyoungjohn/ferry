@@ -18,7 +18,7 @@ const base = {
 };
 
 describe('amountInForExactOut', () => {
-  it('finds what to send so the recipient gets at least the exact amount, within two cents', async () => {
+  it('finds what to send so the recipient gets at least the exact amount, with at most a cent over', async () => {
     for (const target of [200n, 20_000n, 200_000n]) {
       const { amountIn, receivedCents } = await amountInForExactOut(
         {} as never,
@@ -27,7 +27,7 @@ describe('amountInForExactOut', () => {
         fakeSolver as never,
       );
       expect(receivedCents).toBeGreaterThanOrEqual(target);
-      expect(receivedCents - target).toBeLessThanOrEqual(2n);
+      expect(receivedCents - target).toBeLessThanOrEqual(1n);
       expect(amountIn).toBeGreaterThan(target * 10_000n);
     }
   });
