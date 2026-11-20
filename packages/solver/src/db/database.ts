@@ -797,7 +797,7 @@ export class SolverDatabase {
     asOf: number | null;
   } {
     const stmt = this.db.prepare(`
-      SELECT terms_json, lane, created_at, updated_at,
+      SELECT terms_json, lane, direction, created_at, updated_at,
         (pay_link_id IS NOT NULL
           OR id IN (SELECT order_id FROM send_link_orders)
           OR id IN (SELECT order_id FROM send_link_notes)
@@ -811,7 +811,9 @@ export class SolverDatabase {
       created_at: number;
       updated_at: number;
       is_link: number;
+      direction: string;
     }>;
+    const payLinks = this.payLinkMatchers();
 
     if (rows.length === 0) {
       return {
@@ -841,7 +843,15 @@ export class SolverDatabase {
       // before MEDIAN_COUNTS_FROM ran on engine builds with known faults and are left out of the
       // median (they still count as completed swaps and in the volume).
       // A link's order waits for a person to pay or claim it, so its time is not the swap's speed.
-      if (!row.is_link && toSeconds(row.created_at) >= MEDIAN_COUNTS_FROM) {
+      const isLink =
+        Boolean(row.is_link) ||
+        this.isPayLinkPayment(
+          row.terms_json,
+          row.direction,
+          row.created_at,
+          payLinks,
+        );
+      if (!isLink && toSeconds(row.created_at) >= MEDIAN_COUNTS_FROM) {
         fastDurations.push(
           Math.max(0, toSeconds(row.updated_at) - toSeconds(row.created_at)),
         );
@@ -868,6 +878,60 @@ export class SolverDatabase {
       },
       asOf: toSeconds(nowInput),
     };
+  }
+
+  /**
+   * The pay links, as the relation the server uses to tie a swap to its link (the recipient's
+   * script, the token and the amount), for leaving link payments out of swap lists and medians.
+   */
+  private payLinkMatchers(): Array<{
+    recipient: string;
+    token: string;
+    minAmount: bigint | null;
+    createdAt: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT recipient_locking_bytecode, token, amount_out, created_at FROM pay_links',
+      )
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      recipient: String(r.recipient_locking_bytecode ?? '').toLowerCase(),
+      token: String(r.token ?? ''),
+      minAmount:
+        r.amount_out === null || r.amount_out === undefined
+          ? null
+          : BigInt(String(r.amount_out)),
+      createdAt: Number(r.created_at ?? 0),
+    }));
+  }
+
+  private isPayLinkPayment(
+    termsJson: string,
+    direction: string,
+    orderCreatedAt: number,
+    links: ReturnType<SolverDatabase['payLinkMatchers']>,
+  ): boolean {
+    if (direction !== 'EVM_TO_BCH' && direction !== 'COUNTER_TO_BCH') {
+      return false;
+    }
+    try {
+      const terms = JSON.parse(termsJson) as Record<string, unknown>;
+      const recipient = String(
+        terms.userBchLockingBytecode ?? '',
+      ).toLowerCase();
+      const token = String(terms.bchToken ?? '');
+      const amount = termsBigInt(terms.bchTokenAmount);
+      return links.some(
+        (l) =>
+          l.recipient === recipient &&
+          l.token === token &&
+          (l.minAmount === null || amount >= l.minAmount) &&
+          toSeconds(orderCreatedAt) >= l.createdAt - 600,
+      );
+    } catch {
+      return false;
+    }
   }
 
   getRecentSwaps(limit: number = 50): Array<{
@@ -898,7 +962,19 @@ export class SolverDatabase {
       ORDER BY updated_at DESC 
       LIMIT ?
     `);
-    const rows = stmt.all(limit) as Record<string, unknown>[];
+    // Link payments are filtered below, so read a wider window than the limit.
+    const links = this.payLinkMatchers();
+    const rows = (stmt.all(limit * 4 + 200) as Record<string, unknown>[])
+      .filter(
+        (r) =>
+          !this.isPayLinkPayment(
+            String(r.terms_json ?? '{}'),
+            String(r.direction ?? ''),
+            Number(r.created_at ?? 0),
+            links,
+          ),
+      )
+      .slice(0, limit);
     const result: Array<{
       orderId: string;
       settledAt: number;

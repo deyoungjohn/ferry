@@ -25,4 +25,42 @@ describe('recent swaps leave out link orders', () => {
     const ids = db.getRecentSwaps(50).map((s) => s.orderId);
     expect(ids).toEqual(['plain']);
   });
+
+  it('leaves out a payment of a pay link made through the ordinary quote route', () => {
+    const db = new SolverDatabase();
+    const now = Math.floor(Date.now() / 1000);
+    const recipient = '0x76a914' + '11'.repeat(20) + '88ac';
+    db.savePayLink({
+      id: 'pl-real',
+      kind: 'open',
+      recipientCashaddr: 'bitcoincash:zq',
+      recipientLockingBytecode: recipient,
+      token: 'PUSD',
+      status: 'open',
+      verified: true,
+      createdAt: now - 100,
+      updatedAt: now - 100,
+    } as never);
+    const save = (id: string, bytecode: string) =>
+      db.saveOrder({
+        id,
+        direction: 'EVM_TO_BCH',
+        status: 'DONE',
+        userCounterAddress: '0xuser',
+        lockId: '0x' + id,
+        termsJson: JSON.stringify({
+          bchToken: 'PUSD',
+          bchTokenAmount: '195n',
+          evmAmount: '1960000n',
+          userBchLockingBytecode: bytecode,
+        }),
+        hashLock: '0x' + id,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+    save('linkpay', recipient);
+    save('otherswap', '0x76a914' + '22'.repeat(20) + '88ac');
+    const ids = db.getRecentSwaps(50).map((s) => s.orderId);
+    expect(ids).toEqual(['otherswap']);
+  });
 });
