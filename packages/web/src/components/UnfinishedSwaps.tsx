@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isCancelled } from '../lib/live/cancelled';
 import { Link } from 'react-router';
 import {
   resumeAll,
@@ -95,10 +96,13 @@ export function UnfinishedSwaps({
   }, [solverUrl, evmAddress, fetchFn]);
 
   const rows = new Map<string, Row>();
-  for (const row of server) rows.set(row.orderId, row);
+  for (const row of server) {
+    if (!isCancelled(row.orderId)) rows.set(row.orderId, row);
+  }
   for (const swap of local?.resumed ?? []) {
     const step = swap.session.state.step;
     if (swap.settled || STEP_TEXT[step] === undefined) continue;
+    if (isCancelled(swap.orderId)) continue;
     rows.set(swap.orderId, { orderId: swap.orderId, text: STEP_TEXT[step]! });
   }
   const list = [...rows.values()];

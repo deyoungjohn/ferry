@@ -1,4 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
+import { isCancelled, markCancelled } from '../lib/live/cancelled';
 import { Link, useLocation } from 'react-router';
 import {
   UserFlowError,
@@ -160,6 +161,7 @@ export function LiveOrderView({
 
   // What the server holds for this order (state, transactions, times, amounts). The last copy is
   // kept in this browser and paints at once; the live answer corrects it every few seconds.
+  const [cancelled, setCancelled] = useState(() => isCancelled(orderId));
   const [snap, setSnap] = useState<OrderSnapshot | null>(() =>
     readSnapshot<OrderSnapshot>(`order.${orderId}`),
   );
@@ -468,6 +470,19 @@ export function LiveOrderView({
     (state?.step === 'done' || (snap?.state === 'DONE' && snapIndex >= 5));
   const refundReady = state?.step === 'refund';
   const needsLockStart = state?.step === 'lock' && !running.current;
+  // Nothing locked on either side (the session never sent a lock, the server saw none): the person
+  // may drop the swap. The saved data stays, in case a wallet sends the lock late.
+  const lockSent = Boolean(
+    state?.txids?.userLock || chainTxids.evmLock || chainTxids.bchLock,
+  );
+  const serverIdle =
+    !snap?.state || snap.state === 'QUOTED' || snap.state === 'EXPIRED';
+  const canCancel =
+    state?.step === 'lock' &&
+    !lockSent &&
+    serverIdle &&
+    !isReleased &&
+    !isKeeperRefund;
   const waitingForWallets = !dependencies && !wallets?.bch.address;
   // The wallet that signs the lock must be connected now (a remembered address is not enough).
   const signer =
@@ -491,7 +506,7 @@ export function LiveOrderView({
         {orderId}
       </p>
 
-      {state?.step === 'lock' && state.status === 'running' && (
+      {state?.step === 'lock' && state.status === 'running' && !mustRestart && (
         <p
           className="mt-4 rounded-lg border border-hairline bg-surface-2 p-3 text-xs text-text-muted"
           data-testid="order-wallet-hint"
@@ -536,7 +551,7 @@ export function LiveOrderView({
               : fileJson !== null && index < 2;
           // A swap the solver returned or that was refunded has no step in progress any more.
           const active =
-            (state || snap) && !isReleased && !isKeeperRefund
+            (state || snap) && !isReleased && !isKeeperRefund && !mustRestart
               ? index === current && !done
               : false;
           return (
@@ -656,6 +671,13 @@ export function LiveOrderView({
         </p>
       )}
 
+      {cancelled && (
+        <p className="mt-4 text-sm text-text" data-testid="order-cancelled">
+          Cancelled. Nothing was locked, so there is nothing to refund. If your
+          wallet still sends this lock later, refund it from the Recover page.
+        </p>
+      )}
+
       {mustRestart && (
         <p className="mt-4 text-sm text-text" data-testid="order-quote-expired">
           This quote has expired, so the solver would not honour a lock now.
@@ -673,9 +695,23 @@ export function LiveOrderView({
             Back to swap
           </Link>
         )}
+        {canCancel && !cancelled && (
+          <button
+            type="button"
+            data-testid="order-cancel"
+            onClick={() => {
+              markCancelled(orderId);
+              setCancelled(true);
+            }}
+            className="h-10 rounded-pill border border-hairline px-5 font-semibold text-text"
+          >
+            Cancel swap
+          </button>
+        )}
         {needsLockStart &&
           sessionRef.current &&
           !mustRestart &&
+          !cancelled &&
           !isReleased &&
           !isKeeperRefund && (
             <button
