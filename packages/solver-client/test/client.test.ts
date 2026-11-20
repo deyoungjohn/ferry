@@ -342,7 +342,7 @@ describe('relay calls wait for the chain', () => {
     const seen: number[] = [];
     const client = new SolverClient({
       baseUrl: 'https://solver.test',
-      fetchFn: ((_url: string, init?: { signal?: AbortSignal }) => {
+      fetch: ((_url: string, init?: { signal?: AbortSignal }) => {
         // The abort signal exists; what matters is the limit the client applied.
         void init;
         return Promise.reject(new Error('stop'));
