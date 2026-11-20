@@ -43,6 +43,9 @@ export function computeWaitState(
   status: string,
   expiresAt: number | null,
 ): SendLinkWaitState {
+  if (status === 'cancelled') {
+    return 'cancelled by the sender';
+  }
   if (status === 'pending_lock') {
     return "the sender's funds are being locked";
   }
@@ -138,6 +141,7 @@ export function SendLinkPage({
     ? computeWaitState(link.status, link.expiresAt)
     : null;
 
+  const isCancelled = waitState === 'cancelled by the sender';
   const isReadyToClaim = waitState === 'ready to claim';
   const isPendingLock = waitState === "the sender's funds are being locked";
   const isClaimed = waitState === 'claimed';
@@ -150,7 +154,7 @@ export function SendLinkPage({
     link !== null &&
     connectedEvm !== null &&
     connectedEvm !== link.recipientEvmAddress.toLowerCase();
-  const claimable = isReadyToClaim && !claiming && !wrongWallet;
+  const claimable = isReadyToClaim && !claiming && !wrongWallet && !isCancelled;
 
   async function handleClaim() {
     if (isLive && wallets && !wallets.evm.address) {
@@ -417,15 +421,17 @@ export function SendLinkPage({
                     ? 'Processing claim…'
                     : isPendingLock
                       ? "the sender's funds are being locked"
-                      : isReadyToClaim
-                        ? isLive && wallets && !wallets.evm.address
-                          ? 'Connect and claim'
-                          : 'Claim'
-                        : isClaimed
-                          ? 'Claimed'
-                          : isExpired
-                            ? 'expired: the sender gets their funds back'
-                            : 'This link is no longer open'}
+                      : isCancelled
+                        ? 'Cancelled by the sender'
+                        : isReadyToClaim
+                          ? isLive && wallets && !wallets.evm.address
+                            ? 'Connect and claim'
+                            : 'Claim'
+                          : isClaimed
+                            ? 'Claimed'
+                            : isExpired
+                              ? 'expired: the sender gets their funds back'
+                              : 'This link is no longer open'}
                 </span>
               </button>
 

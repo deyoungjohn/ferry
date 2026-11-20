@@ -89,6 +89,12 @@ export const API_ERROR_CODES = [
   'RELAY_LOCK_REVERTED',
   'INSUFFICIENT_INVENTORY',
   'EXPOSURE_LIMIT_EXCEEDED',
+  'ALREADY_CLAIMED',
+  'LIMIT_REACHED',
+  'NOT_YOUR_LINK',
+  'CLAIM_IN_PROGRESS',
+  'LINK_CANCELLED',
+  'ALREADY_PAID',
   'UPSTREAM_ERROR',
   'INTERNAL_ERROR',
 ] as const;
@@ -126,6 +132,12 @@ export const API_ERROR_HTTP_STATUS: Readonly<Record<ApiErrorCode, number>> =
     RELAY_LOCK_REVERTED: 502,
     INSUFFICIENT_INVENTORY: 503,
     EXPOSURE_LIMIT_EXCEEDED: 503,
+    ALREADY_CLAIMED: 409,
+    LIMIT_REACHED: 429,
+    NOT_YOUR_LINK: 403,
+    CLAIM_IN_PROGRESS: 409,
+    LINK_CANCELLED: 400,
+    ALREADY_PAID: 409,
     UPSTREAM_ERROR: 502,
     INTERNAL_ERROR: 500,
   });
@@ -179,6 +191,12 @@ export const API_ERROR_MESSAGES: Readonly<Record<ApiErrorCode, string>> =
       'The solver does not currently have enough inventory for this amount.',
     EXPOSURE_LIMIT_EXCEEDED:
       'This swap would exceed the solver’s open exposure limit.',
+    ALREADY_CLAIMED: 'This send link has already been claimed.',
+    LIMIT_REACHED: 'Cancellation limit reached.',
+    NOT_YOUR_LINK: 'Sender authorization verification failed.',
+    CLAIM_IN_PROGRESS: 'Receiver claim is currently in progress.',
+    LINK_CANCELLED: 'This send link has been cancelled by the sender.',
+    ALREADY_PAID: 'This pay link is already paid or payment has started.',
     UPSTREAM_ERROR:
       'An upstream chain RPC or indexer returned an error; try again.',
     INTERNAL_ERROR: 'The solver encountered an unexpected internal error.',
@@ -625,7 +643,14 @@ export type OperatorNeedsAttentionResponse = z.infer<
 export const PayLinkJsonSchema = z.strictObject({
   id: textSchema,
   kind: z.enum(['invoice', 'open']),
-  status: z.enum(['open', 'reserved', 'paid', 'expired', 'cancelled']),
+  status: z.enum([
+    'open',
+    'reserved',
+    'paid',
+    'expired',
+    'cancelled',
+    'closed',
+  ]),
   token: z.enum(['PUSD', 'MUSD']),
   recipientAddress: textSchema,
   recipientLockingBytecode: hexSchema,
@@ -646,6 +671,17 @@ export const PayLinkJsonSchema = z.strictObject({
       createdAt: unixTimestampSeconds,
       updatedAt: unixTimestampSeconds,
       timeline: OrderTimelineSchema,
+      /** What the swap moved: token, amounts and chain, so a paid link can show what was paid. */
+      summary: z
+        .strictObject({
+          bchToken: z.string().min(1).max(16),
+          bchTokenAmount: z.string().regex(/^\d+$/),
+          evmAmount: z.string().regex(/^\d+$/),
+          evmChainId: positiveUint,
+          evmToken: z.string().min(1).max(32).optional(),
+          evmDecimals: z.number().int().min(0).max(36).optional(),
+        })
+        .optional(),
     })
     .optional(),
   verified: z.boolean().optional(),
@@ -660,12 +696,21 @@ export const CreatePayLinkRequestSchema = z.strictObject({
   memo: z.string().min(1).max(256).optional(),
   expiresAt: unixTimestampSeconds.optional(),
   ownerSig: z.string().min(1).max(512).optional(),
+  ownerSecretHash: hex32Schema.optional(),
 });
 
 export type CreatePayLinkRequest = z.infer<typeof CreatePayLinkRequestSchema>;
 
 export const CreatePayLinkResponseSchema = PayLinkJsonSchema;
 export type CreatePayLinkResponse = PayLinkJson;
+
+export const DeletePayLinkResponseSchema = z.strictObject({
+  ok: z.boolean(),
+  id: textSchema,
+  status: z.literal('closed'),
+});
+
+export type DeletePayLinkResponse = z.infer<typeof DeletePayLinkResponseSchema>;
 
 export const PayLinkDetailsResponseSchema = PayLinkJsonSchema;
 export type PayLinkDetailsResponse = PayLinkJson;
@@ -762,6 +807,8 @@ export const SendQuoteRequestSchema = z.strictObject({
   note: sendLinkNoteSchema.optional(),
   /** Optional blinded tag (32 bytes hex) so the sender can list their send links across devices. */
   viewTag: viewTagSchema.optional(),
+  /** Optional cancel hash (sha256 of cancel key) so the sender can cancel without leaking wallet root. */
+  cancelHash: hex32Schema.optional(),
   lane: z.enum(['fast', 'safe']),
 });
 
@@ -770,7 +817,14 @@ export type SendQuoteRequest = z.infer<typeof SendQuoteRequestSchema>;
 export const SendLinkDetailsResponseSchema = z.strictObject({
   id: textSchema,
   orderId: hex32Schema.optional(),
-  status: z.enum(['pending_lock', 'locked', 'claimed', 'refunded', 'expired']),
+  status: z.enum([
+    'pending_lock',
+    'locked',
+    'claimed',
+    'refunded',
+    'expired',
+    'cancelled',
+  ]),
   token: z.enum(['PUSD', 'MUSD']),
   chainId: positiveUint,
   evmToken: evmAddressSchema,
@@ -790,6 +844,47 @@ export const SendLinkDetailsResponseSchema = z.strictObject({
 
 export type SendLinkDetailsResponse = z.infer<
   typeof SendLinkDetailsResponseSchema
+>;
+
+export const CancelSendLinkQuotaSchema = z.strictObject({
+  dailyUsed: z.number().int().nonnegative(),
+  dailyLimit: z.number().int().positive(),
+  dailyRemaining: z.number().int().nonnegative(),
+  monthlyUsed: z.number().int().nonnegative(),
+  monthlyLimit: z.number().int().positive(),
+  monthlyRemaining: z.number().int().nonnegative(),
+  nextAllowedAt: unixTimestampSeconds.nullable().optional(),
+});
+export type CancelSendLinkQuota = z.infer<typeof CancelSendLinkQuotaSchema>;
+
+export const CancelSendLinkRequestSchema = z.strictObject({
+  /** Cancel key derived from recovery root (swapCancelKeyAt(root, n)). */
+  cancelKey: hex32Schema.optional(),
+  /** Recovery root key (REFUSED: revealing root leaks all secrets and view tags). */
+  recoveryRoot: hex32Schema.optional(),
+  /** Recovery signature (REFUSED: revealing recovery proof leaks secrets and view tags). */
+  recoverySignature: z.string().optional(),
+  swapIndex: z.number().int().nonnegative().optional(),
+  /** Signature from the BCH key that created userBchLockingBytecode (exact P2PKH match). */
+  bchSignature: z.string().optional(),
+  bchPublicKey: z.string().optional(),
+  /** EVM signature (REFUSED: recovery signatures cannot be accepted as proof). */
+  evmSignature: z.string().optional(),
+  signerAddress: z.string().optional(),
+  /** Secret preimage from link (not accepted as authorization on its own). */
+  secret: hex32Schema.optional(),
+});
+export type CancelSendLinkRequest = z.infer<typeof CancelSendLinkRequestSchema>;
+
+export const CancelSendLinkResponseSchema = z.strictObject({
+  success: z.boolean(),
+  orderId: textSchema,
+  status: z.literal('cancelled'),
+  refundTxId: z.string().optional(),
+  quota: CancelSendLinkQuotaSchema,
+});
+export type CancelSendLinkResponse = z.infer<
+  typeof CancelSendLinkResponseSchema
 >;
 
 /** Maximum number of blinded view tags a client can query in one request. */
