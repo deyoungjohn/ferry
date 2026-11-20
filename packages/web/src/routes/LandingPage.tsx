@@ -1,7 +1,7 @@
+import { lazy, Suspense } from 'react';
 import { Link } from 'react-router';
 import { ArrowRight } from 'lucide-react';
 import { ROUTES } from '../lib/routes';
-import { HeroVideo } from '../components/marketing/HeroVideo';
 import { FeatureBento } from '../components/marketing/FeatureBento';
 import {
   ChainRow,
@@ -9,6 +9,13 @@ import {
   SwapLine,
   UiCard,
 } from '../components/marketing/visuals';
+
+// The animation loads after the page: its box is sized up front, so nothing moves when it arrives.
+const HeroCoins = lazy(() =>
+  import('../components/marketing/HeroCoins').then((m) => ({
+    default: m.HeroCoins,
+  })),
+);
 
 const STEPS = [
   {
@@ -63,7 +70,11 @@ export function LandingPage() {
 
         <div className="relative">
           <div className="overflow-hidden rounded-card border border-hairline">
-            <HeroVideo className="block aspect-[1080/882] w-full object-cover" />
+            <div className="aspect-[1080/882] w-full bg-[linear-gradient(160deg,#b9b4f0,#ece6f2_45%,#efc9be)]">
+              <Suspense fallback={null}>
+                <HeroCoins className="block size-full" />
+              </Suspense>
+            </div>
           </div>
           <UiCard className="absolute -bottom-6 left-4 w-[min(320px,85%)] sm:-left-6">
             <SwapLine
