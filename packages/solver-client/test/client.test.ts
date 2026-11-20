@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   SolverClient,
   SolverHttpError,
@@ -334,5 +334,36 @@ describe('SolverClient', () => {
         }),
     });
     await expect(timeoutClient.health()).rejects.toThrow(SolverTimeoutError);
+  });
+});
+
+describe('relay calls wait for the chain', () => {
+  it('gives the relay endpoints a 90 second limit, not the 10 second default', async () => {
+    const seen: number[] = [];
+    const client = new SolverClient({
+      baseUrl: 'https://solver.test',
+      fetchFn: ((_url: string, init?: { signal?: AbortSignal }) => {
+        // The abort signal exists; what matters is the limit the client applied.
+        void init;
+        return Promise.reject(new Error('stop'));
+      }) as never,
+    });
+    const timers = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      _fn: () => void,
+      ms?: number,
+    ) => {
+      seen.push(ms ?? 0);
+      return 0 as never;
+    }) as never);
+    await client
+      .relayClaim(
+        `0x${'11'.repeat(32)}` as never,
+        {
+          secret: `0x${'22'.repeat(32)}`,
+        } as never,
+      )
+      .catch(() => undefined);
+    timers.mockRestore();
+    expect(seen).toContain(90_000);
   });
 });

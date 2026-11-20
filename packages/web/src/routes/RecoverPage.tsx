@@ -5,7 +5,13 @@ import {
   PREVIOUS_FERRY_HTLC_ADDRESS,
 } from '@ferry/chain-config/browser';
 import chainsData from '../../../chain-config/src/data/chains.json';
-import { useState, useContext, type ChangeEvent, type FormEvent } from 'react';
+import {
+  useState,
+  useContext,
+  type ChangeEvent,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { ROUTES } from '../lib/routes';
 import { Link } from 'react-router';
 import {
@@ -70,6 +76,25 @@ const walletRecoveryChains = loadChainConfig({
       ) === index,
   ),
 }));
+
+/** The text with any web address in it as a link that opens in a new tab. */
+function linkify(text: string): ReactNode {
+  return text.split(/(https?:\/\/\S+)/g).map((part, index) =>
+    /^https?:\/\//.test(part) ? (
+      <a
+        key={index}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline"
+      >
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  );
+}
 
 export function RecoverPage() {
   const walletContext = useContext(WalletContext);
@@ -1227,7 +1252,7 @@ export function RecoverPage() {
               role="status"
               data-testid="recover-action-result"
             >
-              {actionResult}
+              {linkify(actionResult)}
             </div>
           )}
 

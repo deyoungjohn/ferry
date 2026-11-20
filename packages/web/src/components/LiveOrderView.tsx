@@ -470,6 +470,12 @@ export function LiveOrderView({
     (state?.step === 'done' || (snap?.state === 'DONE' && snapIndex >= 5));
   const refundReady = state?.step === 'refund';
   const needsLockStart = state?.step === 'lock' && !running.current;
+  // A call that timed out may still have gone through: the server's record decides. An error is
+  // hidden once the record shows the swap done, or past the step the error belongs to.
+  const errorIsStale =
+    Boolean(error) &&
+    (snap?.state === 'DONE' ||
+      (/timed out/i.test(error ?? '') && snapIndex >= 3));
   // Nothing locked on either side (the session never sent a lock, the server saw none): the person
   // may drop the swap. The saved data stays, in case a wallet sends the lock late.
   const lockSent = Boolean(
@@ -661,15 +667,19 @@ export function LiveOrderView({
         </p>
       )}
 
-      {error && !mustRestart && !isReleased && !isKeeperRefund && (
-        <p
-          role="alert"
-          className="mt-4 text-sm text-danger"
-          data-testid="order-error"
-        >
-          {error}
-        </p>
-      )}
+      {error &&
+        !mustRestart &&
+        !isReleased &&
+        !isKeeperRefund &&
+        !errorIsStale && (
+          <p
+            role="alert"
+            className="mt-4 text-sm text-danger"
+            data-testid="order-error"
+          >
+            {error}
+          </p>
+        )}
 
       {cancelled && (
         <p className="mt-4 text-sm text-text" data-testid="order-cancelled">

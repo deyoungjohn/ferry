@@ -120,7 +120,8 @@ export interface WaitOptions {
 const ZERO_ADDRESS = `0x${'00'.repeat(20)}`;
 
 const WAITING = {
-  counterLockEvm: "Waiting for the solver's lock on the EVM chain to confirm",
+  counterLockEvm:
+    "The solver's lock is on chain. Waiting for it to confirm before you claim",
   counterLockBch: "Waiting for the solver's lock on Bitcoin Cash to confirm",
 } as const;
 

@@ -82,6 +82,8 @@ export interface RequestCallOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+/** A relayed transaction is answered once it is mined: Ethereum blocks take 12 seconds or more. */
+const RELAY_TIMEOUT_MS = 90_000;
 
 function normalizeBaseUrl(baseUrl: string): string {
   const trimmed = baseUrl.trim().replace(/\/+$/, '');
@@ -174,7 +176,7 @@ export class SolverClient {
       `/v1/orders/${encodeURIComponent(orderId)}/relay-lock`,
       RelayLockResponseSchema,
       body,
-      options,
+      { timeoutMs: RELAY_TIMEOUT_MS, ...options },
     );
   }
 
@@ -189,7 +191,7 @@ export class SolverClient {
       `/v1/orders/${encodeURIComponent(orderId)}/relay-claim`,
       RelayClaimResponseSchema,
       body,
-      options,
+      { timeoutMs: RELAY_TIMEOUT_MS, ...options },
     );
   }
 
