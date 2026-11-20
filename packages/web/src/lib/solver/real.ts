@@ -262,7 +262,11 @@ export class RealSolverClient implements SolverClient {
             return data.tokens.map((t) => ({
               symbol: t.asset,
               priceUsd: Number(t.currentUsdPrice),
-              change24hPercent: 0,
+              change24hPercent: (() => {
+                const first = Number(t.points[0]?.usdPrice);
+                const last = Number(t.currentUsdPrice);
+                return first > 0 ? ((last - first) / first) * 100 : 0;
+              })(),
               sparkline: t.points.map((point) => Number(point.usdPrice)),
               source: 'Cauldron spot',
               asOf: now,

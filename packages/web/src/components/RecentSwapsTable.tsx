@@ -30,11 +30,17 @@ export function RecentSwapsTable() {
 
   useEffect(() => {
     let active = true;
-    solver.getRecentSwaps(1, 100).then((res) => {
-      if (active) setAll([...res.items]);
-    });
+    const load = () => {
+      solver.getRecentSwaps(1, 100).then((res) => {
+        if (active) setAll([...res.items]);
+      });
+    };
+    load();
+    // Live: new swaps appear while the page is open.
+    const timer = setInterval(load, 20_000);
     return () => {
       active = false;
+      clearInterval(timer);
     };
   }, [solver]);
 

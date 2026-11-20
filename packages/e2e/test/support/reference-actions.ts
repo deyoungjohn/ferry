@@ -114,8 +114,13 @@ export class ReferenceEvmExecutor extends ActionExecutor {
     private readonly orders: SolverDatabase,
     port: ConstructorParameters<typeof ActionExecutor>[1],
     private readonly adapter: EvmChainAdapter,
+    private readonly adapters: ReadonlyMap<string, EvmChainAdapter> = new Map(),
   ) {
     super(orders, port);
+  }
+
+  private adapterFor(chainId: number): EvmChainAdapter {
+    return this.adapters.get(String(chainId)) ?? this.adapter;
   }
 
   override async executeOrAdopt(
@@ -128,7 +133,7 @@ export class ReferenceEvmExecutor extends ActionExecutor {
       return super.executeOrAdopt({
         ...params,
         buildTx: async () => {
-          const sent = await this.adapter.lock(terms);
+          const sent = await this.adapterFor(terms.evmChainId).lock(terms);
           return { txid: sent.txId, txHex: sent.txId };
         },
       });
@@ -139,7 +144,7 @@ export class ReferenceEvmExecutor extends ActionExecutor {
         ...params,
         buildTx: async () => {
           const owner = forward ? terms.userEvmAddress : terms.solverEvmAddress;
-          const sent = await this.adapter.claim(
+          const sent = await this.adapterFor(terms.evmChainId).claim(
             evmLockId(owner, terms.hashLock),
             params.secret as `0x${string}`,
           );

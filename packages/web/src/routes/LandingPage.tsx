@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from 'react';
+import { Faq } from '../components/Faq';
 import { Link } from 'react-router';
 import { ArrowRight, ArrowUpDown } from 'lucide-react';
 import { ROUTES } from '../lib/routes';
@@ -299,6 +300,7 @@ export function LandingPage() {
           </Link>
         </div>
       </section>
+      <Faq />
     </div>
   );
 }

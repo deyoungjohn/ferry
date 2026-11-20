@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Faq } from '../components/Faq';
 import { Link } from 'react-router';
 import {
   ArrowRight,
@@ -266,6 +267,7 @@ export function FeaturesPage() {
       </section>
 
       <PegCards />
+      <Faq />
     </div>
   );
 }

@@ -797,7 +797,11 @@ export class SolverDatabase {
     asOf: number | null;
   } {
     const stmt = this.db.prepare(`
-      SELECT terms_json, lane, created_at, updated_at 
+      SELECT terms_json, lane, created_at, updated_at,
+        (pay_link_id IS NOT NULL
+          OR id IN (SELECT order_id FROM send_link_orders)
+          OR id IN (SELECT order_id FROM send_link_notes)
+          OR id IN (SELECT order_id FROM send_link_tags)) AS is_link
       FROM orders 
       WHERE status = 'DONE'
     `);
@@ -806,6 +810,7 @@ export class SolverDatabase {
       lane: string;
       created_at: number;
       updated_at: number;
+      is_link: number;
     }>;
 
     if (rows.length === 0) {
@@ -835,7 +840,8 @@ export class SolverDatabase {
       // Every settled swap counts, whatever its lane: most run on the safe lane. Swaps that began
       // before MEDIAN_COUNTS_FROM ran on engine builds with known faults and are left out of the
       // median (they still count as completed swaps and in the volume).
-      if (toSeconds(row.created_at) >= MEDIAN_COUNTS_FROM) {
+      // A link's order waits for a person to pay or claim it, so its time is not the swap's speed.
+      if (!row.is_link && toSeconds(row.created_at) >= MEDIAN_COUNTS_FROM) {
         fastDurations.push(
           Math.max(0, toSeconds(row.updated_at) - toSeconds(row.created_at)),
         );
