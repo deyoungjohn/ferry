@@ -28,8 +28,13 @@ import {
   SendLinkDetailsResponseSchema,
   SendQuoteRequestSchema,
   StatsResponseSchema,
+  CancelSendLinkQuotaSchema,
+  CancelSendLinkResponseSchema,
   type CancelPayLinkRequest,
   type CancelPayLinkResponse,
+  type CancelSendLinkQuota,
+  type CancelSendLinkRequest,
+  type CancelSendLinkResponse,
   type ChainsResponse,
   type CreatePayLinkRequest,
   type CreatePayLinkResponse,
@@ -373,6 +378,33 @@ export class SolverClient {
       'GET',
       `/v1/send-links/${encodeURIComponent(id)}`,
       SendLinkDetailsResponseSchema,
+      undefined,
+      options,
+    );
+  }
+
+  async cancelSendLink(
+    id: string,
+    req: CancelSendLinkRequest,
+    options?: RequestCallOptions,
+  ): Promise<CancelSendLinkResponse> {
+    return this.requestJson(
+      'POST',
+      `/v1/send-links/${encodeURIComponent(id)}/cancel`,
+      CancelSendLinkResponseSchema,
+      req,
+      options,
+    );
+  }
+
+  async getSendLinkCancelQuota(
+    id: string,
+    options?: RequestCallOptions,
+  ): Promise<CancelSendLinkQuota> {
+    return this.requestJson(
+      'GET',
+      `/v1/send-links/${encodeURIComponent(id)}/cancel-quota`,
+      CancelSendLinkQuotaSchema,
       undefined,
       options,
     );

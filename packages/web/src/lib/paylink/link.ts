@@ -26,7 +26,7 @@ export interface SendLinkData {
   readonly expiresAt: number;
   /** The sender's message for the receiver. Plain text; anyone with the link can read it. */
   readonly note?: string | undefined;
-  readonly status: 'open' | 'claimed' | 'expired';
+  readonly status: 'open' | 'claimed' | 'expired' | 'cancelled';
   readonly createdAt: number;
   /** When the link was claimed (Unix seconds), when known. */
   readonly claimedAt?: number | undefined;
@@ -42,6 +42,7 @@ export interface SendLinkData {
     | 'refunded'
     | 'expired'
     | 'released'
+    | 'cancelled'
     | undefined;
 }
 

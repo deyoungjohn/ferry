@@ -1,6 +1,7 @@
 import DatabaseConstructor, {
   type Database as DatabaseType,
 } from 'better-sqlite3';
+import type { CancelSendLinkQuota } from '@ferry/core/api';
 import type {
   ActionIntent,
   ActionRecord,
@@ -10,6 +11,10 @@ import type {
 
 export const SUPPORTED_SCHEMA_VERSION = 1;
 export const MAX_VALID_UNIX_SECONDS = 100_000_000_000; // ~year 5138
+export const DAILY_CANCELLATION_LIMIT = 2;
+export const MONTHLY_CANCELLATION_LIMIT = 10;
+export const ROLLING_24H_SECONDS = 86_400;
+export const ROLLING_30D_SECONDS = 30 * 86_400;
 
 export function assertSecondsTimestamp(ts: number, fieldName: string): number {
   if (ts >= MAX_VALID_UNIX_SECONDS) {
@@ -172,6 +177,15 @@ export class SolverDatabase {
         CREATE TABLE IF NOT EXISTS send_link_orders (
           order_id TEXT PRIMARY KEY
         );
+
+        CREATE TABLE IF NOT EXISTS send_link_cancellations (
+          id TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL,
+          sender_identity TEXT NOT NULL,
+          cancelled_at INTEGER NOT NULL CHECK (cancelled_at < 100000000000)
+        );
+        CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_sender ON send_link_cancellations(sender_identity, cancelled_at);
+        CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_order ON send_link_cancellations(order_id);
       `);
 
       this.db.pragma(`user_version = ${SUPPORTED_SCHEMA_VERSION}`);
@@ -231,6 +245,15 @@ export class SolverDatabase {
         CREATE TABLE IF NOT EXISTS send_link_orders (
           order_id TEXT PRIMARY KEY
         );
+
+      CREATE TABLE IF NOT EXISTS send_link_cancellations (
+        id TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL,
+        sender_identity TEXT NOT NULL,
+        cancelled_at INTEGER NOT NULL CHECK (cancelled_at < 100000000000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_sender ON send_link_cancellations(sender_identity, cancelled_at);
+      CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_order ON send_link_cancellations(order_id);
     `);
   }
 
@@ -309,6 +332,118 @@ export class SolverDatabase {
       tag: r.tag,
       order: this.mapOrderRow(r),
     }));
+  }
+
+  /**
+   * Record a send link cancellation for a sender identity.
+   */
+  recordSendLinkCancellation(
+    orderId: string,
+    senderIdentity: string,
+    cancelledAt: number,
+  ): void {
+    assertSecondsTimestamp(cancelledAt, 'cancelled_at');
+    const id = `cancel_${orderId}`;
+    const normalizedSender = senderIdentity.toLowerCase();
+    this.db
+      .prepare(
+        `INSERT INTO send_link_cancellations (id, order_id, sender_identity, cancelled_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET cancelled_at = excluded.cancelled_at`,
+      )
+      .run(id, orderId, normalizedSender, cancelledAt);
+  }
+
+  isOrderCancelled(orderId: string): boolean {
+    const row = this.db
+      .prepare(
+        'SELECT 1 FROM send_link_cancellations WHERE order_id = ? OR id = ?',
+      )
+      .get(orderId, `cancel_${orderId}`);
+    return row !== undefined;
+  }
+
+  getCancellationForOrder(
+    orderId: string,
+  ): {
+    id: string;
+    orderId: string;
+    senderIdentity: string;
+    cancelledAt: number;
+  } | null {
+    const row = this.db
+      .prepare(
+        'SELECT id, order_id as orderId, sender_identity as senderIdentity, cancelled_at as cancelledAt FROM send_link_cancellations WHERE order_id = ? OR id = ?',
+      )
+      .get(orderId, `cancel_${orderId}`) as
+      | {
+          id: string;
+          orderId: string;
+          senderIdentity: string;
+          cancelledAt: number;
+        }
+      | undefined;
+    return row ?? null;
+  }
+
+  getSendLinkCancellationQuota(
+    senderIdentity: string,
+    nowSeconds?: number,
+  ): CancelSendLinkQuota {
+    const now = nowSeconds ?? Math.floor(Date.now() / 1000);
+    const normalizedSender = senderIdentity.toLowerCase();
+
+    const dayWindowStart = now - ROLLING_24H_SECONDS; // 24 hours
+    const monthWindowStart = now - ROLLING_30D_SECONDS; // 30 days
+
+    const rows = this.db
+      .prepare(
+        `SELECT cancelled_at
+         FROM send_link_cancellations
+         WHERE sender_identity = ? AND cancelled_at >= ?
+         ORDER BY cancelled_at ASC`,
+      )
+      .all(normalizedSender, monthWindowStart) as Array<{
+      cancelled_at: number;
+    }>;
+
+    const monthlyUsed = rows.length;
+    const dailyRows = rows.filter((r) => r.cancelled_at >= dayWindowStart);
+    const dailyUsed = dailyRows.length;
+
+    const dailyLimit = DAILY_CANCELLATION_LIMIT;
+    const monthlyLimit = MONTHLY_CANCELLATION_LIMIT;
+
+    const dailyRemaining = Math.max(0, dailyLimit - dailyUsed);
+    const monthlyRemaining = Math.max(0, monthlyLimit - monthlyUsed);
+
+    let nextAllowedAt: number | null = null;
+    if (dailyRemaining === 0) {
+      const oldestDaily = dailyRows[0]?.cancelled_at;
+      if (oldestDaily !== undefined) {
+        nextAllowedAt = oldestDaily + ROLLING_24H_SECONDS;
+      }
+    }
+    if (monthlyRemaining === 0) {
+      const oldestMonthly = rows[0]?.cancelled_at;
+      if (oldestMonthly !== undefined) {
+        const nextMonthly = oldestMonthly + ROLLING_30D_SECONDS;
+        nextAllowedAt =
+          nextAllowedAt !== null
+            ? Math.max(nextAllowedAt, nextMonthly)
+            : nextMonthly;
+      }
+    }
+
+    return {
+      dailyUsed,
+      dailyLimit,
+      dailyRemaining,
+      monthlyUsed,
+      monthlyLimit,
+      monthlyRemaining,
+      nextAllowedAt: nextAllowedAt ?? null,
+    };
   }
 
   getSetting(key: string): string | null {

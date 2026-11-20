@@ -229,6 +229,36 @@ const EXPECTED_ERROR_TABLE: readonly {
     retryable: true,
   },
   {
+    code: 'ALREADY_CLAIMED',
+    status: 409,
+    category: 'conflict',
+    retryable: false,
+  },
+  {
+    code: 'CLAIM_IN_PROGRESS',
+    status: 409,
+    category: 'conflict',
+    retryable: false,
+  },
+  {
+    code: 'LIMIT_REACHED',
+    status: 429,
+    category: 'rate_limit',
+    retryable: true,
+  },
+  {
+    code: 'LINK_CANCELLED',
+    status: 400,
+    category: 'conflict',
+    retryable: false,
+  },
+  {
+    code: 'NOT_YOUR_LINK',
+    status: 403,
+    category: 'auth',
+    retryable: false,
+  },
+  {
     code: 'INTERNAL_ERROR',
     status: 500,
     category: 'internal',

@@ -162,6 +162,45 @@ export function sendLinkSteps(
   // The chain the server recorded for the order wins over the page's guess.
   const chainId = snapshot?.summary?.evmChainId ?? chainIdHint;
   const t = snapshot?.txids ?? {};
+  const isCancelledOrRefunded =
+    snapshot?.state === 'CANCELLED' ||
+    snapshot?.state === 'SOLVER_REFUNDED' ||
+    snapshot?.state === 'REFUNDED' ||
+    Boolean(t.bchRefund) ||
+    Boolean(t.solverRefund);
+
+  if (isCancelledOrRefunded) {
+    return [
+      {
+        id: 'created',
+        label: 'Send link created',
+        state: 'done',
+        at: createdAt ?? snapshot?.createdAt,
+      },
+      {
+        id: 'locked',
+        label: "The sender's funds are locked on Bitcoin Cash",
+        state: 'done',
+        note: 'The funds were locked on Bitcoin Cash',
+        at: timeOf(snapshot, T.userLock),
+        txs: bch("Sender's lock", t.bchLock),
+      },
+      {
+        id: 'refunded',
+        label:
+          snapshot?.state === 'CANCELLED'
+            ? 'Cancelled: refunded to sender'
+            : 'Refunded to sender',
+        state: 'done',
+        note: 'Funds returned to the sender on Bitcoin Cash',
+        at:
+          timeOf(snapshot, ['CANCELLED', 'SOLVER_REFUNDED', 'REFUNDED']) ??
+          snapshot?.updatedAt,
+        txs: bch('Refund to sender', t.bchRefund ?? t.solverRefund),
+      },
+    ];
+  }
+
   const states = pick([
     true,
     Boolean(t.bchLock),

@@ -89,6 +89,11 @@ export const API_ERROR_CODES = [
   'RELAY_LOCK_REVERTED',
   'INSUFFICIENT_INVENTORY',
   'EXPOSURE_LIMIT_EXCEEDED',
+  'ALREADY_CLAIMED',
+  'LIMIT_REACHED',
+  'NOT_YOUR_LINK',
+  'CLAIM_IN_PROGRESS',
+  'LINK_CANCELLED',
   'UPSTREAM_ERROR',
   'INTERNAL_ERROR',
 ] as const;
@@ -126,6 +131,11 @@ export const API_ERROR_HTTP_STATUS: Readonly<Record<ApiErrorCode, number>> =
     RELAY_LOCK_REVERTED: 502,
     INSUFFICIENT_INVENTORY: 503,
     EXPOSURE_LIMIT_EXCEEDED: 503,
+    ALREADY_CLAIMED: 409,
+    LIMIT_REACHED: 429,
+    NOT_YOUR_LINK: 403,
+    CLAIM_IN_PROGRESS: 409,
+    LINK_CANCELLED: 400,
     UPSTREAM_ERROR: 502,
     INTERNAL_ERROR: 500,
   });
@@ -179,6 +189,11 @@ export const API_ERROR_MESSAGES: Readonly<Record<ApiErrorCode, string>> =
       'The solver does not currently have enough inventory for this amount.',
     EXPOSURE_LIMIT_EXCEEDED:
       'This swap would exceed the solver’s open exposure limit.',
+    ALREADY_CLAIMED: 'This send link has already been claimed.',
+    LIMIT_REACHED: 'Cancellation limit reached.',
+    NOT_YOUR_LINK: 'Sender authorization verification failed.',
+    CLAIM_IN_PROGRESS: 'Receiver claim is currently in progress.',
+    LINK_CANCELLED: 'This send link has been cancelled by the sender.',
     UPSTREAM_ERROR:
       'An upstream chain RPC or indexer returned an error; try again.',
     INTERNAL_ERROR: 'The solver encountered an unexpected internal error.',
@@ -820,12 +835,14 @@ export const CancelSendLinkRequestSchema = z.strictObject({
   /** EIP-712 or personal-sign signature from sender wallet. */
   evmSignature: z.string().optional(),
   signerAddress: z.string().optional(),
+  /** Secret preimage from link (not accepted as authorization on its own). */
+  secret: hex32Schema.optional(),
 });
 export type CancelSendLinkRequest = z.infer<typeof CancelSendLinkRequestSchema>;
 
 export const CancelSendLinkResponseSchema = z.strictObject({
   success: z.boolean(),
-  orderId: hex32Schema,
+  orderId: textSchema,
   status: z.literal('cancelled'),
   refundTxId: z.string().optional(),
   quota: CancelSendLinkQuotaSchema,

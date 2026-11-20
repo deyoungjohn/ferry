@@ -6,7 +6,8 @@ export type SendLinkWaitState =
   | "the sender's funds are being locked"
   | 'ready to claim'
   | 'claimed'
-  | 'expired: the sender gets their funds back';
+  | 'expired: the sender gets their funds back'
+  | 'cancelled by the sender';
 
 export interface SendLinkLiveCreationInput {
   readonly recipientEvmAddress: string;
