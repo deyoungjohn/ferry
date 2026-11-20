@@ -1,5 +1,6 @@
 import { BANNER_CONFIG } from './config';
 import { ROUTES } from './routes';
+import chainsData from '../../../chain-config/src/data/chains.json';
 
 /** Everything the navigation bar and the footer show, in one place, so the two never disagree. */
 export const SITE = {
@@ -61,6 +62,7 @@ export function footerColumns(): readonly FooterColumn[] {
       title: 'Help',
       links: [
         { label: 'User guide', to: ROUTES.guide },
+        { label: 'FAQ', to: '/how-it-works#faq' },
         { label: 'Route status', to: '/status' },
         ...(SITE.repo
           ? [{ label: 'GitHub', to: SITE.repo, external: true }]
@@ -68,4 +70,71 @@ export function footerColumns(): readonly FooterColumn[] {
       ],
     },
   ];
+}
+
+/** The solver's wallets, which every quote shows as the other side of a swap. */
+export const SOLVER_WALLETS = {
+  evm: '0xD372Bf9fbE4188F041Bca5d77c7871A22CF17a5a',
+  bch: 'bitcoincash:zzjkfjw2e9z58a8dwpw7dm8kh79ukhf2s502cxddkm',
+  bchExplorer: 'https://bchexplorer.info/address/',
+} as const;
+
+const CHAIN_LABEL: Readonly<Record<string, string>> = {
+  ethereum: 'Ethereum',
+  base: 'Base',
+  arbitrum: 'Arbitrum One',
+  bnb: 'BNB Chain',
+  arc: 'Arc',
+  robinhood: 'Robinhood Chain',
+};
+
+export interface MainnetLink {
+  readonly label: string;
+  readonly href: string;
+}
+
+/** The mainnet contract and solver wallets, each linking to its explorer page. */
+export function mainnetLinks(): {
+  readonly contracts: readonly MainnetLink[];
+  readonly wallets: readonly MainnetLink[];
+} {
+  const chains = (
+    chainsData as unknown as {
+      chains: Record<
+        string,
+        {
+          mainnet: {
+            explorerUrl: string;
+            deployment?: { htlcAddress?: string };
+          };
+        }
+      >;
+    }
+  ).chains;
+  const contracts: MainnetLink[] = [];
+  // Bitcoin Cash locks are one covenant per swap (its address comes from the swap's terms), so
+  // there is no single address to show: the source is linked instead.
+  const covenant = SITE.repo
+    ? [
+        {
+          label: 'Bitcoin Cash covenant (source)',
+          href: `${SITE.repo.replace(/\/+$/, '')}/blob/main/packages/htlc-bch/contracts/FerryHTLC.cash`,
+        },
+      ]
+    : [];
+  const wallets: MainnetLink[] = [
+    {
+      label: 'Bitcoin Cash',
+      href: `${SOLVER_WALLETS.bchExplorer}${SOLVER_WALLETS.bch}`,
+    },
+  ];
+  for (const [key, label] of Object.entries(CHAIN_LABEL)) {
+    const mainnet = chains[key]?.mainnet;
+    if (!mainnet) continue;
+    const base = mainnet.explorerUrl.replace(/\/+$/, '');
+    const htlc = mainnet.deployment?.htlcAddress;
+    if (htlc) contracts.push({ label, href: `${base}/address/${htlc}` });
+    wallets.push({ label, href: `${base}/address/${SOLVER_WALLETS.evm}` });
+  }
+  return { contracts: [...contracts, ...covenant], wallets };
 }

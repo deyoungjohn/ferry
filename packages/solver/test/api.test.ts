@@ -731,6 +731,8 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
         lockId: orderId,
         termsJson: JSON.stringify({
           evmAmount: '2060000n',
+          evmChainId: 8453,
+          evmToken: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
           bchTokenAmount: '200n',
           bchToken: 'PUSD',
           userBchLockingBytecode: link.recipientLockingBytecode,
@@ -758,6 +760,13 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
         status: 'paid',
         orderId,
         paidAt: now + 30,
+      });
+      // The answer says what the swap moved, so a paid link can show the amount and what was used.
+      expect(done.json().order.summary).toMatchObject({
+        bchToken: 'PUSD',
+        bchTokenAmount: '200',
+        evmAmount: '2060000',
+        evmChainId: 8453,
       });
       // One answer carries the swap's state and its timeline, kept in the database.
       expect(done.json().order.timeline).toEqual([

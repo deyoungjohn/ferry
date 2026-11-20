@@ -39,9 +39,12 @@ function toRow(link: PayLinkData): LinkRow {
   return {
     id: link.id,
     href: `/pay/${link.id}`,
+    // An open link has no amount until it is paid: a dash, then what the recipient received.
     amount: link.amountOut
       ? `${link.amountOut.toFixed(2)} ${link.token}`
-      : `Any ${link.token}`,
+      : link.paidAmount !== undefined
+        ? `${link.paidAmount.toFixed(2)} ${link.token}`
+        : '-',
     createdAt: link.createdAt,
     completedAt: link.status === 'paid' ? (link.paidAt ?? null) : null,
     status: STATUS_LABEL[link.status],
@@ -89,7 +92,11 @@ export function PayLinksPage() {
         if (!state || cancelled) continue;
         // Deleted while this was reading: do not bring it back.
         if (!listPayLinks().some((item) => item.id === link.id)) continue;
-        if (state.status !== link.status || state.paidAt !== link.paidAt) {
+        if (
+          state.status !== link.status ||
+          state.paidAt !== link.paidAt ||
+          state.paidAmount !== link.paidAmount
+        ) {
           savePayLink({ ...link, ...state });
         }
       }

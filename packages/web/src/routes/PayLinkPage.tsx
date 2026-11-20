@@ -17,7 +17,12 @@ import { Select } from '../components/ui/select';
 import { LIVE_EXECUTION_ENABLED } from '../lib/config';
 import { listPayLinks } from '../lib/paylink/pay-store';
 import { readSnapshot, writeSnapshot } from '../lib/paylink/snapshot-cache';
-import { readPayLink, type PayLinkDetails } from '../lib/paylink/pay-api';
+import {
+  paymentSummary,
+  readPayLink,
+  type PayLinkDetails,
+} from '../lib/paylink/pay-api';
+import { chainNameFromId } from '../lib/send/wallet-send-links';
 import { payLinkSteps } from '../lib/paylink/order-steps';
 import { ProcessSteps } from '../components/links/ProcessSteps';
 import { SaveRecoveryDialog } from '../components/links/SaveRecoveryDialog';
@@ -105,6 +110,7 @@ export function PayLinkPage() {
     };
   }, [live, solverUrl, id, paid]);
   const orderId = ready?.orderId;
+  const summary = ready?.status === 'paid' ? paymentSummary(ready.order) : null;
   const showSteps =
     Boolean(orderId) ||
     ready?.status === 'paid' ||
@@ -442,11 +448,20 @@ export function PayLinkPage() {
             </div>
             <h1 className="mt-1 text-xl font-semibold text-text print:text-black">
               {showSteps
-                ? `Payment of ${(ready.amount ?? 0).toFixed(2)} ${token}`
+                ? `Payment of ${(ready.amount ?? summary?.received ?? openReceive ?? 0).toFixed(2)} ${token}`
                 : ready.amount !== undefined
                   ? `Pay ${youPayText} ${selectedPayerToken}`
                   : `Pay any amount in ${selectedPayerToken}`}
             </h1>
+            {summary && (
+              <p
+                className="mt-1 text-sm text-text-muted"
+                data-testid="paid-with"
+              >
+                Paid with {summary.paid.toFixed(2)} {summary.payToken} on{' '}
+                {chainNameFromId(summary.chainId)}
+              </p>
+            )}
             <div className="mt-1 print:hidden">
               <LinkHowItWorks kind="pay" />
             </div>

@@ -14,6 +14,8 @@ export interface PayLinkData {
   /** When the link was paid (Unix seconds), once the solver reports it. */
   readonly paidAt?: number | undefined;
   readonly ownerSecret?: string | undefined;
+  /** What the recipient received, in whole units, once the link is paid (an open link has no amount before that). */
+  readonly paidAmount?: number | undefined;
 }
 
 export interface SendLinkData {

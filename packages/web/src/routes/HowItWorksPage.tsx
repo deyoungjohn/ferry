@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Faq } from '../components/Faq';
 import { Link } from 'react-router';
 import {
   ArrowRight,
@@ -10,7 +11,6 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ROUTES } from '../lib/routes';
-import { Faq } from '../components/Faq';
 import {
   Eyebrow,
   RecoveryFileCard,
@@ -253,13 +253,11 @@ export function HowItWorksPage() {
         </div>
       </section>
 
-      <Faq />
-
       <section className="mx-auto mt-24 max-w-6xl px-4 sm:px-6">
         <div className="flex flex-col items-start justify-between gap-6 rounded-card border border-hairline bg-olive-ink p-8 sm:flex-row sm:items-center sm:p-12">
           <div>
             <h2 className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl">
-              Try it with a dollar
+              Try it with a stablecoin
             </h2>
             <p className="mt-2 max-w-md text-sm text-text-muted">
               The smallest swap is $1 on most chains ($5 on Ethereum), so a
@@ -275,6 +273,7 @@ export function HowItWorksPage() {
           </Link>
         </div>
       </section>
+      <Faq />
     </div>
   );
 }

@@ -27,11 +27,13 @@ reorged-out lock, EVM and covenant release, release after a claim, and a forward
 swap restarted after the user's lock, the solver's BCH lock and the user's BCH
 claim. Base, Ethereum, Arbitrum, BNB and Robinhood pass every row.
 
-The two-chain row is not run: the harness starts one fork at a time, and a
-two-order/two-chain test needs a second anvil process and a multi-chain engine
-fixture. The wallet/amount row is partial (minimum, maximum, wrong token and
-wrong chain pass; insufficient balance/allowance, bad permits and rounding are
-not written). The gas row is not run.
+The two-chain row is `test/two-chain.test.ts`: Base and Arbitrum are forked at
+the same time, one engine gets both adapters, and a forward swap runs on each
+concurrently. It checks both orders settle and keeps separate order rows.
+
+The wallet/amount row is partial (minimum, maximum, wrong token and wrong chain
+pass; insufficient balance/allowance, bad permits and rounding are not written).
+The gas row is not run.
 
 Arc is not run. Its USDC can be funded by impersonating a recent holder, but
 `lockWithIntent`/`lock` still reverts after funding; that is a tracked bug, not
