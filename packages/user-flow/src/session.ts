@@ -86,7 +86,7 @@ export interface UserSwapDependencies {
   readonly nowMs?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
   /** 32 random bytes. Defaults to the platform's `crypto.getRandomValues`. */
-  readonly secretGenerator?: () => Hex32;
+  readonly secretGenerator?: () => Hex32 | Promise<Hex32>;
 }
 
 export interface QuoteInput {
@@ -246,7 +246,9 @@ export class UserSwapSession {
       }
       const bchLockingBytecode = this.userBchLockingBytecode();
 
-      const secret = (this.deps.secretGenerator ?? defaultSecretGenerator)();
+      const secret = await (
+        this.deps.secretGenerator ?? defaultSecretGenerator
+      )();
       const hashLock = sha256(secret) as Hex32;
       const request: QuoteRequest = {
         direction: input.direction,
