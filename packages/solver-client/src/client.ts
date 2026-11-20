@@ -30,6 +30,7 @@ import {
   StatsResponseSchema,
   CancelSendLinkQuotaSchema,
   CancelSendLinkResponseSchema,
+  DeletePayLinkResponseSchema,
   type CancelPayLinkRequest,
   type CancelPayLinkResponse,
   type CancelSendLinkQuota,
@@ -38,6 +39,7 @@ import {
   type ChainsResponse,
   type CreatePayLinkRequest,
   type CreatePayLinkResponse,
+  type DeletePayLinkResponse,
   type HealthResponse,
   type LiquidityResponse,
   type MetricsResponse,
@@ -356,6 +358,20 @@ export class SolverClient {
     );
   }
 
+  async deletePayLink(
+    id: string,
+    secret: string,
+    options?: RequestCallOptions,
+  ): Promise<DeletePayLinkResponse> {
+    return this.requestJson(
+      'DELETE',
+      `/v1/links/${encodeURIComponent(id)}`,
+      DeletePayLinkResponseSchema,
+      { secret },
+      options,
+    );
+  }
+
   async quoteSendLink(
     request: SendQuoteRequest,
     options?: RequestCallOptions,
@@ -411,7 +427,7 @@ export class SolverClient {
   }
 
   private async requestJson<T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     path: string,
     schema: z.ZodType<T>,
     body?: unknown,

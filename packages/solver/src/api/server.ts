@@ -48,6 +48,7 @@ import {
   ChainsResponseSchema,
   CreatePayLinkRequestSchema,
   CreatePayLinkResponseSchema,
+  DeletePayLinkResponseSchema,
   HealthResponseSchema,
   LiquidityResponseSchema,
   ListPayLinksQuerySchema,
@@ -77,6 +78,7 @@ import {
   type BchTipResponse,
   type CancelSendLinkRequest,
   type CancelSendLinkResponse,
+  type DeletePayLinkResponse,
   type SendLinkDetailsResponse,
   type SendLinkQueryMatch,
 } from '@ferry/core/api';
@@ -2782,6 +2784,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       ...(memo !== undefined ? { memo } : {}),
       ...(raw.expiresAt !== undefined ? { expiresAt: raw.expiresAt } : {}),
       ...(raw.ownerSig !== undefined ? { ownerSig: raw.ownerSig } : {}),
+      ...(raw.ownerSecretHash !== undefined
+        ? { ownerSecretHash: raw.ownerSecretHash }
+        : {}),
     };
 
     const parseResult = CreatePayLinkRequestSchema.safeParse(normalizedBody);
@@ -2866,6 +2871,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       expiresAt: body.expiresAt,
       verified: Boolean(body.ownerSig),
       status: 'open',
+      ownerSecretHash: body.ownerSecretHash,
       createdAt: now,
       updatedAt: now,
     };
@@ -2965,7 +2971,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         (link.kind as 'invoice' | 'open') ??
         (link.amountOut ? 'invoice' : 'open'),
       status: link.status as
-        'open' | 'reserved' | 'paid' | 'expired' | 'cancelled',
+        'open' | 'reserved' | 'paid' | 'expired' | 'cancelled' | 'closed',
       token: link.token as 'PUSD' | 'MUSD',
       recipientAddress: link.recipientCashaddr,
       recipientLockingBytecode: link.recipientLockingBytecode as Hex,
@@ -3307,6 +3313,100 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       return reply.status(200).send(response);
     },
   );
+
+  // 18b. DELETE /v1/links/:id (Delete/Close PayLink with Owner Secret)
+  app.delete<{
+    Params: { id: string };
+    Querystring: { secret?: string };
+    Body?: { secret?: string };
+  }>('/v1/links/:id', async (req, reply) => {
+    const { id } = req.params;
+    const bodySecret =
+      typeof req.body === 'object' && req.body !== null
+        ? (req.body as { secret?: string }).secret
+        : undefined;
+    const querySecret = (req.query as { secret?: string })?.secret;
+    const headerSecret = req.headers['x-owner-secret'] as string | undefined;
+    const secret = bodySecret ?? querySecret ?? headerSecret;
+
+    const link = db.getPayLink(id);
+    if (!link) {
+      return sendApiError(reply, 'LINK_NOT_FOUND', `Pay link ${id} not found`);
+    }
+
+    if (!link.ownerSecretHash) {
+      return sendApiError(
+        reply,
+        'UNAUTHORIZED',
+        'Pay link was created without an owner secret and cannot be deleted with a secret',
+      );
+    }
+
+    if (!secret) {
+      return sendApiError(
+        reply,
+        'UNAUTHORIZED',
+        'Missing owner secret for pay link deletion',
+      );
+    }
+
+    let secretMatches = false;
+    try {
+      const cleanSecret = secret.startsWith('0x') ? secret.slice(2) : secret;
+      let secretBytes: Uint8Array;
+      if (/^[0-9a-fA-F]+$/.test(cleanSecret) && cleanSecret.length % 2 === 0) {
+        secretBytes = libauth.hexToBin(cleanSecret);
+      } else {
+        secretBytes = new TextEncoder().encode(secret);
+      }
+      const hashedHex =
+        `0x${libauth.binToHex(libauth.sha256.hash(secretBytes))}`.toLowerCase();
+      const directHex = `0x${cleanSecret}`.toLowerCase();
+      if (
+        hashedHex === link.ownerSecretHash.toLowerCase() ||
+        directHex === link.ownerSecretHash.toLowerCase()
+      ) {
+        secretMatches = true;
+      }
+    } catch {
+      secretMatches = false;
+    }
+
+    if (!secretMatches) {
+      return sendApiError(reply, 'UNAUTHORIZED', 'Invalid owner secret');
+    }
+
+    if (link.status === 'paid') {
+      return sendApiError(
+        reply,
+        'ALREADY_PAID',
+        'Cannot delete a paid pay link',
+      );
+    }
+
+    const payingOrder = db.findOrderForPayLink(link);
+    if (
+      payingOrder &&
+      payingOrder.status !== 'QUOTED' &&
+      payingOrder.status !== 'EXPIRED' &&
+      payingOrder.status !== 'REJECTED'
+    ) {
+      return sendApiError(
+        reply,
+        'ALREADY_PAID',
+        'Cannot delete a pay link with payment in progress',
+      );
+    }
+
+    db.updatePayLinkStatus(link.id, 'closed');
+    const response: DeletePayLinkResponse = {
+      ok: true,
+      id: link.id,
+      status: 'closed',
+    };
+    DeletePayLinkResponseSchema.parse(response);
+    return reply.status(200).send(response);
+  });
 
   // 19. POST /v1/send-quotes
   app.post('/v1/send-quotes', async (req, reply) => {

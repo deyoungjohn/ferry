@@ -94,6 +94,7 @@ export const API_ERROR_CODES = [
   'NOT_YOUR_LINK',
   'CLAIM_IN_PROGRESS',
   'LINK_CANCELLED',
+  'ALREADY_PAID',
   'UPSTREAM_ERROR',
   'INTERNAL_ERROR',
 ] as const;
@@ -136,6 +137,7 @@ export const API_ERROR_HTTP_STATUS: Readonly<Record<ApiErrorCode, number>> =
     NOT_YOUR_LINK: 403,
     CLAIM_IN_PROGRESS: 409,
     LINK_CANCELLED: 400,
+    ALREADY_PAID: 409,
     UPSTREAM_ERROR: 502,
     INTERNAL_ERROR: 500,
   });
@@ -194,6 +196,7 @@ export const API_ERROR_MESSAGES: Readonly<Record<ApiErrorCode, string>> =
     NOT_YOUR_LINK: 'Sender authorization verification failed.',
     CLAIM_IN_PROGRESS: 'Receiver claim is currently in progress.',
     LINK_CANCELLED: 'This send link has been cancelled by the sender.',
+    ALREADY_PAID: 'This pay link is already paid or payment has started.',
     UPSTREAM_ERROR:
       'An upstream chain RPC or indexer returned an error; try again.',
     INTERNAL_ERROR: 'The solver encountered an unexpected internal error.',
@@ -640,7 +643,14 @@ export type OperatorNeedsAttentionResponse = z.infer<
 export const PayLinkJsonSchema = z.strictObject({
   id: textSchema,
   kind: z.enum(['invoice', 'open']),
-  status: z.enum(['open', 'reserved', 'paid', 'expired', 'cancelled']),
+  status: z.enum([
+    'open',
+    'reserved',
+    'paid',
+    'expired',
+    'cancelled',
+    'closed',
+  ]),
   token: z.enum(['PUSD', 'MUSD']),
   recipientAddress: textSchema,
   recipientLockingBytecode: hexSchema,
@@ -675,12 +685,21 @@ export const CreatePayLinkRequestSchema = z.strictObject({
   memo: z.string().min(1).max(256).optional(),
   expiresAt: unixTimestampSeconds.optional(),
   ownerSig: z.string().min(1).max(512).optional(),
+  ownerSecretHash: hex32Schema.optional(),
 });
 
 export type CreatePayLinkRequest = z.infer<typeof CreatePayLinkRequestSchema>;
 
 export const CreatePayLinkResponseSchema = PayLinkJsonSchema;
 export type CreatePayLinkResponse = PayLinkJson;
+
+export const DeletePayLinkResponseSchema = z.strictObject({
+  ok: z.boolean(),
+  id: textSchema,
+  status: z.literal('closed'),
+});
+
+export type DeletePayLinkResponse = z.infer<typeof DeletePayLinkResponseSchema>;
 
 export const PayLinkDetailsResponseSchema = PayLinkJsonSchema;
 export type PayLinkDetailsResponse = PayLinkJson;

@@ -57,6 +57,7 @@ export const API_ERROR_CATEGORIES: Readonly<
   NOT_YOUR_LINK: 'auth',
   CLAIM_IN_PROGRESS: 'conflict',
   LINK_CANCELLED: 'conflict',
+  ALREADY_PAID: 'conflict',
   RELAY_LOCK_REVERTED: 'upstream',
   UPSTREAM_ERROR: 'upstream',
   INTERNAL_ERROR: 'internal',

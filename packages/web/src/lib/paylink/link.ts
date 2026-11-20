@@ -8,10 +8,12 @@ export interface PayLinkData {
   readonly minAmountOut?: number | undefined;
   readonly note?: string | undefined;
   readonly verified: boolean;
-  readonly status: 'open' | 'reserved' | 'paid' | 'expired' | 'cancelled';
+  readonly status:
+    'open' | 'reserved' | 'paid' | 'expired' | 'cancelled' | 'closed';
   readonly createdAt: number;
   /** When the link was paid (Unix seconds), once the solver reports it. */
   readonly paidAt?: number | undefined;
+  readonly ownerSecret?: string | undefined;
 }
 
 export interface SendLinkData {

@@ -259,6 +259,12 @@ const EXPECTED_ERROR_TABLE: readonly {
     retryable: false,
   },
   {
+    code: 'ALREADY_PAID',
+    status: 409,
+    category: 'conflict',
+    retryable: false,
+  },
+  {
     code: 'INTERNAL_ERROR',
     status: 500,
     category: 'internal',

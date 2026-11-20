@@ -144,6 +144,7 @@ export class SolverDatabase {
           expires_at INTEGER,
           verified INTEGER NOT NULL DEFAULT 0,
           status TEXT NOT NULL,
+          owner_secret_hash TEXT,
           order_id TEXT,
           created_at INTEGER NOT NULL CHECK (created_at < 100000000000),
           updated_at INTEGER NOT NULL CHECK (updated_at < 100000000000)
@@ -216,6 +217,7 @@ export class SolverDatabase {
         expires_at INTEGER,
         verified INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL,
+        owner_secret_hash TEXT,
         order_id TEXT,
         created_at INTEGER NOT NULL CHECK (created_at < 100000000000),
         updated_at INTEGER NOT NULL CHECK (updated_at < 100000000000)
@@ -255,6 +257,12 @@ export class SolverDatabase {
       CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_sender ON send_link_cancellations(sender_identity, cancelled_at);
       CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_order ON send_link_cancellations(order_id);
     `);
+
+    try {
+      this.db.exec('ALTER TABLE pay_links ADD COLUMN owner_secret_hash TEXT;');
+    } catch {
+      // Column already exists
+    }
   }
 
   /** The sender's note for a send link, kept apart from the order so the signed terms never change. */
@@ -363,9 +371,7 @@ export class SolverDatabase {
     return row !== undefined;
   }
 
-  getCancellationForOrder(
-    orderId: string,
-  ): {
+  getCancellationForOrder(orderId: string): {
     id: string;
     orderId: string;
     senderIdentity: string;
@@ -1114,11 +1120,11 @@ export class SolverDatabase {
       INSERT INTO pay_links (
         id, kind, recipient_cashaddr, recipient_locking_bytecode, token,
         amount_out, min_amount_out, memo, reference, expires_at,
-        verified, status, order_id, created_at, updated_at
+        verified, status, owner_secret_hash, order_id, created_at, updated_at
       ) VALUES (
         @id, @kind, @recipient_cashaddr, @recipient_locking_bytecode, @token,
         @amount_out, @min_amount_out, @memo, @reference, @expires_at,
-        @verified, @status, @order_id, @created_at, @updated_at
+        @verified, @status, @owner_secret_hash, @order_id, @created_at, @updated_at
       )
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
@@ -1132,6 +1138,7 @@ export class SolverDatabase {
         expires_at = excluded.expires_at,
         verified = excluded.verified,
         status = excluded.status,
+        owner_secret_hash = COALESCE(excluded.owner_secret_hash, pay_links.owner_secret_hash),
         order_id = excluded.order_id,
         updated_at = excluded.updated_at
     `);
@@ -1151,6 +1158,7 @@ export class SolverDatabase {
       expires_at: link.expiresAt ?? null,
       verified: link.verified ? 1 : 0,
       status: link.status,
+      owner_secret_hash: link.ownerSecretHash ?? null,
       order_id: link.orderId ?? null,
       created_at: link.createdAt,
       updated_at: link.updatedAt,
@@ -1280,6 +1288,7 @@ export class SolverDatabase {
       expiresAt: (row.expires_at as number) || undefined,
       verified: Boolean(row.verified),
       status: row.status as PayLinkRecord['status'],
+      ownerSecretHash: (row.owner_secret_hash as string) || undefined,
       orderId: (row.order_id as string) || undefined,
       createdAt: row.created_at as number,
       updatedAt: row.updated_at as number,
