@@ -1,94 +1,258 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Faq } from '../components/Faq';
 import { Link } from 'react-router';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, ArrowUpDown } from 'lucide-react';
 import { ROUTES } from '../lib/routes';
+import { AssetMarquee } from '../components/marketing/AssetMarquee';
 import { FeatureBento } from '../components/marketing/FeatureBento';
+import { LandingBannerCta } from '../components/marketing/LandingBannerCta';
+import { LandingShowcase } from '../components/marketing/LandingShowcase';
+import { LandingStats } from '../components/marketing/LandingStats';
 import {
-  ChainRow,
-  Eyebrow,
-  SwapLine,
-  UiCard,
-} from '../components/marketing/visuals';
+  CountUp,
+  ScrollReveal,
+} from '../components/marketing/MotionPrimitives';
+import { ChainRow, Eyebrow, TokenMark } from '../components/marketing/visuals';
 
-// The animation loads after the page: its box is sized up front, so nothing moves when it arrives.
-const HeroCoins = lazy(() =>
-  import('../components/marketing/HeroCoins').then((m) => ({
-    default: m.HeroCoins,
+// The 3D ribbon animation loads asynchronously so the initial route bundle stays lean.
+const HeroCoinRibbon = lazy(() =>
+  import('../components/marketing/HeroCoinRibbon').then((m) => ({
+    default: m.HeroCoinRibbon,
   })),
 );
 
 const STEPS = [
   {
-    n: '01',
+    n: 1,
     title: 'You lock',
     body: 'Your stablecoin goes into a contract on its own chain, under a hash lock only your secret opens.',
   },
   {
-    n: '02',
+    n: 2,
     title: 'The solver locks',
     body: 'It puts the other side into a matching contract with the same lock, on the other chain.',
   },
   {
-    n: '03',
+    n: 3,
     title: 'You claim',
     body: 'Claiming reveals the secret, which lets the solver take its side. Both happen, or neither.',
   },
 ] as const;
 
+type HeroDirection = 'to-bch' | 'to-evm';
+
 export function LandingPage() {
+  const [direction, setDirection] = useState<HeroDirection>('to-bch');
+
+  const sendLeg =
+    direction === 'to-bch'
+      ? {
+          token: 'USDC',
+          network: 'Arbitrum',
+          chain: 42161 as const,
+          amount: 100,
+          min: 1,
+          max: 5000,
+        }
+      : {
+          token: 'PUSD',
+          network: 'Bitcoin Cash',
+          chain: 'bch' as const,
+          amount: 100,
+          min: 1,
+          max: 5000,
+        };
+
+  const getLeg =
+    direction === 'to-bch'
+      ? {
+          token: 'PUSD',
+          network: 'Bitcoin Cash',
+          chain: 'bch' as const,
+          amount: 99.85,
+        }
+      : {
+          token: 'USDC',
+          network: 'Arbitrum',
+          chain: 42161 as const,
+          amount: 99.85,
+        };
+
   return (
     <div className="pb-20">
-      {/* Hero: the claim on the left, the coins in motion on the right */}
-      <section className="mx-auto grid max-w-6xl items-center gap-10 px-4 pt-12 sm:px-6 lg:grid-cols-[1fr_1.05fr] lg:gap-14 lg:pt-20">
-        <div>
-          <Eyebrow>Built for BCH BLAZE 2026</Eyebrow>
-          <h1 className="mt-6 text-4xl font-semibold leading-[1.04] tracking-[-0.04em] text-text sm:text-6xl">
-            Move stablecoins into Bitcoin Cash
-          </h1>
-          <p className="mt-6 max-w-lg text-base leading-relaxed text-text-muted sm:text-lg">
-            Swap USDC, USDT or USDG on six EVM chains for PUSD or MUSD, and
-            back. Atomic and non-custodial: you get the other side or your own
-            funds back.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <Link
-              to={ROUTES.swap}
-              className="inline-flex h-12 items-center gap-2 rounded-pill bg-lime px-7 text-sm font-semibold text-lime-ink transition-opacity hover:opacity-90"
+      {/* Split-screen hero: lime-lit 3D coin ribbon on the left, structured swap panel on the right */}
+      <section className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 lg:pt-8">
+        <div className="grid overflow-hidden rounded-card border border-hairline bg-surface-1 shadow-[0_32px_90px_rgba(0,0,0,0.45)] lg:grid-cols-[1.24fr_0.92fr]">
+          {/* Left visual stage: full-bleed Three.js stablecoin ribbon on Ferry lime gradient */}
+          <div className="relative min-h-[340px] sm:min-h-[430px] lg:min-h-[548px]">
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  'linear-gradient(155deg, #dff87c 0%, #f8fbf0 46%, #edf6d4 78%, #cbe682 100%)',
+              }}
             >
-              Open Ferry
-              <ArrowRight className="size-4" />
-            </Link>
-            <Link
-              to="/how-it-works"
-              className="inline-flex h-12 items-center rounded-pill border border-hairline bg-surface-2 px-7 text-sm font-medium text-text transition-colors hover:border-lime/40"
-            >
-              How it works
-            </Link>
-          </div>
-          <ChainRow className="mt-10" />
-        </div>
-
-        <div className="relative">
-          <div className="overflow-hidden rounded-card border border-hairline">
-            <div className="aspect-[1080/882] w-full bg-[linear-gradient(160deg,#b9b4f0,#ece6f2_45%,#efc9be)]">
               <Suspense fallback={null}>
-                <HeroCoins className="block size-full" />
+                <HeroCoinRibbon className="size-full" />
               </Suspense>
             </div>
+
+            <div className="pointer-events-none absolute inset-x-5 bottom-4 flex flex-wrap items-center justify-between gap-2 text-[11px] font-medium text-lime-ink/75 sm:inset-x-6 sm:bottom-5">
+              <span>USDT · USDC · USDG · MUSD · PUSD</span>
+              <span>Atomic · Non-custodial</span>
+            </div>
           </div>
-          <UiCard className="absolute -bottom-6 left-4 w-[min(320px,85%)] sm:-left-6">
-            <SwapLine
-              from={{ amount: '8.00', token: 'USDC', chain: 42161 }}
-              to={{ amount: '7.96', token: 'PUSD', chain: 'bch' }}
-            />
-            <p className="mt-3 flex items-center justify-between text-[11px] text-text-muted">
-              <span>Settled on both chains</span>
-              <span className="font-mono text-text-dim">36 s</span>
-            </p>
-          </UiCard>
+
+          {/* Right hero panel: claim + interactive swap preview + primary CTA */}
+          <div className="flex flex-col justify-between border-t border-hairline bg-surface-1 p-6 sm:p-8 lg:border-l lg:border-t-0 lg:px-10 lg:py-9">
+            <div className="mx-auto flex w-full max-w-[390px] flex-1 flex-col justify-center">
+              <div className="flex justify-center">
+                <Eyebrow>Built for BCH BLAZE 2026</Eyebrow>
+              </div>
+
+              <h1 className="mt-4 text-center text-3xl font-semibold leading-[1.06] tracking-[-0.04em] text-text sm:text-[40px]">
+                Move stablecoins into Bitcoin Cash
+              </h1>
+
+              {/* Direction toggle pill */}
+              <div
+                role="tablist"
+                aria-label="Swap direction"
+                className="mt-6 grid grid-cols-2 rounded-pill border border-hairline bg-surface-2 p-1"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={direction === 'to-bch'}
+                  onClick={() => setDirection('to-bch')}
+                  className={`h-9 rounded-pill text-xs font-semibold transition-colors ${
+                    direction === 'to-bch'
+                      ? 'bg-surface-3 text-text shadow-sm'
+                      : 'text-text-muted hover:text-text'
+                  }`}
+                >
+                  EVM to BCH
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={direction === 'to-evm'}
+                  onClick={() => setDirection('to-evm')}
+                  className={`h-9 rounded-pill text-xs font-semibold transition-colors ${
+                    direction === 'to-evm'
+                      ? 'bg-surface-3 text-text shadow-sm'
+                      : 'text-text-muted hover:text-text'
+                  }`}
+                >
+                  BCH to EVM
+                </button>
+              </div>
+
+              {/* Swap preview rows */}
+              <div className="mt-4">
+                <div className="rounded-well border border-hairline bg-surface-2/70 p-3.5 transition-colors hover:border-lime/25">
+                  <div className="flex items-center justify-between text-[11px] text-text-muted">
+                    <span>You send</span>
+                    <span>{sendLeg.network}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <TokenMark
+                        token={sendLeg.token}
+                        chain={sendLeg.chain}
+                        size={34}
+                      />
+                      <div>
+                        <div className="text-sm font-semibold text-text">
+                          {sendLeg.token}
+                        </div>
+                        <div className="text-[11px] text-text-muted">
+                          <CountUp value={sendLeg.min} decimals={2} /> –{' '}
+                          <CountUp value={sendLeg.max} /> {sendLeg.token}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-2xl font-semibold tabular-nums tracking-[-0.03em] text-text">
+                      <CountUp value={sendLeg.amount} decimals={2} />
+                    </span>
+                  </div>
+                </div>
+
+                <div className="relative z-10 -my-3 flex justify-center">
+                  <button
+                    type="button"
+                    aria-label="Flip swap direction"
+                    onClick={() =>
+                      setDirection((d) =>
+                        d === 'to-bch' ? 'to-evm' : 'to-bch',
+                      )
+                    }
+                    className="inline-flex size-8 items-center justify-center rounded-full border border-hairline bg-surface-1 text-text-muted transition-all hover:rotate-180 hover:border-lime/50 hover:text-lime"
+                  >
+                    <ArrowUpDown className="size-3.5" />
+                  </button>
+                </div>
+
+                <div className="rounded-well border border-hairline bg-surface-2/70 p-3.5 transition-colors hover:border-lime/25">
+                  <div className="flex items-center justify-between text-[11px] text-text-muted">
+                    <span>You get</span>
+                    <span>{getLeg.network}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <TokenMark
+                        token={getLeg.token}
+                        chain={getLeg.chain}
+                        size={34}
+                      />
+                      <div>
+                        <div className="text-sm font-semibold text-text">
+                          {getLeg.token}
+                        </div>
+                        <div className="text-[11px] text-text-muted">
+                          {getLeg.network}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-2xl font-semibold tabular-nums tracking-[-0.03em] text-text">
+                      <CountUp value={getLeg.amount} decimals={2} />
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <p className="mt-3.5 text-center text-xs tabular-nums text-text-muted">
+                <CountUp value={1} /> {sendLeg.token} ≈{' '}
+                <CountUp value={0.9985} decimals={4} /> {getLeg.token} · settles
+                in <CountUp value={36} prefix="~" suffix=" s" />
+              </p>
+
+              <div className="mt-4 flex flex-col gap-2">
+                <Link
+                  to={ROUTES.swap}
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-pill bg-lime px-7 text-sm font-semibold text-lime-ink transition-all hover:opacity-90 active:scale-[0.99]"
+                >
+                  Open Ferry
+                  <ArrowRight className="size-4" />
+                </Link>
+                <Link
+                  to="/how-it-works"
+                  className="inline-flex h-9 w-full items-center justify-center rounded-pill text-xs font-medium text-text-muted transition-colors hover:text-text"
+                >
+                  How atomic swaps work
+                </Link>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-center border-t border-hairline pt-4">
+              <ChainRow />
+            </div>
+          </div>
         </div>
       </section>
+
+      {/* Right-to-left supported chains & stablecoins marquee */}
+      <AssetMarquee />
 
       <FeatureBento />
 
@@ -97,60 +261,74 @@ export function LandingPage() {
         aria-labelledby="steps-heading"
         className="mx-auto mt-24 max-w-6xl px-4 sm:px-6"
       >
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <h2
-            id="steps-heading"
-            className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl"
-          >
-            One secret, two locks
-          </h2>
-          <Link
-            to="/how-it-works"
-            className="inline-flex items-center gap-1.5 text-sm text-text-muted transition-colors hover:text-lime"
-          >
-            The full walkthrough
-            <ArrowRight className="size-4" />
-          </Link>
-        </div>
-        <ol className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
-          {STEPS.map((step) => (
-            <li
-              key={step.n}
-              className="rounded-card border border-hairline bg-surface-1 p-6"
+        <ScrollReveal>
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <h2
+              id="steps-heading"
+              className="text-3xl font-semibold tracking-[-0.03em] text-text sm:text-4xl"
             >
-              <span className="text-5xl font-semibold tracking-[-0.04em] text-text-dim/50">
-                {step.n}
-              </span>
-              <h3 className="mt-6 text-base font-semibold text-text">
-                {step.title}
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-text-muted">
-                {step.body}
-              </p>
+              One secret, two locks
+            </h2>
+            <Link
+              to="/how-it-works"
+              className="inline-flex items-center gap-1.5 text-sm text-text-muted transition-colors hover:text-lime"
+            >
+              The full walkthrough
+              <ArrowRight className="size-4" />
+            </Link>
+          </div>
+        </ScrollReveal>
+        <ol className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {STEPS.map((step, index) => (
+            <li key={step.n}>
+              <ScrollReveal delay={index * 90} className="h-full">
+                <div className="h-full rounded-card border border-hairline bg-surface-1 p-6 transition-colors duration-300 hover:border-lime/35">
+                  <span className="text-5xl font-semibold tracking-[-0.04em] text-text-dim/50">
+                    <CountUp value={step.n} padInteger={2} />
+                  </span>
+                  <h3 className="mt-6 text-base font-semibold text-text">
+                    {step.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                    {step.body}
+                  </p>
+                </div>
+              </ScrollReveal>
             </li>
           ))}
         </ol>
       </section>
 
+      {/* Honest, verifiable metrics with scroll-triggered count-up */}
+      <LandingStats />
+
+      {/* Two-column interactive Pay/Send link & atomic settlement showcase */}
+      <LandingShowcase />
+
+      {/* Full-width Ferry lime CTA banner */}
+      <LandingBannerCta />
+
       <section className="mx-auto mt-24 max-w-6xl px-4 sm:px-6">
-        <div className="flex flex-col items-start justify-between gap-6 rounded-card border border-hairline bg-surface-1 p-8 sm:flex-row sm:items-center sm:p-10">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text sm:text-3xl">
-              Check it, don&apos;t trust it
-            </h2>
-            <p className="mt-2 max-w-lg text-sm leading-relaxed text-text-muted">
-              The contracts are verified on every chain and the code is open.
-              See what is deployed, what was tested and what has not been
-              reviewed yet.
-            </p>
+        <ScrollReveal>
+          <div className="flex flex-col items-start justify-between gap-6 rounded-card border border-hairline bg-surface-1 p-8 sm:flex-row sm:items-center sm:p-10">
+            <div>
+              <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text sm:text-3xl">
+                Check it, don&apos;t trust it
+              </h2>
+              <p className="mt-2 max-w-lg text-sm leading-relaxed text-text-muted">
+                The contracts are verified on every chain and the code is open.
+                See what is deployed, what was tested and what has not been
+                reviewed yet.
+              </p>
+            </div>
+            <Link
+              to="/stats"
+              className="inline-flex h-11 shrink-0 items-center rounded-pill border border-hairline bg-surface-2 px-6 text-sm font-medium text-text transition-colors hover:border-lime/40"
+            >
+              See the stats
+            </Link>
           </div>
-          <Link
-            to="/stats"
-            className="inline-flex h-11 shrink-0 items-center rounded-pill border border-hairline bg-surface-2 px-6 text-sm font-medium text-text transition-colors hover:border-lime/40"
-          >
-            See the stats
-          </Link>
-        </div>
+        </ScrollReveal>
       </section>
       <Faq />
     </div>

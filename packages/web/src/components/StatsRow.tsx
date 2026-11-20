@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSolver } from '../lib/solver/useSolver';
 import type { SolverStats } from '../lib/solver/types';
+import { CountUp, ScrollReveal } from './marketing/MotionPrimitives';
 
 export function StatsRow() {
   const solver = useSolver();
@@ -54,67 +55,88 @@ export function StatsRow() {
       aria-label="Network Statistics"
       className="mx-auto mt-12 max-w-4xl px-4 sm:px-6"
     >
-      <div className="rounded-card border border-hairline bg-surface-1/60 p-6">
-        {stats.isHonestEmpty ? (
-          <div
-            data-testid="stats-empty-state"
-            className="flex flex-col items-center justify-center py-4 text-center"
-          >
-            <div className="flex items-center gap-2 text-xs font-medium text-text-muted">
-              <span className="size-1.5 rounded-full bg-text-dim" />
-              <span>Honest Metrics · No Simulated Volume</span>
+      <ScrollReveal>
+        <div className="rounded-card border border-hairline bg-surface-1/60 p-6">
+          {stats.isHonestEmpty ? (
+            <div
+              data-testid="stats-empty-state"
+              className="flex flex-col items-center justify-center py-4 text-center"
+            >
+              <div className="flex items-center gap-2 text-xs font-medium text-text-muted">
+                <span className="size-1.5 rounded-full bg-text-dim" />
+                <span>Honest Metrics · No Simulated Volume</span>
+              </div>
+              <div className="mt-4 grid w-full grid-cols-1 gap-6 border-t border-hairline pt-4 sm:grid-cols-3">
+                <div>
+                  <p className="text-2xl font-semibold text-text">
+                    <CountUp value={0} />
+                  </p>
+                  <p className="mt-1 text-xs text-text-muted">
+                    Completed swaps
+                  </p>
+                </div>
+                <div className="sm:border-x sm:border-hairline sm:px-4">
+                  <p className="text-2xl font-semibold text-text">
+                    <CountUp value={0} decimals={2} prefix="$" />
+                  </p>
+                  <p className="mt-1 text-xs text-text-muted">
+                    Total settled volume
+                  </p>
+                </div>
+                <div>
+                  <p className="text-2xl font-semibold text-text">—</p>
+                  <p className="mt-1 text-xs text-text-muted">Median time</p>
+                </div>
+              </div>
             </div>
-            <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-3 w-full border-t border-hairline pt-4">
+          ) : (
+            <div className="grid grid-cols-1 gap-6 text-center sm:grid-cols-3">
               <div>
-                <p className="text-2xl font-semibold text-text">0</p>
+                <p className="text-3xl font-semibold text-text">
+                  <CountUp value={stats.completedSwaps} />
+                </p>
                 <p className="mt-1 text-xs text-text-muted">Completed swaps</p>
               </div>
               <div className="sm:border-x sm:border-hairline sm:px-4">
-                <p className="text-2xl font-semibold text-text">$0.00</p>
+                <p className="text-3xl font-semibold text-text">
+                  <CountUp
+                    value={stats.totalVolumeUsd}
+                    decimals={2}
+                    prefix="$"
+                    useGrouping={false}
+                  />
+                </p>
                 <p className="mt-1 text-xs text-text-muted">
                   Total settled volume
                 </p>
               </div>
               <div>
-                <p className="text-2xl font-semibold text-text">—</p>
+                <p className="text-3xl font-semibold text-lime">
+                  <MedianTime seconds={stats.medianSecondsFast} />
+                </p>
                 <p className="mt-1 text-xs text-text-muted">Median time</p>
               </div>
             </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-6 text-center sm:grid-cols-3">
-            <div>
-              <p className="text-3xl font-semibold text-text">
-                {stats.completedSwaps}
-              </p>
-              <p className="mt-1 text-xs text-text-muted">Completed swaps</p>
-            </div>
-            <div className="sm:border-x sm:border-hairline sm:px-4">
-              <p className="text-3xl font-semibold text-text">
-                ${stats.totalVolumeUsd.toFixed(2)}
-              </p>
-              <p className="mt-1 text-xs text-text-muted">
-                Total settled volume
-              </p>
-            </div>
-            <div>
-              <p className="text-3xl font-semibold text-lime">
-                {formatMedian(stats.medianSecondsFast)}
-              </p>
-              <p className="mt-1 text-xs text-text-muted">Median time</p>
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </ScrollReveal>
     </section>
   );
 }
 
 /** "45s", "7m 30s"; a dash when no swap has finished yet. */
-function formatMedian(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return '—';
-  if (seconds < 60) return `${Math.round(seconds)}s`;
+function MedianTime({ seconds }: { seconds: number }) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return <>—</>;
+  if (seconds < 60) {
+    return <CountUp value={Math.round(seconds)} suffix="s" />;
+  }
   const minutes = Math.floor(seconds / 60);
   const rest = Math.round(seconds % 60);
-  return rest > 0 ? `${minutes}m ${rest}s` : `${minutes}m`;
+  return rest > 0 ? (
+    <>
+      <CountUp value={minutes} suffix="m" /> <CountUp value={rest} suffix="s" />
+    </>
+  ) : (
+    <CountUp value={minutes} suffix="m" />
+  );
 }
