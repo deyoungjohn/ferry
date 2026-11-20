@@ -389,7 +389,8 @@ export function PayLinkPage() {
         >
           ← All Pay Links
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <LinkHowItWorks kind="pay" />
           <button
             type="button"
             onClick={handleShare}
@@ -462,9 +463,6 @@ export function PayLinkPage() {
                 {chainNameFromId(summary.chainId)}
               </p>
             )}
-            <div className="mt-1 print:hidden">
-              <LinkHowItWorks kind="pay" />
-            </div>
             {note && (
               <p
                 data-testid="pay-link-note"
