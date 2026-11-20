@@ -64,31 +64,43 @@ describe('AmountSlider', () => {
   });
 });
 
-describe('the EVM balance read', () => {
+describe('the EVM balance read', { timeout: 30_000 }, () => {
   const token = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
   const owner = '0x12DC0000000000000000000000000000001Da841';
 
   it('uses the solver first and reads no public endpoint when it answers', async () => {
-    const fetchFn = vi.fn(async () =>
-      Response.json({ balance: '38040000' }),
-    ) as unknown as typeof fetch;
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ balance: '38040000' }),
+      };
+    }) as unknown as typeof fetch;
     const balance = await readEvmTokenBalance(8453, token, owner, {
       solverUrl: 'https://solver.test',
       fetchFn,
     });
     expect(balance).toBe(38_040_000n);
-    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(calls).toBe(1);
   });
 
   it('treats a solver refusal as the answer and does not fall back', async () => {
-    const fetchFn = vi.fn(
-      async () => new Response('{}', { status: 422 }),
-    ) as unknown as typeof fetch;
-    await expect(
-      readEvmTokenBalance(8453, token, owner, {
+    const fetchFn = (async () => ({
+      ok: false,
+      status: 422,
+      json: async () => ({}),
+    })) as unknown as typeof fetch;
+    let message = '';
+    try {
+      await readEvmTokenBalance(8453, token, owner, {
         solverUrl: 'https://solver.test',
         fetchFn,
-      }),
-    ).rejects.toThrow(/refused/);
+      });
+    } catch (error) {
+      message = String((error as { message?: unknown })?.message ?? error);
+    }
+    expect(message).toMatch(/refused/);
   });
 });

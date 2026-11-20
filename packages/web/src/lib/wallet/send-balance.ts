@@ -35,27 +35,29 @@ export async function readEvmTokenBalance(
 ): Promise<bigint> {
   const fetchFn = options.fetchFn ?? fetch;
   if (options.solverUrl) {
+    let res: Response | null = null;
     try {
       const url = `${options.solverUrl.replace(/\/+$/, '')}/v1/evm/balance?chainId=${chainId}&token=${token}&owner=${owner}`;
-      const res = await fetchFn(url);
+      res = await fetchFn(url);
+    } catch {
+      // A network error: read the chain directly below.
+    }
+    if (res) {
       if (res.ok) {
-        const body = (await res.json()) as { balance?: string };
-        if (typeof body.balance === 'string' && /^\d+$/.test(body.balance)) {
-          return BigInt(body.balance);
+        try {
+          const body = (await res.json()) as { balance?: string };
+          if (typeof body.balance === 'string' && /^\d+$/.test(body.balance)) {
+            return BigInt(body.balance);
+          }
+        } catch {
+          // An unreadable answer: read the chain directly below.
         }
       } else if (res.status < 500) {
+        // The solver's answer (a refusal), not a reason to fall back.
         throw new Error(
           `The Ferry server refused the balance read (${res.status}).`,
         );
       }
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        /refused the balance read/.test(error.message)
-      ) {
-        throw error;
-      }
-      // A network error or a 5xx: read the chain directly below.
     }
   }
   return readEvmTokenBalanceDirect(chainId, token, owner);
