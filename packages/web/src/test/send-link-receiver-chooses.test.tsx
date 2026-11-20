@@ -5,6 +5,7 @@ import { SendLinkPage } from '../routes/SendLinkPage';
 import { SolverProvider } from '../lib/solver/SolverProvider';
 import { WalletContext } from '../lib/wallet/context';
 import type { SendLinkView, SolverClient } from '../lib/solver/types';
+import type { SendLinkSolverPort } from '../lib/send/ports';
 import type { Hex, Hex32, LiquidityResponse } from '@ferry/core';
 
 describe('SendLinkPage: Receiver chooses destination route', () => {
@@ -149,7 +150,7 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
     };
 
     render(
-      <WalletContext.Provider value={mockWallets as any}>
+      <WalletContext.Provider value={mockWallets as never}>
         <SolverProvider client={solver}>
           <MemoryRouter
             initialEntries={[`/s/${orderId}#${dummySecret.slice(2)}`]}
@@ -161,7 +162,9 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
                   <SendLinkPage
                     isLive={true}
                     initialSecret={dummySecret}
-                    dependencies={{ solver: solver as any }}
+                    dependencies={{
+                      solver: solver as unknown as SendLinkSolverPort,
+                    }}
                   />
                 }
               />
@@ -215,7 +218,7 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
     };
 
     render(
-      <WalletContext.Provider value={mockWallets as any}>
+      <WalletContext.Provider value={mockWallets as never}>
         <SolverProvider client={solver}>
           <MemoryRouter
             initialEntries={[`/s/${orderId}#${dummySecret.slice(2)}`]}
@@ -227,7 +230,9 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
                   <SendLinkPage
                     isLive={true}
                     initialSecret={dummySecret}
-                    dependencies={{ solver: solver as any }}
+                    dependencies={{
+                      solver: solver as unknown as SendLinkSolverPort,
+                    }}
                   />
                 }
               />
@@ -326,7 +331,7 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
     };
 
     render(
-      <WalletContext.Provider value={mockWallets as any}>
+      <WalletContext.Provider value={mockWallets as never}>
         <SolverProvider client={solver}>
           <MemoryRouter
             initialEntries={[`/s/${orderId}#${dummySecret.slice(2)}`]}
@@ -338,7 +343,9 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
                   <SendLinkPage
                     isLive={true}
                     initialSecret={dummySecret}
-                    dependencies={{ solver: solver as any }}
+                    dependencies={{
+                      solver: solver as unknown as SendLinkSolverPort,
+                    }}
                   />
                 }
               />
