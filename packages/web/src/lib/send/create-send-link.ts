@@ -14,6 +14,7 @@ import type {
   SendLinkLiveCreationResult,
 } from './types';
 import { verifySendLinkQuote } from './verify';
+import { sendLinkViewTag } from './wallet-send-links';
 
 export function formatRefundDate(
   bchRefundHeight: number,
@@ -54,6 +55,11 @@ export async function createSendLinkLive(
     : generateSecret();
   const hashLock = hashSecret(secret);
 
+  const rawTag =
+    input.viewTag ??
+    (deps.secretGenerator as { lastTag?: `0x${string}` })?.lastTag;
+  const viewTag = rawTag ? sendLinkViewTag(rawTag) : undefined;
+
   // Derive sender's BCH locking bytecode
   const userBchLockingBytecode = cashAddressToLockingBytecode(
     deps.bchCashAddress,
@@ -74,6 +80,7 @@ export async function createSendLinkLive(
     hashLock,
     windowSeconds: input.windowSeconds,
     ...(input.note ? { note: cleanNote(input.note) } : {}),
+    ...(viewTag ? { viewTag } : {}),
     lane: 'safe',
   };
 
@@ -151,6 +158,7 @@ export async function createSendLinkLive(
       bchNetwork: deps.bchNetwork,
       bchCashAddress: deps.bchCashAddress,
       userLockingBytecodeHex: userBchLockingBytecode,
+      ...(rawTag ? { recoveryTag: rawTag } : {}),
     },
     verified.terms,
   );
