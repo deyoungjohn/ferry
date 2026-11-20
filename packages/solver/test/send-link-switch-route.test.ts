@@ -10,8 +10,8 @@ import { SolverConfigSchema } from '../src/config.js';
 import { SolverEngine } from '../src/engine/runner.js';
 import type { BchQuorumClient } from '../src/bch/quorum-client.js';
 import { MockPriceSource } from '../src/pricing/price-source.js';
-import type { InventoryReader } from '../src/inventory/index.js';
-import type { ActiveRoutesContext } from '../src/routes/active-routes.js';
+import type { InventoryReader } from '../src/pricing/inventory-reader.js';
+import type { SolverRoutesContext } from '../src/ops/routes-config.js';
 
 describe('Send link route switching (receiver chooses destination)', () => {
   let app: FastifyInstance;
@@ -206,7 +206,7 @@ describe('Send link route switching (receiver chooses destination)', () => {
       priceSource,
       engine,
       inventoryReader: fakeInventoryReader as unknown as InventoryReader,
-      routesContext: routesContext as unknown as ActiveRoutesContext,
+      routesContext: routesContext as unknown as SolverRoutesContext,
     });
 
     await app.ready();
