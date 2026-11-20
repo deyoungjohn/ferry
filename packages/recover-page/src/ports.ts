@@ -1,12 +1,16 @@
 import { binToHex, hexToBin, sha256 } from '@bitauth/libauth';
 import {
+  PREDICTED_FERRY_HTLC_ADDRESS,
+  PREVIOUS_FERRY_HTLC_ADDRESS,
+} from '@ferry/chain-config/browser';
+import {
   evmLockId,
   type LockChainStatus,
   type RecoveryFile,
 } from '@ferry/core';
 import { FulcrumClient, type HtlcUtxo } from '@ferry/htlc-bch';
 import { ferryHtlcAbi } from '@ferry/htlc-evm/abi';
-import { createPublicClient, http, type Address } from 'viem';
+import { createPublicClient, http, parseAbiItem, type Address } from 'viem';
 import type { BchReading, EvmReading, RecoveryPorts } from './logic.js';
 
 /** Public servers, tried in order. The two Bitcoin Cash mainnet hosts are independent operators. */
@@ -62,6 +66,17 @@ export function createBrowserPorts(options: PortOptions): RecoveryPorts {
             : file.terms.solverEvmAddress,
           file.hashLock,
         );
+      const candidates: Address[] = [
+        ...(file.contracts.evm.htlcAddress
+          ? [file.contracts.evm.htlcAddress as Address]
+          : []),
+        PREDICTED_FERRY_HTLC_ADDRESS as Address,
+        PREVIOUS_FERRY_HTLC_ADDRESS as Address,
+      ].filter(
+        (addr, idx, arr) =>
+          arr.findIndex((a) => a.toLowerCase() === addr.toLowerCase()) === idx,
+      );
+
       const failures: string[] = [];
       for (const url of urls) {
         try {
@@ -69,18 +84,78 @@ export function createBrowserPorts(options: PortOptions): RecoveryPorts {
             transport: http(url, { timeout: 15_000 }),
             cacheTime: 0,
           });
-          const [block, tuple] = await Promise.all([
-            client.getBlock({ blockTag: 'latest' }),
-            client.readContract({
-              address: file.contracts.evm.htlcAddress as Address,
-              abi: ferryHtlcAbi,
-              functionName: 'locks',
-              args: [lockId],
-            }),
-          ]);
+          const block = await client.getBlock({ blockTag: 'latest' });
+          let foundStatus: LockChainStatus = 'none';
+          let activeAddress: Address =
+            (file.contracts.evm.htlcAddress as Address) ?? candidates[0]!;
+
+          for (const addr of candidates) {
+            try {
+              const tuple = await client.readContract({
+                address: addr,
+                abi: ferryHtlcAbi,
+                functionName: 'locks',
+                args: [lockId],
+              });
+              const st = STATE_MAP[Number(tuple[6])] ?? 'none';
+              if (st !== 'none') {
+                foundStatus = st;
+                activeAddress = addr;
+                break;
+              }
+            } catch {
+              // ignore failure for candidate
+            }
+          }
+
+          if (
+            activeAddress &&
+            activeAddress.toLowerCase() !==
+              file.contracts.evm.htlcAddress?.toLowerCase()
+          ) {
+            file.contracts.evm.htlcAddress = activeAddress;
+          }
+
+          let refundTx: string | undefined;
+          let refundKind: 'release' | 'keeper' | 'user' | undefined;
+
+          if (foundStatus === 'refunded') {
+            try {
+              const logs = await client.getLogs({
+                address: activeAddress,
+                event: parseAbiItem('event Refunded(bytes32 indexed id)'),
+                args: { id: lockId },
+                fromBlock: 'earliest',
+              });
+              const firstLog = logs[0];
+              if (firstLog?.transactionHash) {
+                refundTx = firstLog.transactionHash;
+                const tx = await client.getTransaction({
+                  hash: firstLog.transactionHash,
+                });
+                const isRelease =
+                  tx.input.startsWith('0x67d42a8b') ||
+                  tx.from.toLowerCase() ===
+                    file.terms.solverEvmAddress.toLowerCase();
+                const isKeeper =
+                  !isRelease &&
+                  tx.from.toLowerCase() !==
+                    file.terms.userEvmAddress.toLowerCase();
+                refundKind = isRelease
+                  ? 'release'
+                  : isKeeper
+                    ? 'keeper'
+                    : 'user';
+              }
+            } catch {
+              // ignore log error
+            }
+          }
+
           return {
             nowSeconds: Number(block.timestamp),
-            lockStatus: STATE_MAP[Number(tuple[6])] ?? 'none',
+            lockStatus: foundStatus,
+            ...(refundTx ? { refundTx, refundKind } : {}),
           };
         } catch (error) {
           failures.push(`${url}: ${messageOf(error)}`);

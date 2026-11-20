@@ -137,6 +137,7 @@ export interface ChainAdapter {
   lock(terms: OrderTerms): Promise<TxRef>;
   claim(lockId: string, secret: Hex32): Promise<TxRef>;
   refund(lockId: string): Promise<TxRef>;
+  release?(lockId: string): Promise<TxRef>;
   getLock(lockId: string): Promise<LockState>;
   watch(onEvent: (event: LockEvent) => void): Unsubscribe;
   isFinal(tx: TxRef, lane: Lane): Promise<boolean>;

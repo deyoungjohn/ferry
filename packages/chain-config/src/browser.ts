@@ -7,6 +7,7 @@ export {
   FERRY_HTLC_INIT_CODE_HASH,
   FERRY_HTLC_SALT,
   PREDICTED_FERRY_HTLC_ADDRESS,
+  PREVIOUS_FERRY_HTLC_ADDRESS,
   predictHtlcAddress,
 } from './htlc.js';
 export { loadChainConfig, loadChainDisplay } from './config.js';

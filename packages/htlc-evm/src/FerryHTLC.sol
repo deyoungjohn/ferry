@@ -64,6 +64,7 @@ contract FerryHTLC is ReentrancyGuard {
     error BadParams();
     error IntentExpired();
     error InvalidIntentSignature();
+    error NotRecipient();
 
     constructor() {
         _CACHED_CHAIN_ID = block.chainid;
@@ -161,6 +162,17 @@ contract FerryHTLC is ReentrancyGuard {
         Lock storage lockData = locks[id];
         if (lockData.state != State.Locked) revert NotLocked();
         if (block.timestamp < lockData.deadline) revert TooEarly();
+
+        lockData.state = State.Refunded;
+        IERC20(lockData.token).safeTransfer(lockData.sender, lockData.amount);
+        emit Refunded(id);
+    }
+
+    /// @notice Allows the lock's recipient to release funds back to the sender before or after deadline.
+    function release(bytes32 id) external nonReentrant {
+        Lock storage lockData = locks[id];
+        if (lockData.state != State.Locked) revert NotLocked();
+        if (msg.sender != lockData.recipient) revert NotRecipient();
 
         lockData.state = State.Refunded;
         IERC20(lockData.token).safeTransfer(lockData.sender, lockData.amount);

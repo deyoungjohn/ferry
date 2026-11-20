@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { loadChainConfig } from '@ferry/chain-config';
+import {
+  PREDICTED_FERRY_HTLC_ADDRESS,
+  loadChainConfig,
+} from '@ferry/chain-config';
 import { buildActiveRoutes } from '../src/ops/routes-config.js';
 import { loadConfigFromEnv } from '../src/config.js';
 import { RoutePriceSource } from '../src/pricing/composite-source.js';
@@ -22,19 +25,19 @@ describe('USDG on Robinhood Chain (Route usdg:robinhood)', () => {
         '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
       OPERATOR_TOKEN: '12345678901234567890123456789012',
       ENABLED_ROUTES: 'usdg:robinhood',
+      FERRY_HTLC_ADDRESS: PREDICTED_FERRY_HTLC_ADDRESS,
     });
 
     const routesContext = buildActiveRoutes(config, {
       ENABLED_ROUTES: 'usdg:robinhood',
+      FERRY_HTLC_ADDRESS: PREDICTED_FERRY_HTLC_ADDRESS,
     });
 
     const route = routesContext.routes.find((r) => r.key === 'usdg:robinhood');
     expect(route).toBeDefined();
     expect(route?.enabled).toBe(true);
     expect(route?.eligible).toBe(true);
-    expect(route?.htlcAddress).toBe(
-      '0x8b968625F983420B571C102eC0b57F7e509c916e',
-    );
+    expect(route?.htlcAddress).toBe(PREDICTED_FERRY_HTLC_ADDRESS);
 
     const chainFact = routesContext.chainConfig.facts.find(
       (c) => c.id === 'robinhood',
@@ -189,7 +192,7 @@ describe('USDG on Robinhood Chain (Route usdg:robinhood)', () => {
           '0xec335fd3ffa45f80cef7217cf98e8adf562df5a3e33f354f69df2951703586ac',
         evmToken: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168',
         evmChainId: 4663,
-        evmHtlc: '0x8b968625F983420B571C102eC0b57F7e509c916e',
+        evmHtlc: PREDICTED_FERRY_HTLC_ADDRESS,
         userEvmAddress: '0x1111111111111111111111111111111111111111',
         userBchLockingBytecode:
           '0x76a914111111111111111111111111111111111111111188ac',
@@ -224,6 +227,7 @@ describe('USDG on Robinhood Chain (Route usdg:robinhood)', () => {
       OPERATOR_TOKEN: '12345678901234567890123456789012',
       ENABLED_ROUTES: 'usdg:robinhood',
       COST_MODEL_ENABLED: 'false',
+      FERRY_HTLC_ADDRESS: PREDICTED_FERRY_HTLC_ADDRESS,
     });
 
     const db = new SolverDatabase(':memory:');
@@ -243,6 +247,10 @@ describe('USDG on Robinhood Chain (Route usdg:robinhood)', () => {
     const app = await buildServer({
       config,
       db,
+      routesContext: buildActiveRoutes(config, {
+        ENABLED_ROUTES: 'usdg:robinhood',
+        FERRY_HTLC_ADDRESS: PREDICTED_FERRY_HTLC_ADDRESS,
+      }),
       priceSource: mockPriceSource,
       engine: {
         isQuotingEnabled: () => true,

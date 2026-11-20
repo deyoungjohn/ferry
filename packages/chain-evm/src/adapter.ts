@@ -414,18 +414,66 @@ export class EvmChainAdapter implements ChainAdapter {
       throw new Error(`Cannot refund lock in state: ${currentLock.status}`);
     }
 
-    const hash = await this.send((account) => ({
-      address: this.htlcAddress,
-      abi: ferryHtlcAbi,
-      functionName: 'refund',
-      args: [lockId as Hex32],
-      chain: null,
-      account,
-    }));
+    try {
+      const hash = await this.send((account) => ({
+        address: this.htlcAddress,
+        abi: ferryHtlcAbi,
+        functionName: 'refund',
+        args: [lockId as Hex32],
+        chain: null,
+        account,
+      }));
 
-    const txId = hash as Hex32;
-    this.lastSeenTxByAction.set(actionKey, txId);
-    return { chain: this.id, txId };
+      const txId = hash as Hex32;
+      this.lastSeenTxByAction.set(actionKey, txId);
+      return { chain: this.id, txId };
+    } catch (err) {
+      const recheck = await this.getLock(lockId);
+      if (recheck.status === 'refunded') {
+        this.lastSeenTxByAction.set(actionKey, recheck.refundTx.txId);
+        return recheck.refundTx;
+      }
+      throw err;
+    }
+  }
+
+  async release(lockId: string): Promise<TxRef> {
+    const actionKey = `release:${lockId}`;
+    const cachedTx = this.lastSeenTxByAction.get(actionKey);
+    if (cachedTx) {
+      return { chain: this.id, txId: cachedTx };
+    }
+
+    const currentLock = await this.getLock(lockId);
+    if (currentLock.status === 'refunded') {
+      return currentLock.refundTx;
+    }
+    if (currentLock.status !== 'locked') {
+      throw new Error(`Cannot release lock in state: ${currentLock.status}`);
+    }
+
+    try {
+      const hash = await this.send((account) => ({
+        address: this.htlcAddress,
+        abi: ferryHtlcAbi,
+        functionName: 'release',
+        args: [lockId as Hex32],
+        chain: null,
+        account,
+      }));
+
+      const txId = hash as Hex32;
+      this.lastSeenTxByAction.set(actionKey, txId);
+      this.lastSeenTxByAction.set(`refund:${lockId}`, txId);
+      return { chain: this.id, txId };
+    } catch (err) {
+      const recheck = await this.getLock(lockId);
+      if (recheck.status === 'refunded') {
+        this.lastSeenTxByAction.set(actionKey, recheck.refundTx.txId);
+        return recheck.refundTx;
+      }
+      throw err;
+    }
   }
 
   private async findLockTx(lockId: Hex32): Promise<Hex32 | null> {

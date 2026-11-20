@@ -53,7 +53,7 @@ describe('loadChainConfig', () => {
         },
       ],
     });
-    expect(base?.deployBlock).toBe(58633459);
+    expect(base?.deployBlock).toBeUndefined();
     expect(base?.rpcUrls).toHaveLength(3);
   });
 
@@ -63,11 +63,11 @@ describe('loadChainConfig', () => {
       name: 'Base',
       network: 'mainnet',
       deployment: {
-        htlcAddress: PREDICTED_FERRY_HTLC_ADDRESS,
-        deployBlock: 58633459,
+        htlcAddress: null,
+        deployBlock: null,
         relayCostUsd: null,
         predictedHtlcAddress: PREDICTED_FERRY_HTLC_ADDRESS,
-        status: 'verified',
+        status: 'unavailable',
       },
     });
     expect(base?.priceFeeds).toEqual([

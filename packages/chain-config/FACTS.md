@@ -406,14 +406,15 @@ but the asset gate is not met.
 `htlcAddress`, `deployBlock` and `relayCostUsd` live in this package. They are
 `null` in the data file until a reviewed deployment change fills them.
 
-| Fact                               | Value                                                                                    | Source                                                                                                    | Date       | Status |
-| ---------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------- | ------ |
-| Salt                               | `keccak256("ferry-htlc.v1")`                                                             | `packages/htlc-evm/script/Deploy.s.sol`; `packages/htlc-evm/README.md`                                    | 2026-11-16 | ✔      |
-| Init-code hash                     | `0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430`                     | `packages/htlc-evm/README.md`; `preparation/Ferry_Blueprint.md` §18                                       | 2026-11-16 | ✔      |
-| Predicted CREATE2 address          | `0x8b968625F983420B571C102eC0b57F7e509c916e` on every network with the canonical factory | `packages/htlc-evm/README.md`; `preparation/Ferry_Blueprint.md` §18; recomputed by `predictHtlcAddress()` | 2026-11-16 | ✔      |
-| Mainnet and testnet `htlcAddress`  | `null` until a reviewed deployment                                                       | No deployment of the current bytecode                                                                     | 2026-11-16 | ✗      |
-| Mainnet and testnet `deployBlock`  | `null` until a reviewed deployment                                                       | No deployment of the current bytecode                                                                     | 2026-11-16 | ✗      |
-| Mainnet and testnet `relayCostUsd` | `null` until measured after deployment                                                   | No mainnet deployment                                                                                     | 2026-11-16 | ✗      |
+| Fact                               | Value                                                                                    | Source                                                                    | Date       | Status |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------- | ------ |
+| Salt                               | `keccak256("ferry-htlc.v1")`                                                             | `packages/htlc-evm/script/Deploy.s.sol`; `packages/htlc-evm/README.md`    | 2026-11-19 | ✔      |
+| Init-code hash                     | `0x4ca8e6ac893b54008f3c1b9064f6670a9bbf17f55e0f1ef71888c802ce418eea`                     | `packages/htlc-evm/README.md`; recomputed by `predictHtlcAddress()`       | 2026-11-19 | ✔      |
+| Predicted CREATE2 address          | `0xfC28c2596C553353578a5a444d2316514009DAdF` on every network with the canonical factory | `packages/htlc-evm/README.md`; recomputed by `predictHtlcAddress()`       | 2026-11-19 | ✔      |
+| Previous superseded address        | `0x8b968625F983420B571C102eC0b57F7e509c916e`                                             | Preserved in `chains.json` `previous` field for recovery of earlier locks | 2026-11-19 | ✔      |
+| Mainnet and testnet `htlcAddress`  | `null` until a reviewed deployment                                                       | Superseded, redeploy pending of release-capable bytecode                  | 2026-11-19 | ✗      |
+| Mainnet and testnet `deployBlock`  | `null` until a reviewed deployment                                                       | Superseded, redeploy pending                                              | 2026-11-19 | ✗      |
+| Mainnet and testnet `relayCostUsd` | `null` until measured after deployment                                                   | No active mainnet deployment                                              | 2026-11-19 | ✗      |
 
 Record a mainnet deployment after the reviewed deploy:
 

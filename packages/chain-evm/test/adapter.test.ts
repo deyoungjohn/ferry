@@ -622,4 +622,85 @@ describe('EvmChainAdapter', () => {
     finalizedBlock = 100n;
     expect(await mockAdapter.isFinal(tx, 'safe')).toBe(true);
   });
+
+  it('allows solver recipient to early-release funds back to sender', async () => {
+    const userClient = createWalletClient({
+      account: userAccount,
+      chain: foundry,
+      transport: http(anvil.rpcUrl),
+    });
+    const userAdapter = new EvmChainAdapter({
+      config: chainConfig,
+      client: publicClient,
+      walletClient: userClient,
+    });
+
+    const terms = makeTerms('early-release-test', { direction: 'EVM_TO_BCH' });
+    await userAdapter.lock(terms);
+    const lockId = adapter.lockId(userAccount.address, terms.hashLock);
+
+    const lockBefore = await adapter.getLock(lockId);
+    expect(lockBefore.status).toBe('locked');
+
+    const balBefore = await publicClient.readContract({
+      address: usdcAddress,
+      abi: mockTokenAbi,
+      functionName: 'balanceOf',
+      args: [userAccount.address],
+    });
+
+    // Solver is the recipient, so solver adapter can call release
+    const releaseTx = await adapter.release(lockId);
+    expect(releaseTx.chain).toBe('base');
+    expect(releaseTx.txId).toMatch(/^0x[0-9a-fA-F]{64}$/);
+
+    const lockAfter = await adapter.getLock(lockId);
+    expect(lockAfter.status).toBe('refunded');
+
+    const balAfter = await publicClient.readContract({
+      address: usdcAddress,
+      abi: mockTokenAbi,
+      functionName: 'balanceOf',
+      args: [userAccount.address],
+    });
+    expect(balAfter).toBe(balBefore + terms.evmAmount);
+
+    // Calling release again is idempotent
+    const repeatTx = await adapter.release(lockId);
+    expect(repeatTx.txId).toBe(releaseTx.txId);
+  });
+
+  it('refunds lock after deadline has passed', async () => {
+    const userClient = createWalletClient({
+      account: userAccount,
+      chain: foundry,
+      transport: http(anvil.rpcUrl),
+    });
+    const userAdapter = new EvmChainAdapter({
+      config: chainConfig,
+      client: publicClient,
+      walletClient: userClient,
+    });
+
+    const terms = makeTerms('refund-test', { direction: 'EVM_TO_BCH' });
+    await userAdapter.lock(terms);
+    const lockId = adapter.lockId(userAccount.address, terms.hashLock);
+
+    // Fast-forward anvil time past deadline
+    await publicClient.request({
+      method: 'evm_increaseTime' as never,
+      params: [4000] as never,
+    });
+    await publicClient.request({
+      method: 'evm_mine' as never,
+      params: [] as never,
+    });
+
+    const refundTx = await adapter.refund(lockId);
+    expect(refundTx.chain).toBe('base');
+    expect(refundTx.txId).toMatch(/^0x[0-9a-fA-F]{64}$/);
+
+    const lockState = await adapter.getLock(lockId);
+    expect(lockState.status).toBe('refunded');
+  });
 });

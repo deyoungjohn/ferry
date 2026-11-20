@@ -1,7 +1,7 @@
 # FerryHTLC Independent Review Checklist
 
 Target contract: `packages/htlc-evm/src/FerryHTLC.sol` (Solidity `0.8.28`, `via_ir = true`, OpenZeppelin `5.6.1`)  
-Deterministic CREATE2 address: `0x8b968625F983420B571C102eC0b57F7e509c916e` (salt `keccak256("ferry-htlc.v1")`, factory `0x4e59b44847b379578588920cA78FbF26c0B4956C`).
+Deterministic CREATE2 address: `0xfC28c2596C553353578a5a444d2316514009DAdF` (salt `keccak256("ferry-htlc.v1")`, factory `0x4e59b44847b379578588920cA78FbF26c0B4956C`; superseded address `0x8b968625F983420B571C102eC0b57F7e509c916e` retained for recovery).
 
 Estimated review time: **< 1 hour** (~230 lines, single contract, no inheritance beyond `ReentrancyGuard`).
 

@@ -15,6 +15,10 @@ import {
   type BchRecoveryTransactionResult,
   type HtlcUtxo,
 } from '@ferry/htlc-bch';
+import {
+  PREDICTED_FERRY_HTLC_ADDRESS,
+  PREVIOUS_FERRY_HTLC_ADDRESS,
+} from '@ferry/chain-config';
 import { ferryHtlcAbi } from '@ferry/htlc-evm/abi';
 import {
   createPublicClient,
@@ -28,6 +32,11 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 export const DEFAULT_KEY_ENV = 'FERRY_RECOVER_PRIVATE_KEY';
 
+export const KNOWN_FERRY_HTLC_ADDRESSES: readonly Address[] = [
+  PREDICTED_FERRY_HTLC_ADDRESS as Address,
+  PREVIOUS_FERRY_HTLC_ADDRESS as Address,
+];
+
 const STATE_MAP: Record<number, LockChainStatus> = {
   0: 'none',
   1: 'locked',
@@ -38,6 +47,7 @@ const STATE_MAP: Record<number, LockChainStatus> = {
 export interface EvmChainProbeResult {
   nowSeconds: number;
   lockStatus: LockChainStatus;
+  htlcAddress?: Address;
 }
 
 export async function probeEvmLockStatus(
@@ -58,20 +68,46 @@ export async function probeEvmLockStatus(
       file.hashLock,
     );
 
-  const [block, lockTuple] = await Promise.all([
-    client.getBlock({ blockTag: 'latest' }),
-    client.readContract({
-      address: file.contracts.evm.htlcAddress as Address,
-      abi: ferryHtlcAbi,
-      functionName: 'locks',
-      args: [lockId],
-    }),
-  ]);
+  const block = await client.getBlock({ blockTag: 'latest' });
+  const candidates: Address[] = [
+    ...(file.contracts.evm.htlcAddress
+      ? [file.contracts.evm.htlcAddress as Address]
+      : []),
+    ...KNOWN_FERRY_HTLC_ADDRESSES,
+  ].filter(
+    (addr, idx, arr) =>
+      arr.findIndex((a) => a.toLowerCase() === addr.toLowerCase()) === idx,
+  );
 
-  const rawState = Number(lockTuple[6]);
+  let detectedStatus: LockChainStatus = 'none';
+  let resolvedAddress: Address =
+    (file.contracts.evm.htlcAddress as Address) ??
+    KNOWN_FERRY_HTLC_ADDRESSES[0];
+
+  for (const candidate of candidates) {
+    try {
+      const lockTuple = await client.readContract({
+        address: candidate,
+        abi: ferryHtlcAbi,
+        functionName: 'locks',
+        args: [lockId],
+      });
+      const rawState = Number(lockTuple[6]);
+      const status = STATE_MAP[rawState] ?? 'none';
+      if (status !== 'none') {
+        detectedStatus = status;
+        resolvedAddress = candidate;
+        break;
+      }
+    } catch {
+      // ignore read failure for candidate
+    }
+  }
+
   return {
     nowSeconds: Number(block.timestamp),
-    lockStatus: STATE_MAP[rawState] ?? 'none',
+    lockStatus: detectedStatus,
+    htlcAddress: resolvedAddress,
   };
 }
 

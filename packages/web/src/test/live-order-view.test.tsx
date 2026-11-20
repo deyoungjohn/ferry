@@ -246,4 +246,54 @@ describe('the order page', () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
+
+  it('shows "The solver returned your funds" with explorer link for release', async () => {
+    vi.stubEnv('VITE_SOLVER_URLS', 'https://solver.test');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          ...SNAPSHOT,
+          state: 'RELEASED',
+          txids: {
+            ...SNAPSHOT.txids,
+            evmRefund:
+              '0x111122223333444455556666777788889999aaaabbbbccccddddeeeeffff0000',
+          },
+        }),
+      ),
+    );
+    renderPage(false);
+    const releasedEl = await screen.findByTestId('order-released');
+    expect(releasedEl).toHaveTextContent('The solver returned your funds');
+    const link = await screen.findByTestId('order-release-tx');
+    expect(link.getAttribute('href')).toContain('basescan.org/tx/0x11112222');
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it('shows "Refunded automatically" with explorer link for keeper refund', async () => {
+    vi.stubEnv('VITE_SOLVER_URLS', 'https://solver.test');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          ...SNAPSHOT,
+          state: 'SOLVER_REFUNDED',
+          txids: {
+            ...SNAPSHOT.txids,
+            evmRefund:
+              '0x22223333444455556666777788889999aaaabbbbccccddddeeeeffff00001111',
+          },
+        }),
+      ),
+    );
+    renderPage(false);
+    const keeperEl = await screen.findByTestId('order-keeper-refunded');
+    expect(keeperEl).toHaveTextContent('Refunded automatically');
+    const link = await screen.findByTestId('order-keeper-tx');
+    expect(link.getAttribute('href')).toContain('basescan.org/tx/0x22223333');
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
 });

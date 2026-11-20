@@ -261,6 +261,19 @@ export const ferryHtlcAbi = [
     stateMutability: 'nonpayable',
   },
   {
+    type: 'function',
+    name: 'release',
+    inputs: [
+      {
+        name: 'id',
+        type: 'bytes32',
+        internalType: 'bytes32',
+      },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
     type: 'event',
     name: 'Claimed',
     inputs: [
@@ -373,6 +386,11 @@ export const ferryHtlcAbi = [
   },
   {
     type: 'error',
+    name: 'NotRecipient',
+    inputs: [],
+  },
+  {
+    type: 'error',
     name: 'ReentrancyGuardReentrantCall',
     inputs: [],
   },
@@ -395,6 +413,6 @@ export const ferryHtlcAbi = [
 ] as const;
 export type FerryHtlcAbi = typeof ferryHtlcAbi;
 export const FERRY_HTLC_DEPLOYED_BYTECODE_HASH =
-  '0xf220842a7c547c3f27b9421f744b78a3373147aa77a518320d25d65153b93cbb' as const;
+  '0x0dd8f9e2b0f88548068e3546c0e7016fb7068c4b64ad8faa94023a362991c52f' as const;
 export const FERRY_HTLC_INIT_CODE_HASH =
-  '0xd17effec64b5a29aadba48b4f69268a12e2316c04fbef16877c43b2595d0e430' as const;
+  '0x4ca8e6ac893b54008f3c1b9064f6670a9bbf17f55e0f1ef71888c802ce418eea' as const;

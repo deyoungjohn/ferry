@@ -1,4 +1,8 @@
-import { listDeployedContracts } from '@ferry/chain-config/browser';
+import {
+  listDeployedContracts,
+  PREDICTED_FERRY_HTLC_ADDRESS,
+  PREVIOUS_FERRY_HTLC_ADDRESS,
+} from '@ferry/chain-config/browser';
 import chainsData from '../../../chain-config/src/data/chains.json';
 import { useState, useContext, type ChangeEvent, type FormEvent } from 'react';
 import { ROUTES } from '../lib/routes';
@@ -29,6 +33,7 @@ import { buildBchRecoveryTransaction } from '@ferry/htlc-bch';
 import { CopyDiagnosticsButton } from '../components/CopyDiagnosticsButton';
 import { InfoIcon, ExternalLinkIcon } from '../components/icons';
 import { useToast } from '../lib/toast/ToastContext';
+import { readOrderTxids, type OrderSnapshot } from '../lib/paylink/order-steps';
 
 const deployed = listDeployedContracts(chainsData);
 
@@ -45,6 +50,9 @@ export function RecoverPage() {
   const [actionResult, setActionResult] = useState<string | null>(null);
   const [evmCalldata, setEvmCalldata] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [orderSnapshot, setOrderSnapshot] = useState<OrderSnapshot | null>(
+    null,
+  );
 
   /** The contract's lock id for this file's EVM lock (not the order id). */
   function evmLockIdOf(file: RecoveryFile): Hex32 {
@@ -62,11 +70,46 @@ export function RecoverPage() {
   ): Promise<EvmWalletRecoveryPlan | null> {
     try {
       const client = createPublicClient({ chain: base, transport: http() });
+      const candidates: Address[] = [
+        ...(file.contracts.evm.htlcAddress
+          ? [file.contracts.evm.htlcAddress as Address]
+          : []),
+        PREDICTED_FERRY_HTLC_ADDRESS as Address,
+        PREVIOUS_FERRY_HTLC_ADDRESS as Address,
+      ].filter(
+        (addr, idx, arr) =>
+          arr.findIndex((a) => a.toLowerCase() === addr.toLowerCase()) === idx,
+      );
+
+      for (const candidate of candidates) {
+        try {
+          const res = await inspectEvmWalletRecovery({
+            client: client as unknown as Parameters<
+              typeof inspectEvmWalletRecovery
+            >[0]['client'],
+            htlc: candidate,
+            lockId: evmLockIdOf(file),
+            ...(file.secret ? { secret: file.secret as Hex32 } : {}),
+          });
+          if (res.status !== 'none') {
+            if (
+              candidate.toLowerCase() !==
+              file.contracts.evm.htlcAddress?.toLowerCase()
+            ) {
+              file.contracts.evm.htlcAddress = candidate;
+            }
+            return res;
+          }
+        } catch {
+          // ignore candidate error
+        }
+      }
+
       return await inspectEvmWalletRecovery({
         client: client as unknown as Parameters<
           typeof inspectEvmWalletRecovery
         >[0]['client'],
-        htlc: file.contracts.evm.htlcAddress as Address,
+        htlc: (file.contracts.evm.htlcAddress as Address) ?? candidates[0]!,
         lockId: evmLockIdOf(file),
         ...(file.secret ? { secret: file.secret as Hex32 } : {}),
       });
@@ -157,6 +200,17 @@ export function RecoverPage() {
     }
 
     setRecoveryFile(parsed);
+
+    const solverUrl = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+      ?.split(',')[0]
+      ?.trim();
+    if (solverUrl) {
+      readOrderTxids(solverUrl, parsed.orderId)
+        .then((s) => setOrderSnapshot(s))
+        .catch(() => undefined);
+    } else {
+      setOrderSnapshot(null);
+    }
 
     // Run core's direction-aware recoveryActions planner (Requirement 3)
     const now = Math.floor(Date.now() / 1000);
@@ -589,16 +643,81 @@ export function RecoverPage() {
             Recovery Plan & Parameters
           </h2>
 
-          {/* Core Plan Summary */}
-          <div
-            data-testid="recovery-plan-summary"
-            className="mb-4 rounded-well border border-lime/30 bg-lime/10 p-3.5 text-xs text-lime"
-          >
-            <span className="font-semibold block text-[11px] uppercase tracking-wider text-text-dim mb-1">
-              Action Plan Summary
-            </span>
-            <p className="font-medium text-sm text-text">{plan.summary}</p>
-          </div>
+          {(() => {
+            const isReleased = orderSnapshot?.state === 'RELEASED';
+            const isKeeperRefund =
+              orderSnapshot?.state === 'SOLVER_REFUNDED' ||
+              Boolean(orderSnapshot?.txids?.evmRefund && !isReleased);
+            const refundTxHash = orderSnapshot?.txids?.evmRefund;
+            const refundTxUrl =
+              refundTxHash && recoveryFile
+                ? evmTxUrl(recoveryFile.contracts.evm.chainId, refundTxHash)
+                : null;
+
+            return (
+              <>
+                {isReleased && (
+                  <div
+                    data-testid="recovery-released"
+                    className="mb-4 rounded-well border border-hairline bg-surface-2 p-3.5 text-xs"
+                  >
+                    <p className="font-semibold text-text">
+                      The solver returned your funds
+                    </p>
+                    {refundTxUrl && (
+                      <a
+                        href={refundTxUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-flex items-center text-xs text-lime underline"
+                        data-testid="recovery-release-link"
+                      >
+                        View transaction on block explorer
+                      </a>
+                    )}
+                  </div>
+                )}
+                {isKeeperRefund && (
+                  <div
+                    data-testid="recovery-keeper-refunded"
+                    className="mb-4 rounded-well border border-hairline bg-surface-2 p-3.5 text-xs"
+                  >
+                    <p className="font-semibold text-text">
+                      Refunded automatically
+                    </p>
+                    {refundTxUrl && (
+                      <a
+                        href={refundTxUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-flex items-center text-xs text-lime underline"
+                        data-testid="recovery-keeper-link"
+                      >
+                        View transaction on block explorer
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                {/* Core Plan Summary */}
+                <div
+                  data-testid="recovery-plan-summary"
+                  className="mb-4 rounded-well border border-lime/30 bg-lime/10 p-3.5 text-xs text-lime"
+                >
+                  <span className="font-semibold block text-[11px] uppercase tracking-wider text-text-dim mb-1">
+                    Action Plan Summary
+                  </span>
+                  <p className="font-medium text-sm text-text">
+                    {isReleased
+                      ? 'The solver returned your funds'
+                      : isKeeperRefund
+                        ? 'Refunded automatically'
+                        : plan.summary}
+                  </p>
+                </div>
+              </>
+            );
+          })()}
 
           {/* EVM Wallet Recovery Status (§Requirement 2) */}
           {evmPlan && (

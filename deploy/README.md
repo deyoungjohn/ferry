@@ -407,3 +407,55 @@ report `/usr/local/bin/node` and the two helper scripts as missing because the
 bootstrap has not run there. That is expected; a syntax or directive error is a
 real failure. `caddy validate` needs the official Caddy binary and a writable
 temporary access-log path, or run it on the server after bootstrap.
+
+## 16. Contract Redeployment & Verification Checklist (FerryHTLC with Early Release)
+
+When deploying or upgrading `FerryHTLC` across chains:
+
+- **Factory:** `0x4e59b44847b379578588920cA78FbF26c0B4956C` (standard CREATE2 singleton)
+- **Salt:** `keccak256("ferry-htlc.v1")`
+- **Init Code Hash:** See `FERRY_HTLC_INIT_CODE_HASH` in `packages/chain-config/src/htlc.ts`
+- **Predicted Address:** `0xfC28c2596C553353578a5a444d2316514009DAdF`
+- **Superseded Address:** `0x8b968625F983420B571C102eC0b57F7e509c916e` (retained for backward-compatible recovery of legacy locks)
+
+### Redeployment steps
+
+1. In `packages/htlc-evm`:
+   ```bash
+   # Predict address locally (verifies deterministic output)
+   forge script script/Deploy.s.sol:Deploy --sig "predict()"
+   ```
+2. Broadcast deployment to each chain:
+   ```bash
+   # Base (8453)
+   forge script script/Deploy.s.sol:Deploy --rpc-url https://mainnet.base.org --broadcast --private-key $DEPLOYER_KEY
+
+   # Arbitrum (42161)
+   forge script script/Deploy.s.sol:Deploy --rpc-url https://arb1.arbitrum.io/rpc --broadcast --private-key $DEPLOYER_KEY
+
+   # Ethereum (1)
+   forge script script/Deploy.s.sol:Deploy --rpc-url https://eth.llamarpc.com --broadcast --private-key $DEPLOYER_KEY
+
+   # BNB Smart Chain (56)
+   forge script script/Deploy.s.sol:Deploy --rpc-url https://bsc-dataseed.binance.org --broadcast --private-key $DEPLOYER_KEY
+   ```
+3. Verify source code on block explorers:
+   ```bash
+   # Etherscan / Basescan / Arbiscan
+   forge verify-contract 0xfC28c2596C553353578a5a444d2316514009DAdF src/FerryHTLC.sol:FerryHTLC \
+     --chain-id <CHAIN_ID> \
+     --watch \
+     --etherscan-api-key $EXPLORER_API_KEY
+
+   # Sourcify (free, decentralized, works across all EVM chains)
+   forge verify-contract 0xfC28c2596C553353578a5a444d2316514009DAdF src/FerryHTLC.sol:FerryHTLC \
+     --verifier sourcify
+   ```
+4. Record deployments in `@ferry/chain-config`:
+   ```bash
+   pnpm --filter @ferry/chain-config record-deployment --chain base --address 0xfC28c2596C553353578a5a444d2316514009DAdF --block <DEPLOY_BLOCK>
+   ```
+5. Confirm routes and health via preflight:
+   ```bash
+   pnpm --filter @ferry/chain-config preflight
+   ```

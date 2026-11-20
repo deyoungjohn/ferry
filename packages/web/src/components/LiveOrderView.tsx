@@ -341,6 +341,10 @@ export function LiveOrderView({
   const mustRestart =
     state?.step === 'lock' && (quoteLapsed || errorCode === 'QUOTE_EXPIRED');
   const forward = state?.direction === 'EVM_TO_BCH';
+  const isReleased = snap?.state === 'RELEASED';
+  const isKeeperRefund =
+    snap?.state === 'SOLVER_REFUNDED' ||
+    Boolean(snap?.txids?.evmRefund && !isReleased);
   const evmChainId = (() => {
     try {
       return fileJson
@@ -351,6 +355,9 @@ export function LiveOrderView({
     }
   })();
   const evmUrl = (hash: string) => evmTxUrl(evmChainId, hash);
+  const refundTxUrl = snap?.txids?.evmRefund
+    ? evmUrl(snap.txids.evmRefund)
+    : null;
   /** Every transaction of a step, with the block explorer page that proves it. */
   function txsFor(stepId: string) {
     const t = chainTxids;
@@ -364,10 +371,21 @@ export function LiveOrderView({
     const claimOn = forward ? bch : evm; // the person claims on the destination chain
     const solverClaimOn = forward ? evm : bch;
     if (stepId === 'lock')
-      return own(
-        'Your lock',
-        mine?.userLock ?? (forward ? t.evmLock : t.bchLock),
-      );
+      return [
+        ...own(
+          'Your lock',
+          mine?.userLock ?? (forward ? t.evmLock : t.bchLock),
+        ),
+        ...(t.evmRefund
+          ? [
+              {
+                label: isReleased ? 'Solver release' : 'Automatic refund',
+                hash: t.evmRefund,
+                url: evmUrl(t.evmRefund),
+              },
+            ]
+          : []),
+      ];
     if (stepId === 'waitCounterLock')
       return theirs("Solver's lock", forward ? t.bchLock : t.evmLock);
     if (stepId === 'claim')
@@ -395,6 +413,7 @@ export function LiveOrderView({
   // wait for the wallet and chain reads of the session to tick what the record already shows.
   const snapIndex = (() => {
     if (!direction || !snap) return 0;
+    if (isReleased || isKeeperRefund) return 3;
     const m = swapMilestones(snap, direction);
     if (m.done) return 5;
     if (m.userClaim) return 5;
@@ -423,7 +442,9 @@ export function LiveOrderView({
   const sessionIndex = state ? stepIndex(state.step) : 0;
   const current = Math.max(sessionIndex, snapIndex);
   const done =
-    state?.step === 'done' || (snap?.state === 'DONE' && snapIndex >= 5);
+    !isReleased &&
+    !isKeeperRefund &&
+    (state?.step === 'done' || (snap?.state === 'DONE' && snapIndex >= 5));
   const refundReady = state?.step === 'refund';
   const needsLockStart = state?.step === 'lock' && !running.current;
   const waitingForWallets = !dependencies && !wallets?.bch.address;
@@ -553,7 +574,42 @@ export function LiveOrderView({
         })}
       </ol>
 
-      {state?.step === 'refunded' && (
+      {isReleased && (
+        <div className="mt-4 text-sm text-text" data-testid="order-released">
+          <p>The solver returned your funds</p>
+          {refundTxUrl && (
+            <a
+              href={refundTxUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-flex items-center text-xs text-lime underline"
+              data-testid="order-release-tx"
+            >
+              View transaction on block explorer
+            </a>
+          )}
+        </div>
+      )}
+      {isKeeperRefund && (
+        <div
+          className="mt-4 text-sm text-text"
+          data-testid="order-keeper-refunded"
+        >
+          <p>Refunded automatically</p>
+          {refundTxUrl && (
+            <a
+              href={refundTxUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-flex items-center text-xs text-lime underline"
+              data-testid="order-keeper-tx"
+            >
+              View transaction on block explorer
+            </a>
+          )}
+        </div>
+      )}
+      {!isReleased && !isKeeperRefund && state?.step === 'refunded' && (
         <p className="mt-4 text-sm text-text" data-testid="order-refunded">
           Refunded. Your funds are back with you.
         </p>
@@ -592,22 +648,26 @@ export function LiveOrderView({
             Back to swap
           </Link>
         )}
-        {needsLockStart && sessionRef.current && !mustRestart && (
-          <button
-            type="button"
-            data-testid="order-lock-now"
-            // With the signing wallet not connected, the button opens that wallet's connection
-            // (the QR dialog for Bitcoin Cash); once connected, the same button locks.
-            onClick={() =>
-              signerMissing
-                ? signer?.connect()
-                : void carryOn(sessionRef.current!, true)
-            }
-            className="h-10 rounded-pill bg-olive px-5 font-semibold text-text"
-          >
-            Start Swap
-          </button>
-        )}
+        {needsLockStart &&
+          sessionRef.current &&
+          !mustRestart &&
+          !isReleased &&
+          !isKeeperRefund && (
+            <button
+              type="button"
+              data-testid="order-lock-now"
+              // With the signing wallet not connected, the button opens that wallet's connection
+              // (the QR dialog for Bitcoin Cash); once connected, the same button locks.
+              onClick={() =>
+                signerMissing
+                  ? signer?.connect()
+                  : void carryOn(sessionRef.current!, true)
+              }
+              className="h-10 rounded-pill bg-olive px-5 font-semibold text-text"
+            >
+              Start Swap
+            </button>
+          )}
         {refundReady && (
           <button
             type="button"
@@ -619,6 +679,8 @@ export function LiveOrderView({
           </button>
         )}
         {!done &&
+          !isReleased &&
+          !isKeeperRefund &&
           state?.step !== 'refunded' &&
           state &&
           !refundReady &&

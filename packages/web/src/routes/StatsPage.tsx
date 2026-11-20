@@ -1,11 +1,29 @@
-import { listDeployedContracts } from '@ferry/chain-config/browser';
+import {
+  listDeployedContracts,
+  PREDICTED_FERRY_HTLC_ADDRESS,
+  type DeployedContract,
+} from '@ferry/chain-config/browser';
 import chainsData from '../../../chain-config/src/data/chains.json';
 import { BANNER_CONFIG } from '../lib/config';
 import { PegCards } from '../components/PegCards';
 import { RecentSwapsTable } from '../components/RecentSwapsTable';
 import { StatsRow } from '../components/StatsRow';
 
-const deployed = listDeployedContracts(chainsData);
+const activeDeployed = listDeployedContracts(chainsData);
+const deployed: DeployedContract[] =
+  activeDeployed.length > 0
+    ? activeDeployed
+    : [
+        {
+          chain: 'base' as const,
+          name: 'Base',
+          chainId: 8453,
+          explorerUrl: 'https://basescan.org',
+          address: PREDICTED_FERRY_HTLC_ADDRESS,
+          deployBlock: null,
+          verified: false,
+        },
+      ];
 
 const TESTED = [
   [

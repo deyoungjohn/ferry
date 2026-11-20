@@ -24,6 +24,7 @@
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "@ferry/chain-config": "workspace:*",
     "@ferry/core": "workspace:*",
     "@ferry/htlc-bch": "workspace:*",
     "@ferry/htlc-evm": "workspace:*",

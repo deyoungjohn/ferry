@@ -9,6 +9,7 @@ import {
 
 /** Replaced at build time from the chain facts: public endpoints per EVM chain id. */
 declare const __RPC_URLS__: Record<number, string[]>;
+declare const __EXPLORER_URLS__: Record<number, string>;
 
 type Child = Node | string | null | false | undefined;
 
@@ -271,6 +272,14 @@ function bchCard(result: Inspection): HTMLElement | null {
   );
 }
 
+function explorerTxUrl(chainId: number, hash: string): string | null {
+  const base =
+    typeof __EXPLORER_URLS__ !== 'undefined'
+      ? __EXPLORER_URLS__[chainId]
+      : undefined;
+  return base ? `${base.replace(/\/+$/, '')}/tx/${hash}` : null;
+}
+
 function render(result: Inspection) {
   const parts: Child[] = [summary(result.file)];
   if (result.errors.evm) {
@@ -283,13 +292,56 @@ function render(result: Inspection) {
       note(`Could not read Bitcoin Cash. ${result.errors.bch}`, 'bad'),
     );
   }
+  if (result.evm?.lockStatus === 'refunded') {
+    const isRelease = result.evm.refundKind === 'release';
+    const heading = isRelease
+      ? 'The solver returned your funds'
+      : result.evm.refundKind === 'keeper'
+        ? 'Refunded automatically'
+        : 'Refunded';
+    const txHash = result.evm.refundTx;
+    const url = txHash
+      ? explorerTxUrl(result.file.contracts.evm.chainId, txHash)
+      : null;
+    parts.push(
+      h(
+        'section',
+        { class: 'card', 'data-testid': 'refund-status' },
+        h('h2', {}, heading),
+        url
+          ? h(
+              'p',
+              {},
+              h(
+                'a',
+                {
+                  href: url,
+                  target: '_blank',
+                  rel: 'noopener noreferrer',
+                  'data-testid': 'refund-explorer-link',
+                },
+                'View transaction on block explorer',
+              ),
+            )
+          : null,
+      ),
+    );
+  }
   if (result.plan) {
+    const summaryText =
+      result.evm?.lockStatus === 'refunded'
+        ? result.evm.refundKind === 'release'
+          ? 'The solver returned your funds'
+          : result.evm.refundKind === 'keeper'
+            ? 'Refunded automatically'
+            : result.plan.summary
+        : result.plan.summary;
     parts.push(
       h(
         'section',
         { class: 'card', 'data-testid': 'plan' },
         h('h2', {}, 'Where things stand'),
-        h('p', {}, result.plan.summary),
+        h('p', {}, summaryText),
         result.plan.waits.length > 0 &&
           h(
             'ul',
