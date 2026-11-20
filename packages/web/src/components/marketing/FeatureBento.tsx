@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 import {
   ChainTiles,
@@ -9,6 +9,12 @@ import {
   SwapLine,
   UiCard,
 } from './visuals';
+
+const RotatingChainCoins = lazy(() =>
+  import('./RotatingChainCoins').then((m) => ({
+    default: m.RotatingChainCoins,
+  })),
+);
 
 function Tile({
   title,
@@ -83,7 +89,9 @@ export function FeatureBento() {
           title="Six EVM chains, one contract address"
           body="Ethereum, Base, Arbitrum, BNB Chain, Arc and Robinhood Chain. USDC, USDT and USDG on one side; PUSD and MUSD on the other."
         >
-          <ChainTiles />
+          <Suspense fallback={<ChainTiles />}>
+            <RotatingChainCoins />
+          </Suspense>
         </Tile>
 
         <Tile
