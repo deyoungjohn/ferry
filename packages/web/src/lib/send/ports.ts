@@ -1,11 +1,15 @@
 import type { Hex32 } from '@ferry/core';
 import type {
+  ConfirmSendLinkRouteRequest,
+  ConfirmSendLinkRouteResponse,
   QuoteResponse,
   RelayClaimRequest,
   RelayClaimResponse,
   SendLinkDetailsResponse,
   SendLinkQueryMatch,
   SendQuoteRequest,
+  SwitchSendLinkRouteRequest,
+  SwitchSendLinkRouteResponse,
 } from '@ferry/core/api';
 import type {
   BchChainPort,
@@ -25,6 +29,14 @@ export interface SendLinkSolverPort {
     orderId: Hex32,
     request: RelayClaimRequest,
   ): Promise<RelayClaimResponse>;
+  switchSendLinkRoute?(
+    id: string,
+    request: SwitchSendLinkRouteRequest,
+  ): Promise<SwitchSendLinkRouteResponse>;
+  confirmSendLinkRoute?(
+    id: string,
+    request: ConfirmSendLinkRouteRequest,
+  ): Promise<ConfirmSendLinkRouteResponse>;
 }
 
 export interface SendLinkDependencies {
