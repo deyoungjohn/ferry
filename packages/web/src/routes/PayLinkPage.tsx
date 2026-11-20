@@ -438,28 +438,30 @@ export function PayLinkPage() {
                       </span>
                     </div>
                     {ready.amount === undefined ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          inputMode="decimal"
-                          aria-label="Amount to pay"
-                          value={payerAmount}
-                          onChange={(e) => setPayerAmount(e.target.value)}
-                          placeholder="0.00"
-                          className="w-full rounded-well border border-hairline bg-surface-1 px-3 py-2 text-lg font-semibold text-text focus:border-lime focus:outline-none"
-                        />
-                        <span className="flex shrink-0 items-center gap-2 text-lg font-semibold text-text">
-                          {pusdIconUrl(token) && (
-                            <img
-                              src={pusdIconUrl(token)!}
-                              alt=""
-                              className="size-7 rounded-full"
-                            />
-                          )}
-                          {token}
-                        </span>
+                      <div className="flex flex-col items-start gap-3">
+                        {pusdIconUrl(token) && (
+                          <img
+                            src={pusdIconUrl(token)!}
+                            alt=""
+                            className="size-16 rounded-full"
+                          />
+                        )}
+                        <div className="flex w-full items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            inputMode="decimal"
+                            aria-label="Amount to pay"
+                            value={payerAmount}
+                            onChange={(e) => setPayerAmount(e.target.value)}
+                            placeholder="0.00"
+                            className="w-full rounded-well border border-hairline bg-surface-1 px-3 py-2 text-lg font-semibold text-text focus:border-lime focus:outline-none"
+                          />
+                          <span className="flex shrink-0 items-center gap-2 text-lg font-semibold text-text">
+                            {token}
+                          </span>
+                        </div>
                       </div>
                     ) : (
                       <div className="flex flex-col items-start gap-3 text-xl font-semibold text-text print:text-black">
