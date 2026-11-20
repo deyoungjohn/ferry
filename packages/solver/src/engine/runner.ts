@@ -321,6 +321,23 @@ export class SolverEngine {
     return this.bchPort.isQuorumHealthy() && this.bchPort.isQuotingEnabled();
   }
 
+  /**
+   * Why quoting is off right now, in plain words, or null when it is on. A person who sees the
+   * refusal should be able to tell a restart from a real problem.
+   */
+  quotingBlockReason(): string | null {
+    if (!this.executionReady) {
+      return 'The solver is still starting up. Try again in a minute.';
+    }
+    if (this.db.isQuotingPaused()) {
+      return 'Quoting was paused by the operator.';
+    }
+    if (!this.bchPort.isQuorumHealthy() || !this.bchPort.isQuotingEnabled()) {
+      return 'The Bitcoin Cash servers do not agree on the chain tip right now, so quoting waits. This usually clears within a minute.';
+    }
+    return null;
+  }
+
   pauseQuoting(): void {
     this.db.setQuotingPaused(true);
   }

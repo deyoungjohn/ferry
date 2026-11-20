@@ -485,4 +485,142 @@ describe('Send link route switching (receiver chooses destination)', () => {
       true,
     );
   });
+
+  it('refuses route switch if send link has been cancelled', async () => {
+    const recipient = privateKeyToAccount(generatePrivateKey());
+    const quote = await createInitialSendLink(recipient.address);
+    const orderId = quote.orderId;
+
+    // Mark the order as cancelled
+    db.recordSendLinkCancellation(
+      orderId,
+      '0x76a914111111111111111111111111111111111111111188ac',
+      Math.floor(Date.now() / 1000),
+    );
+
+    const arbitrumUsdc = '0xaf88d065e77c8cC2239327C5EDb3A432268e5831';
+    const targetChainId = 42161;
+
+    const typedData = switchRouteRequestTypedData({
+      targetChainId,
+      orderId,
+      token: arbitrumUsdc,
+    });
+    const signature = await recipient.signTypedData(
+      typedData as unknown as Parameters<typeof recipient.signTypedData>[0],
+    );
+
+    const switchRes = await app.inject({
+      method: 'POST',
+      url: `/v1/send-links/${orderId}/switch-route`,
+      payload: {
+        chainId: targetChainId,
+        token: arbitrumUsdc,
+        signature,
+      },
+    });
+
+    expect(switchRes.statusCode).toBe(409);
+    const body = JSON.parse(switchRes.body);
+    expect(body.error.message).toContain('cancelled');
+  });
+
+  it('cancelling a replaced send link cancels the active replacement', async () => {
+    const recipient = privateKeyToAccount(generatePrivateKey());
+
+    // Generate cancel key and hash
+    const cancelKey =
+      '0x4444444444444444444444444444444444444444444444444444444444444444' as const;
+    const cancelHash = sha256(cancelKey);
+
+    // Create quote with cancelHash
+    const quoteRes = await app.inject({
+      method: 'POST',
+      url: '/v1/send-quotes',
+      payload: {
+        amount: '1000000',
+        recipientAddress: recipient.address,
+        windowSeconds: 86400,
+        bchToken: 'PUSD',
+        chainId: 8453,
+        evmToken: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        hashLock: sha256(
+          ('0x' +
+            Math.random()
+              .toString(16)
+              .slice(2)
+              .padStart(64, '0')) as `0x${string}`,
+        ),
+        cancelHash,
+      },
+    });
+    expect(quoteRes.statusCode).toBe(200);
+    const quote = JSON.parse(quoteRes.body);
+    const initialOrderId = quote.orderId;
+
+    // Switch route to Arbitrum
+    const arbitrumUsdc = '0xaf88d065e77c8cC2239327C5EDb3A432268e5831';
+    const targetChainId = 42161;
+
+    const typedData = switchRouteRequestTypedData({
+      targetChainId,
+      orderId: initialOrderId,
+      token: arbitrumUsdc,
+    });
+    const signature = await recipient.signTypedData(
+      typedData as unknown as Parameters<typeof recipient.signTypedData>[0],
+    );
+
+    const switchRes = await app.inject({
+      method: 'POST',
+      url: `/v1/send-links/${initialOrderId}/switch-route`,
+      payload: {
+        chainId: targetChainId,
+        token: arbitrumUsdc,
+        signature,
+      },
+    });
+    expect(switchRes.statusCode).toBe(200);
+    const switchBody = JSON.parse(switchRes.body);
+    const replacementOrderId = switchBody.newOrderId;
+
+    // Now sender cancels using the original order ID and cancelKey
+    const cancelRes = await app.inject({
+      method: 'POST',
+      url: `/v1/send-links/${initialOrderId}/cancel`,
+      payload: {
+        cancelKey,
+      },
+    });
+    expect(cancelRes.statusCode).toBe(200);
+    expect(cancelRes.json().status).toBe('cancelled');
+
+    // Both initial and replacement order views should now be cancelled
+    const viewInitial = await app.inject({
+      method: 'GET',
+      url: `/v1/send-links/${initialOrderId}`,
+    });
+    expect(viewInitial.statusCode).toBe(200);
+    expect(viewInitial.json().status).toBe('cancelled');
+
+    const viewReplacement = await app.inject({
+      method: 'GET',
+      url: `/v1/send-links/${replacementOrderId}`,
+    });
+    expect(viewReplacement.statusCode).toBe(200);
+    expect(viewReplacement.json().status).toBe('cancelled');
+
+    // Any subsequent switch attempt on the cancelled link must be refused
+    const switchAgain = await app.inject({
+      method: 'POST',
+      url: `/v1/send-links/${initialOrderId}/switch-route`,
+      payload: {
+        chainId: 1, // Ethereum
+        token: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+        signature,
+      },
+    });
+    expect(switchAgain.statusCode).toBe(409);
+    expect(switchAgain.json().error.message).toContain('cancelled');
+  });
 });

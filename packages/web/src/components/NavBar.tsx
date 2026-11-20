@@ -40,7 +40,7 @@ export function NavBar() {
       <header
         className={`relative mx-auto flex h-16 max-w-[1240px] items-center gap-6 px-3 transition-[background,border-color] duration-300 sm:px-4 ${
           scrolled
-            ? 'glass-nav site-bar glass-pop--dark rounded-full border'
+            ? 'glass-nav site-bar rounded-full border'
             : 'rounded-full border border-transparent'
         }`}
       >

@@ -8,10 +8,14 @@ export interface PayLinkData {
   readonly minAmountOut?: number | undefined;
   readonly note?: string | undefined;
   readonly verified: boolean;
-  readonly status: 'open' | 'reserved' | 'paid' | 'expired' | 'cancelled';
+  readonly status:
+    'open' | 'reserved' | 'paid' | 'expired' | 'cancelled' | 'closed';
   readonly createdAt: number;
   /** When the link was paid (Unix seconds), once the solver reports it. */
   readonly paidAt?: number | undefined;
+  readonly ownerSecret?: string | undefined;
+  /** What the recipient received, in whole units, once the link is paid (an open link has no amount before that). */
+  readonly paidAmount?: number | undefined;
 }
 
 export interface SendLinkData {
@@ -26,11 +30,12 @@ export interface SendLinkData {
   readonly expiresAt: number;
   /** The sender's message for the receiver. Plain text; anyone with the link can read it. */
   readonly note?: string | undefined;
-  readonly status: 'open' | 'claimed' | 'expired';
+  readonly status: 'open' | 'claimed' | 'expired' | 'cancelled';
   readonly createdAt: number;
   /** When the link was claimed (Unix seconds), when known. */
   readonly claimedAt?: number | undefined;
   readonly secret?: string | undefined;
+  readonly cancelKey?: string | undefined;
   readonly orderId?: string | undefined;
   readonly refundDate?: string | undefined;
   readonly txId?: string | undefined;
@@ -42,6 +47,7 @@ export interface SendLinkData {
     | 'refunded'
     | 'expired'
     | 'released'
+    | 'cancelled'
     | undefined;
 }
 

@@ -3,6 +3,8 @@ import {
   evmLockId,
   EVM_RECOVERY_KEY_TYPED_DATA,
   RECOVERY_SCAN_GAP,
+  swapCancelHashAt,
+  swapCancelKeyAt,
   swapHashLockAt,
   swapSecretAt,
   swapTagAt,
@@ -313,6 +315,8 @@ export function createWalletSecretGenerator(
 
   const generate: SecretGenerator = async (): Promise<Hex32> => {
     generate.lastTag = undefined;
+    generate.lastCancelKey = undefined;
+    generate.lastCancelHash = undefined;
     const { root, isContract } = await getOrDeriveRecoveryRoot(wallet, options);
     if (isContract || !root || !wallet.address) {
       // Contract wallet fallback: random secret
@@ -341,6 +345,8 @@ export function createWalletSecretGenerator(
     // Advance index before returning secret
     await store.set(`ferry.recovery.index.${addr}`, String(currentIndex + 1));
     generate.lastTag = swapTagAt(root, currentIndex);
+    generate.lastCancelKey = swapCancelKeyAt(root, currentIndex);
+    generate.lastCancelHash = swapCancelHashAt(root, currentIndex);
     return swapSecretAt(root, currentIndex);
   };
   return generate;
@@ -365,9 +371,11 @@ export async function getOrCreateRescueRoot(
   return root;
 }
 
-/** A secret source that also remembers the recovery tag of the secret it gave last. */
+/** A secret source that also remembers the recovery tag and cancel key of the secret it gave last. */
 export type SecretGenerator = (() => Promise<Hex32>) & {
   lastTag?: `0x${string}` | undefined;
+  lastCancelKey?: Hex32 | undefined;
+  lastCancelHash?: Hex32 | undefined;
 };
 
 /**
@@ -377,6 +385,9 @@ export function createRescueSecretGenerator(
   store: KeyValueStore = browserRecoveryStorage,
 ): SecretGenerator {
   const generate: SecretGenerator = async (): Promise<Hex32> => {
+    generate.lastTag = undefined;
+    generate.lastCancelKey = undefined;
+    generate.lastCancelHash = undefined;
     const root = await getOrCreateRescueRoot(store);
     const stored = await store.get('ferry.rescue.index');
     let idx = stored !== null ? parseInt(stored, 10) : 0;
@@ -384,6 +395,8 @@ export function createRescueSecretGenerator(
 
     await store.set('ferry.rescue.index', String(idx + 1));
     generate.lastTag = swapTagAt(root, idx);
+    generate.lastCancelKey = swapCancelKeyAt(root, idx);
+    generate.lastCancelHash = swapCancelHashAt(root, idx);
     return swapSecretAt(root, idx);
   };
   return generate;

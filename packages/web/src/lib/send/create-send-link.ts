@@ -1,5 +1,9 @@
 import { binToHex } from '@bitauth/libauth';
-import { cashAddressToLockingBytecode, type Hex } from '@ferry/core';
+import {
+  cashAddressToLockingBytecode,
+  type Hex,
+  type Hex32,
+} from '@ferry/core';
 import type { SendQuoteRequest } from '@ferry/core/api';
 import { deriveHtlcAddresses, encodeHtlcParameters } from '@ferry/htlc-bch';
 import { prepareRecoveryDownload } from '@ferry/solver-client';
@@ -60,6 +64,12 @@ export async function createSendLinkLive(
     (deps.secretGenerator as { lastTag?: `0x${string}` })?.lastTag;
   const viewTag = rawTag ? sendLinkViewTag(rawTag) : undefined;
 
+  const cancelHash = (
+    deps.secretGenerator as { lastCancelHash?: `0x${string}` }
+  )?.lastCancelHash;
+  const cancelKey = (deps.secretGenerator as { lastCancelKey?: `0x${string}` })
+    ?.lastCancelKey;
+
   // Derive sender's BCH locking bytecode
   const userBchLockingBytecode = cashAddressToLockingBytecode(
     deps.bchCashAddress,
@@ -86,6 +96,7 @@ export async function createSendLinkLive(
     windowSeconds: input.windowSeconds,
     ...(input.note ? { note: cleanNote(input.note) } : {}),
     ...(viewTag ? { viewTag } : {}),
+    ...(cancelHash ? { cancelHash } : {}),
     lane: 'safe',
   });
 
@@ -159,6 +170,7 @@ export async function createSendLinkLive(
     status: 'open',
     createdAt: nowSeconds,
     secret,
+    ...(cancelKey ? { cancelKey } : {}),
     orderId: verified.orderId,
     refundDate,
     recoveryJson: recoveryPayload.json,
@@ -196,6 +208,7 @@ export async function createSendLinkLive(
     status: 'open',
     createdAt: nowSeconds,
     secret,
+    ...(cancelKey ? { cancelKey } : {}),
     orderId: verified.orderId,
     refundDate,
     txId: bchLockTxId,
@@ -208,6 +221,7 @@ export async function createSendLinkLive(
   return {
     orderId: verified.orderId,
     secret,
+    ...(cancelKey ? { cancelKey: cancelKey as Hex32 } : {}),
     hashLock,
     shareableUrl,
     refundDate,

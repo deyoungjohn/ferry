@@ -6,7 +6,6 @@ import { FeatureCards } from '../components/FeatureCards';
 import { RecentSwapsTable } from '../components/RecentSwapsTable';
 import { PegCards } from '../components/PegCards';
 import { HowItWorks } from '../components/HowItWorks';
-import { Faq } from '../components/Faq';
 import { NetworkBlockedPage } from '../components/NetworkBlockedPage';
 
 export function HomePage() {
@@ -23,7 +22,6 @@ export function HomePage() {
       <RecentSwapsTable />
       <PegCards />
       <HowItWorks />
-      <Faq />
     </div>
   );
 }

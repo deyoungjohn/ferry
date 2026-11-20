@@ -12,9 +12,14 @@ import {
   type PayLinkData,
 } from '../lib/paylink/link';
 import { useToast } from '../lib/toast/ToastContext';
-import { listPayLinks, savePayLink } from '../lib/paylink/pay-store';
+import {
+  listPayLinks,
+  removePayLink,
+  savePayLink,
+} from '../lib/paylink/pay-store';
 import {
   createPayLinkOnSolver,
+  deletePayLinkOnSolver,
   readPayLinkState,
 } from '../lib/paylink/pay-api';
 import { LIVE_EXECUTION_ENABLED } from '../lib/config';
@@ -27,15 +32,19 @@ const STATUS_LABEL: Record<PayLinkData['status'], string> = {
   paid: 'Paid',
   expired: 'Expired',
   cancelled: 'Cancelled',
+  closed: 'Closed',
 };
 
 function toRow(link: PayLinkData): LinkRow {
   return {
     id: link.id,
     href: `/pay/${link.id}`,
+    // An open link has no amount until it is paid: a dash, then what the recipient received.
     amount: link.amountOut
       ? `${link.amountOut.toFixed(2)} ${link.token}`
-      : `Any ${link.token}`,
+      : link.paidAmount !== undefined
+        ? `${link.paidAmount.toFixed(2)} ${link.token}`
+        : '-',
     createdAt: link.createdAt,
     completedAt: link.status === 'paid' ? (link.paidAt ?? null) : null,
     status: STATUS_LABEL[link.status],
@@ -62,6 +71,8 @@ export function PayLinksPage() {
   );
   const [activeCreated, setActiveCreated] = useState<PayLinkData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A required detail the person has not given yet, shown in yellow under the button.
+  const [missing, setMissing] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -79,7 +90,13 @@ export function PayLinksPage() {
         if (link.status !== 'open' && link.status !== 'reserved') continue;
         const state = await readPayLinkState(solverUrl, link.id);
         if (!state || cancelled) continue;
-        if (state.status !== link.status || state.paidAt !== link.paidAt) {
+        // Deleted while this was reading: do not bring it back.
+        if (!listPayLinks().some((item) => item.id === link.id)) continue;
+        if (
+          state.status !== link.status ||
+          state.paidAt !== link.paidAt ||
+          state.paidAmount !== link.paidAmount
+        ) {
           savePayLink({ ...link, ...state });
         }
       }
@@ -100,9 +117,14 @@ export function PayLinksPage() {
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setMissing(null);
 
     if (!recipientCheck.ok) {
-      setError(recipientCheck.message);
+      setMissing(
+        activeRecipient === ''
+          ? 'Enter the Bitcoin Cash address that should receive the payment.'
+          : recipientCheck.message,
+      );
       return;
     }
 
@@ -113,11 +135,11 @@ export function PayLinksPage() {
 
     const amountNum = isFixed ? parseFloat(fixedAmount) : undefined;
     if (isFixed && (!amountNum || amountNum <= 0)) {
-      setError('Please enter a valid amount');
+      setMissing('Enter the amount to request.');
       return;
     }
     if (isFixed && amountNum !== undefined && amountNum < MIN_TRANSACTION_USD) {
-      setError('The minimum is $' + MIN_TRANSACTION_USD.toFixed(2) + '.');
+      setMissing('The minimum is $' + MIN_TRANSACTION_USD.toFixed(2) + '.');
       return;
     }
 
@@ -125,6 +147,17 @@ export function PayLinksPage() {
     try {
       let id = 'pl-' + Math.random().toString(36).substring(2, 10);
       let createdAt = Math.floor(Date.now() / 1000);
+
+      const ownerSecretBytes = new Uint8Array(32);
+      crypto.getRandomValues(ownerSecretBytes);
+      const ownerSecret = `0x${Array.from(ownerSecretBytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')}`;
+      const shaBuffer = await crypto.subtle.digest('SHA-256', ownerSecretBytes);
+      const ownerSecretHash = `0x${Array.from(new Uint8Array(shaBuffer))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')}`;
+
       if (live && solverUrl) {
         const made = await createPayLinkOnSolver(solverUrl, {
           token,
@@ -132,6 +165,7 @@ export function PayLinksPage() {
           amountCents:
             amountNum !== undefined ? Math.round(amountNum * 100) : undefined,
           note: note.trim() || undefined,
+          ownerSecretHash,
         });
         id = made.id;
         createdAt = made.createdAt;
@@ -146,6 +180,7 @@ export function PayLinksPage() {
           bch.status === 'connected' &&
           bch.address?.address === activeRecipient,
         status: 'open',
+        ownerSecret,
         createdAt,
       };
       savePayLink(newLink);
@@ -160,6 +195,22 @@ export function PayLinksPage() {
     } finally {
       setCreating(false);
     }
+  }
+
+  async function handleDeletePayLink(link: PayLinkData) {
+    if (link.ownerSecret && solverUrl) {
+      try {
+        await deletePayLinkOnSolver(solverUrl, link.id, link.ownerSecret);
+      } catch {
+        // Remove locally even if network call fails
+      }
+    }
+    removePayLink(link.id);
+    setCreatedLinks(listPayLinks());
+    if (activeCreated?.id === link.id) {
+      setActiveCreated(null);
+    }
+    showToast('Pay link deleted', 'success');
   }
 
   function handleCopyUrl(url: string) {
@@ -355,11 +406,19 @@ export function PayLinksPage() {
 
               <button
                 type="submit"
-                disabled={creating || !recipientCheck.ok}
+                disabled={creating}
                 className="w-full rounded-pill bg-olive py-3 font-semibold text-text transition-colors"
               >
                 {creating ? 'Creating…' : 'Generate Pay Link'}
               </button>
+              {/* Reserved height: the prompt appears without moving anything else. */}
+              <p
+                className="-mt-2 min-h-4 text-center text-[11px] text-warn"
+                role="status"
+                data-testid="missing-detail"
+              >
+                {missing ?? ''}
+              </p>
             </form>
           </div>
         }
@@ -429,6 +488,22 @@ export function PayLinksPage() {
             completedLabel="Payment date"
             emptyText="Pay links you create appear here."
             rows={createdLinks.map(toRow)}
+            renderAction={(row) => {
+              const link = createdLinks.find((item) => item.id === row.id);
+              if (!link) return null;
+              if (link.status === 'paid' || link.status === 'closed')
+                return null;
+              return (
+                <button
+                  type="button"
+                  data-testid={`delete-pay-link-${link.id}`}
+                  onClick={() => void handleDeletePayLink(link)}
+                  className="rounded-pill border border-danger/30 bg-danger/10 px-2.5 py-1 text-xs font-semibold text-danger hover:bg-danger/20 transition-colors"
+                >
+                  Delete
+                </button>
+              );
+            }}
           />
         }
       />

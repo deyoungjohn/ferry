@@ -21,25 +21,23 @@ test accounts with `anvil_setBalance`, sets token balances on the fork, and stop
 the fork before moving to the next chain. Missing RPC names are reported as
 skipped chains, not as failures.
 
-The current matrix covers health, quote, relay-lock with permit and
-approve-plus-lock tokens, both full swap directions, and the minimum, maximum,
-wrong-chain and wrong-token refusals. Base, Ethereum, Arbitrum, BNB and Robinhood
-pass every row on the live forks.
+The matrix covers health, quote, relay-lock with permit and approve-plus-lock
+tokens, both full swap directions, finality below the confirmation threshold, a
+reorged-out lock, EVM and covenant release, release after a claim, and a forward
+swap restarted after the user's lock, the solver's BCH lock and the user's BCH
+claim. Base, Ethereum, Arbitrum, BNB and Robinhood pass every row.
 
-The Base full-swap stall was a harness gap, not an engine bug: the real EVM port
-had no adapter registered for the order's chain id, so the engine could not read
-the user's lock. Registering the chain id and the deployment block fixed it.
+The two-chain row is `test/two-chain.test.ts`: Base and Arbitrum are forked at
+the same time, one engine gets both adapters, and a forward swap runs on each
+concurrently. It checks both orders settle and keeps separate order rows.
 
-Arc is funded by impersonating a recent USDC holder found in a 10-block log
-window, because its USDC does not use the ordinary ERC-20 balance slot. The
-funding succeeds and the refusal rows pass, but the lock call still reverts; the
-Arc full-swap rows are reported as failures until that is traced.
+The wallet/amount row is partial (minimum, maximum, wrong token and wrong chain
+pass; insufficient balance/allowance, bad permits and rounding are not written).
+The gas row is not run.
 
-The following still require a manual or harness extension pass: finality/reorg
-boundaries, two chains with the same lock id, quote and deadline timing, solver
-inventory and gas refusals, bad permits, wallet reverts, crash/restart at every
-step, keeper refunds and early release, wrong/late/non-recipient claims,
-18-decimal and rounding cases, and gas spikes/replacements/nonce gaps.
+Arc is not run. Its USDC can be funded by impersonating a recent holder, but
+`lockWithIntent`/`lock` still reverts after funding; that is a tracked bug, not
+a pass and not a silent skip.
 
 Use `FERRY_FORK_CHAINS=base,ethereum` to run a subset while iterating. The full
 run still uses one fork at a time and stops each one before the next.

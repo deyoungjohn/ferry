@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { sha256 } from 'viem';
 import {
   deriveRecoveryRoot,
+  swapCancelHashAt,
+  swapCancelKeyAt,
   swapHashLockAt,
   swapSecretAt,
   swapTagAt,
@@ -46,9 +48,25 @@ describe('wallet-derived recovery keys', () => {
     expect(swapTagAt(root, 3)).toMatch(/^0x[0-9a-f]{16}$/);
   });
 
+  it('derives domain-separated cancel key and hash, matching node hmac', () => {
+    const root = deriveRecoveryRoot(SIGNATURE);
+    expect(swapCancelKeyAt(root, 0)).toBe(swapCancelKeyAt(root, 0));
+    expect(swapCancelKeyAt(root, 0)).not.toBe(swapCancelKeyAt(root, 1));
+    // Must be completely different from swapSecretAt
+    expect(swapCancelKeyAt(root, 0)).not.toBe(swapSecretAt(root, 0));
+
+    const expected = nodeHmac(
+      Buffer.from(root.slice(2), 'hex'),
+      Buffer.from('ferry:swap-cancel:v1:5'),
+    );
+    expect(swapCancelKeyAt(root, 5)).toBe(`0x${expected.toString('hex')}`);
+    expect(swapCancelHashAt(root, 5)).toBe(sha256(swapCancelKeyAt(root, 5)));
+  });
+
   it('refuses a short signature and a bad index', () => {
     expect(() => deriveRecoveryRoot('0x1234')).toThrow(RangeError);
     const root = deriveRecoveryRoot(SIGNATURE);
     expect(() => swapSecretAt(root, -1)).toThrow(RangeError);
+    expect(() => swapCancelKeyAt(root, -1)).toThrow(RangeError);
   });
 });

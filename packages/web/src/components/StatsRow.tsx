@@ -8,11 +8,19 @@ export function StatsRow() {
 
   useEffect(() => {
     let active = true;
-    solver.getStats().then((res) => {
-      if (active) setStats(res);
-    });
+    const load = () => {
+      solver.getStats().then((res) => {
+        // A failed read keeps what is on screen rather than showing an empty state.
+        if (active)
+          setStats((prev) => (res.isHonestEmpty && prev ? prev : res));
+      });
+    };
+    load();
+    // Live: the figures refresh while the page is open.
+    const timer = setInterval(load, 20_000);
     return () => {
       active = false;
+      clearInterval(timer);
     };
   }, [solver]);
 

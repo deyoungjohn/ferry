@@ -28,13 +28,20 @@ import {
   SendLinkDetailsResponseSchema,
   SendQuoteRequestSchema,
   StatsResponseSchema,
+  CancelSendLinkQuotaSchema,
+  CancelSendLinkResponseSchema,
+  DeletePayLinkResponseSchema,
   SwitchSendLinkRouteRequestSchema,
   SwitchSendLinkRouteResponseSchema,
   type CancelPayLinkRequest,
   type CancelPayLinkResponse,
+  type CancelSendLinkQuota,
+  type CancelSendLinkRequest,
+  type CancelSendLinkResponse,
   type ChainsResponse,
   type CreatePayLinkRequest,
   type CreatePayLinkResponse,
+  type DeletePayLinkResponse,
   type HealthResponse,
   type LiquidityResponse,
   type MetricsResponse,
@@ -355,6 +362,20 @@ export class SolverClient {
     );
   }
 
+  async deletePayLink(
+    id: string,
+    secret: string,
+    options?: RequestCallOptions,
+  ): Promise<DeletePayLinkResponse> {
+    return this.requestJson(
+      'DELETE',
+      `/v1/links/${encodeURIComponent(id)}`,
+      DeletePayLinkResponseSchema,
+      { secret },
+      options,
+    );
+  }
+
   async quoteSendLink(
     request: SendQuoteRequest,
     options?: RequestCallOptions,
@@ -382,6 +403,33 @@ export class SolverClient {
     );
   }
 
+  async cancelSendLink(
+    id: string,
+    req: CancelSendLinkRequest,
+    options?: RequestCallOptions,
+  ): Promise<CancelSendLinkResponse> {
+    return this.requestJson(
+      'POST',
+      `/v1/send-links/${encodeURIComponent(id)}/cancel`,
+      CancelSendLinkResponseSchema,
+      req,
+      options,
+    );
+  }
+
+  async getSendLinkCancelQuota(
+    id: string,
+    options?: RequestCallOptions,
+  ): Promise<CancelSendLinkQuota> {
+    return this.requestJson(
+      'GET',
+      `/v1/send-links/${encodeURIComponent(id)}/cancel-quota`,
+      CancelSendLinkQuotaSchema,
+      undefined,
+      options,
+    );
+  }
+
   async switchSendLinkRoute(
     id: string,
     request: SwitchSendLinkRouteRequest,
@@ -398,7 +446,7 @@ export class SolverClient {
   }
 
   private async requestJson<T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     path: string,
     schema: z.ZodType<T>,
     body?: unknown,

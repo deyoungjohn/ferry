@@ -12,6 +12,7 @@ import { createPublicClient, createWalletClient, http } from 'viem';
 import type { Address, Chain, Hex, PublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { EvmChainAdapter } from '@ferry/chain-evm';
+import { loadChainConfig } from '@ferry/chain-config';
 import {
   MockPriceSource,
   SolverDatabase,
@@ -70,10 +71,23 @@ export interface BchFaults {
   loseNextBroadcastReply: boolean;
 }
 
+export interface ExtraForkChain {
+  readonly chainKey: 'ethereum' | 'arbitrum' | 'bnb' | 'robinhood';
+  readonly chain: Chain;
+  readonly htlcAddress: Address;
+  readonly tokenAddress: Address;
+  readonly tokenDecimals: number;
+  readonly tokenPermit: boolean;
+  readonly rpcUrl: string;
+  readonly explorerUrl: string;
+  readonly deployBlock?: bigint;
+}
+
 export interface RealEngineSolver {
   baseUrl: string;
   client: SolverClient;
   evmAdapter: EvmChainAdapter;
+  evmAdapters: ReadonlyMap<string, EvmChainAdapter>;
   evmPublic: PublicClient;
   priceSource: MockPriceSource;
   db: SolverDatabase;
@@ -97,6 +111,10 @@ export interface RealEngineSolver {
     predicate: () => boolean | Promise<boolean>,
     timeoutMs?: number,
   ) => Promise<void>;
+  /** An anvil snapshot of the EVM chain. */
+  snapshot: () => Promise<string>;
+  /** Revert the EVM chain to a snapshot. */
+  revert: (snapshot: string) => Promise<void>;
   /** A new engine and server over the same database, as after a restart. */
   restart: () => Promise<void>;
   stop: () => Promise<void>;
@@ -119,6 +137,7 @@ export async function startRealEngineSolver(params: {
    */
   referenceActions?: boolean;
   deployBlock?: bigint;
+  extraChains?: readonly ExtraForkChain[];
 }): Promise<RealEngineSolver> {
   const solverAccount = privateKeyToAccount(params.solverEvmKey ?? SOLVER_KEY);
   const publicClient = createPublicClient({
@@ -155,6 +174,114 @@ export async function startRealEngineSolver(params: {
     walletClient,
     deployBlock: params.deployBlock,
   });
+
+  const evmAdapters = new Map<string, EvmChainAdapter>([
+    ['base', evmAdapter],
+    [String(params.chain.id), evmAdapter],
+  ]);
+  const evmClients = new Map<string, PublicClient>([
+    ['base', publicClient],
+    [String(params.chain.id), publicClient],
+  ]);
+  for (const extra of params.extraChains ?? []) {
+    const extraPublic = createPublicClient({
+      chain: extra.chain,
+      transport: http(extra.rpcUrl),
+      cacheTime: 0,
+      pollingInterval: 50,
+    });
+    const extraWallet = createWalletClient({
+      account: solverAccount,
+      chain: extra.chain,
+      transport: http(extra.rpcUrl),
+    });
+    const extraAdapter = new EvmChainAdapter({
+      config: {
+        id: extra.chainKey,
+        chainId: extra.chain.id,
+        htlcAddress: extra.htlcAddress,
+        rpcUrls: [extra.rpcUrl],
+        explorerUrl: extra.explorerUrl,
+        nativeGas: 'ETH',
+        finality: { fast: 1, safe: 1 },
+        relayCostUsd: 0.01,
+        assets: [
+          {
+            symbol: 'USDC',
+            address: extra.tokenAddress,
+            decimals: extra.tokenDecimals,
+            permit: extra.tokenPermit,
+          },
+        ],
+      },
+      client: extraPublic,
+      walletClient: extraWallet,
+      deployBlock: extra.deployBlock,
+    });
+    evmAdapters.set(extra.chainKey, extraAdapter);
+    evmAdapters.set(String(extra.chain.id), extraAdapter);
+    evmClients.set(extra.chainKey, extraPublic);
+    evmClients.set(String(extra.chain.id), extraPublic);
+  }
+
+  const forkFacts = loadChainConfig({ network: 'mainnet' }).facts.map(
+    (fact) => {
+      const extra = (params.extraChains ?? []).find(
+        (item) => item.chainKey === fact.id,
+      );
+      const isBase = fact.id === 'base';
+      if (!extra && !isBase) return fact;
+      return {
+        ...fact,
+        chainId: isBase ? params.chain.id : extra!.chain.id,
+        htlcAddress: isBase ? params.htlcAddress : extra!.htlcAddress,
+        assets: fact.assets.map((asset) =>
+          asset.symbol === 'USDC'
+            ? {
+                ...asset,
+                address: isBase ? params.tokenAddress : extra!.tokenAddress,
+              }
+            : asset,
+        ),
+      };
+    },
+  );
+  const forkRoutes = [
+    {
+      key: 'usdc:base',
+      chain: 'base' as const,
+      asset: 'USDC' as const,
+      htlcAddress: params.htlcAddress,
+      deployBlock: params.deployBlock ? Number(params.deployBlock) : null,
+      logMaxRange: 100_000,
+      finality: { fast: 1, safe: 'finalized' as const, status: 'verified' },
+      eligible: true,
+      enabled: true,
+      reasons: [],
+    },
+    ...(params.extraChains ?? []).map((extra) => ({
+      key: `usdc:${extra.chainKey}`,
+      chain: extra.chainKey,
+      asset: 'USDC' as const,
+      htlcAddress: extra.htlcAddress,
+      deployBlock: extra.deployBlock ? Number(extra.deployBlock) : null,
+      logMaxRange: 100_000,
+      finality: { fast: 1, safe: 'finalized' as const, status: 'verified' },
+      eligible: true,
+      enabled: true,
+      reasons: [],
+    })),
+  ];
+  const forkChainConfig = loadChainConfig({ network: 'mainnet' });
+  const forkRoutesContext = {
+    chainConfig: {
+      ...forkChainConfig,
+      facts: forkFacts,
+      chains: forkFacts,
+    },
+    routes: forkRoutes,
+    enabledRoutes: forkRoutes,
+  };
 
   const now = Math.floor(Date.now() / 1000);
   const priceSource = new MockPriceSource(
@@ -201,12 +328,15 @@ export async function startRealEngineSolver(params: {
   };
 
   const evmConfirmations = { value: 1 };
+  const evmClientFor = (chainId?: number): PublicClient =>
+    (chainId !== undefined ? evmClients.get(String(chainId)) : undefined) ??
+    publicClient;
   // The solver's own EVM port over the real adapter; only the finality rule is replaced, so a test
   // can choose how many confirmations count.
   const realEvmPort = createEvmPort({
     evmAdapter,
-    evmAdapters: new Map([[String(params.chain.id), evmAdapter]]),
-    evmClients: new Map([[String(params.chain.id), publicClient]]),
+    evmAdapters,
+    evmClients,
   });
   const evmPort: EvmChainPort = {
     ...realEvmPort,
@@ -214,13 +344,14 @@ export async function startRealEngineSolver(params: {
       height: Number(await publicClient.getBlockNumber()),
       finalized: true,
     }),
-    isFinal: async (txid: string) => {
+    isFinal: async (txid: string, _lane, chainId?: number) => {
       try {
-        const receipt = await publicClient.getTransactionReceipt({
+        const client = evmClientFor(chainId);
+        const receipt = await client.getTransactionReceipt({
           hash: txid as Hex,
         });
         if (receipt.status !== 'success') return false;
-        const head = await publicClient.getBlockNumber();
+        const head = await client.getBlockNumber();
         return (
           head - receipt.blockNumber + 1n >= BigInt(evmConfirmations.value)
         );
@@ -228,15 +359,16 @@ export async function startRealEngineSolver(params: {
         return false;
       }
     },
-    getLockEvidence: async (txid: string) => {
+    getLockEvidence: async (txid: string, chainId?: number) => {
       try {
-        const receipt = await publicClient.getTransactionReceipt({
+        const client = evmClientFor(chainId);
+        const receipt = await client.getTransactionReceipt({
           hash: txid as Hex,
         });
         if (!receipt || receipt.status !== 'success') return null;
         const [head, block] = await Promise.all([
-          publicClient.getBlockNumber(),
-          publicClient.getBlock({ blockNumber: receipt.blockNumber }),
+          client.getBlockNumber(),
+          client.getBlock({ blockNumber: receipt.blockNumber }),
         ]);
         const confirmations = Number(
           head >= receipt.blockNumber ? head - receipt.blockNumber + 1n : 0n,
@@ -290,7 +422,7 @@ export async function startRealEngineSolver(params: {
             params.bchChain,
             params.solverBch,
           ),
-          new ReferenceEvmExecutor(db, evmPort, evmAdapter),
+          new ReferenceEvmExecutor(db, evmPort, evmAdapter, evmAdapters),
         )
       : new SolverEngine(db, enginePort, evmPort, engineConfig);
   let engine = newEngine();
@@ -302,6 +434,9 @@ export async function startRealEngineSolver(params: {
     engine,
     priceSource,
     inventoryReader: makeFundedInventory(),
+    evmAdapters,
+    evmClients,
+    routesContext: forkRoutesContext,
   });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const addressOf = () => {
@@ -317,6 +452,7 @@ export async function startRealEngineSolver(params: {
     baseUrl: addressOf(),
     client: new SolverClient({ baseUrl: addressOf() }),
     evmAdapter,
+    evmAdapters,
     evmPublic: publicClient,
     priceSource,
     db,
@@ -371,6 +507,19 @@ export async function startRealEngineSolver(params: {
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
+    },
+    snapshot: async () => {
+      const id = await publicClient.request({
+        method: 'evm_snapshot',
+      } as never);
+      return String(id);
+    },
+    revert: async (snapshot) => {
+      const ok = await publicClient.request({
+        method: 'evm_revert',
+        params: [snapshot],
+      } as never);
+      if (!ok) throw new Error('anvil refused the snapshot revert');
     },
     restart: async () => {
       harness.engine.stop();

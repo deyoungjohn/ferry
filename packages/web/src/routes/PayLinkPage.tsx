@@ -4,7 +4,7 @@ import { ROUTES } from '../lib/routes';
 import { useParams, useNavigate, Link } from 'react-router';
 import { QRCodeSVG } from 'qrcode.react';
 import { getModeCopy } from '../lib/copy';
-import { NETWORK_PROFILE } from '../lib/config';
+import { NETWORK_PROFILE, SPREAD_BPS } from '../lib/config';
 import { useSolver } from '../lib/solver/useSolver';
 import { WalletContext } from '../lib/wallet/context';
 import { chunkCashaddr } from '../lib/paylink/link';
@@ -17,7 +17,12 @@ import { Select } from '../components/ui/select';
 import { LIVE_EXECUTION_ENABLED } from '../lib/config';
 import { listPayLinks } from '../lib/paylink/pay-store';
 import { readSnapshot, writeSnapshot } from '../lib/paylink/snapshot-cache';
-import { readPayLink, type PayLinkDetails } from '../lib/paylink/pay-api';
+import {
+  paymentSummary,
+  readPayLink,
+  type PayLinkDetails,
+} from '../lib/paylink/pay-api';
+import { chainNameFromId } from '../lib/send/wallet-send-links';
 import { payLinkSteps } from '../lib/paylink/order-steps';
 import { ProcessSteps } from '../components/links/ProcessSteps';
 import { SaveRecoveryDialog } from '../components/links/SaveRecoveryDialog';
@@ -38,6 +43,13 @@ const DEMO_LINK: PayLinkDetails = {
   verified: true,
   status: 'open',
 };
+
+/** A number typed by a person: digits and one dot, at most two decimals. */
+function cleanAmountInput(raw: string): string {
+  const cleaned = raw.replace(/[^0-9.]/g, '');
+  const [whole = '', ...rest] = cleaned.split('.');
+  return rest.length > 0 ? `${whole}.${rest.join('').slice(0, 2)}` : whole;
+}
 
 export function PayLinkPage() {
   const { id } = useParams<{ id: string }>();
@@ -98,6 +110,7 @@ export function PayLinkPage() {
     };
   }, [live, solverUrl, id, paid]);
   const orderId = ready?.orderId;
+  const summary = ready?.status === 'paid' ? paymentSummary(ready.order) : null;
   const showSteps =
     Boolean(orderId) ||
     ready?.status === 'paid' ||
@@ -105,9 +118,10 @@ export function PayLinkPage() {
   const recipientCashaddr = ready?.recipientAddress ?? '';
   const token: 'PUSD' | 'MUSD' = ready?.token ?? 'PUSD';
   const [payerAmount, setPayerAmount] = useState('');
-  const requestedAmount =
-    ready?.amount ??
-    (Number.parseFloat(payerAmount) > 0 ? Number.parseFloat(payerAmount) : 0);
+  // An open link: the payer types what they pay and sees what the recipient gets (priced by the
+  // solver as the swap card does); a fixed link says what the recipient gets.
+  const [openReceive, setOpenReceive] = useState<number | null>(null);
+  const requestedAmount = ready?.amount ?? openReceive ?? 0;
   const note = ready?.note ?? '';
   const verified = ready?.verified ?? false;
   const [copiedShare, setCopiedShare] = useState(false);
@@ -134,6 +148,8 @@ export function PayLinkPage() {
     : (selectedChain?.tokenSymbols[0] ?? 'USDC');
 
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
+  // Why there is no price (the solver's refusal in plain words), or null.
+  const [quoteProblem, setQuoteProblem] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   // The payment runs on this page: the swap is built here, the person signs in their wallet, and
@@ -151,12 +167,73 @@ export function PayLinkPage() {
   const walletsRef = useRef(walletContext);
   walletsRef.current = walletContext;
   const youPayText =
-    requestedAmount > 0 ? (quote ? quote.fromAmount.toFixed(2) : '…') : '0.00';
+    requestedAmount > 0
+      ? quote
+        ? quote.fromAmount.toFixed(2)
+        : quoteProblem
+          ? `≈ ${(Math.ceil((requestedAmount / (1 - SPREAD_BPS / 10_000)) * 100) / 100).toFixed(2)}`
+          : '…'
+      : '0.00';
 
   // Exact-output quote: recipient receives exact amount
+  const isOpen = ready?.amount === undefined;
+  const typedPay = Number.parseFloat(payerAmount);
+
+  // An open link: price what the payer types, after a short pause in typing.
   useEffect(() => {
-    if (!ready || requestedAmount <= 0) {
+    if (!ready || !isOpen) return;
+    if (!(typedPay > 0)) {
+      setOpenReceive(null);
       setQuote(null);
+      return;
+    }
+    let active = true;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await solver.getQuote({
+            fromToken: selectedPayerToken,
+            toToken: token,
+            fromChain: selectedChain.name,
+            toChain: NETWORK_PROFILE.bch.name,
+            fromAmount: typedPay,
+            lane: 'fast' as const,
+          });
+          if (!active) return;
+          setQuoteProblem(
+            result.toAmount && result.toAmount > 0
+              ? null
+              : (result.refusal?.message ?? null),
+          );
+          setQuote(result);
+          setOpenReceive(
+            result.toAmount && result.toAmount > 0
+              ? Math.floor(result.toAmount * 100) / 100
+              : null,
+          );
+        } catch {
+          if (active) setOpenReceive(null);
+        }
+      })();
+    }, 400);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [
+    ready,
+    isOpen,
+    typedPay,
+    selectedPayerToken,
+    selectedChain,
+    token,
+    solver,
+  ]);
+
+  // A fixed link: the price for the recipient to get exactly the amount.
+  useEffect(() => {
+    if (!ready || isOpen || requestedAmount <= 0) {
+      if (!isOpen) setQuote(null);
       return;
     }
     let active = true;
@@ -176,9 +253,14 @@ export function PayLinkPage() {
         const first = await solver.getQuote(request(requestedAmount * 1.02));
         if (!active) return;
         if (!first.toAmount || first.toAmount <= 0) {
-          setQuote(first);
+          // Refused: never show the page's own first guess as a price.
+          setQuote(null);
+          setQuoteProblem(
+            first.refusal?.message ?? 'No price is available right now.',
+          );
           return;
         }
+        setQuoteProblem(null);
         const guess = (first.fromAmount * requestedAmount) / first.toAmount;
         const second = await solver.getQuote(request(guess));
         if (!active) return;
@@ -199,6 +281,7 @@ export function PayLinkPage() {
     };
   }, [
     ready,
+    isOpen,
     requestedAmount,
     selectedPayerToken,
     selectedChain,
@@ -236,11 +319,18 @@ export function PayLinkPage() {
           lane: 'fast' as const,
           fastOptIn: true,
         };
-        const { amountIn } = await amountInForExactOut(
-          deps,
-          base,
-          BigInt(Math.round(requestedAmount * 100)),
-        );
+        // A fixed link: find what to send so the recipient gets exactly the amount. An open link:
+        // the payer pays exactly what they typed, fees and spread included.
+        const amountIn = isOpen
+          ? BigInt(Math.round(typedPay * 100)) *
+            10n ** BigInt(Math.max(0, far.decimals - 2))
+          : (
+              await amountInForExactOut(
+                deps,
+                base,
+                BigInt(Math.round(requestedAmount * 100)),
+              )
+            ).amountIn;
         const prepared = await prepareSwap(deps, { ...base, amountIn });
         await new Promise<void>((resolve, reject) => {
           setFileToSave({ ...prepared.recovery, resolve, reject });
@@ -358,11 +448,20 @@ export function PayLinkPage() {
             </div>
             <h1 className="mt-1 text-xl font-semibold text-text print:text-black">
               {showSteps
-                ? `Payment of ${(ready.amount ?? 0).toFixed(2)} ${token}`
+                ? `Payment of ${(ready.amount ?? summary?.received ?? openReceive ?? 0).toFixed(2)} ${token}`
                 : ready.amount !== undefined
                   ? `Pay ${youPayText} ${selectedPayerToken}`
                   : `Pay any amount in ${selectedPayerToken}`}
             </h1>
+            {summary && (
+              <p
+                className="mt-1 text-sm text-text-muted"
+                data-testid="paid-with"
+              >
+                Paid with {summary.paid.toFixed(2)} {summary.payToken} on{' '}
+                {chainNameFromId(summary.chainId)}
+              </p>
+            )}
             <div className="mt-1 print:hidden">
               <LinkHowItWorks kind="pay" />
             </div>
@@ -386,6 +485,7 @@ export function PayLinkPage() {
                 lock: 'Your payment is locked',
                 waitCounterLock: `The solver locks ${token} on Bitcoin Cash`,
                 claim: `The owner is paid in ${token}`,
+                doneMessage: `Payment complete. The creator receives the ${token} in their Bitcoin Cash wallet once it confirms.`,
               }}
             />
           ) : showSteps ? (
@@ -416,70 +516,22 @@ export function PayLinkPage() {
 
               {/* Two rows that together are as tall as the QR card: the recipient, then the amounts */}
               <div className="grid grid-rows-[2fr_3fr] gap-3">
-                <div className="overflow-hidden rounded-well border border-hairline bg-surface-2 p-3 text-xs print:border-black/20 print:bg-white">
-                  <span className="mb-1 block text-text-dim print:text-black/60">
+                <div className="overflow-hidden rounded-well border border-hairline bg-surface-2 px-3 pb-3 pt-4 text-xs print:border-black/20 print:bg-white">
+                  <span className="mb-2 block text-text-dim print:text-black/60">
                     Recipient address
                   </span>
-                  <p
-                    data-testid="chunked-address"
-                    className="break-all font-mono text-xs font-semibold text-text print:text-black"
-                  >
-                    {chunkCashaddr(recipientCashaddr)}
-                  </p>
+                  <div className="rounded-lg bg-surface-0 px-3 py-3 print:bg-black/5">
+                    <p
+                      data-testid="chunked-address"
+                      className="break-all font-mono text-xs font-semibold text-text print:text-black"
+                    >
+                      {chunkCashaddr(recipientCashaddr)}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {/* They receive */}
-                  <div className="rounded-well border border-hairline bg-surface-2 p-3 print:border-black/20 print:bg-white">
-                    <div className="mb-1 flex items-center justify-between text-xs text-text-muted print:text-black/60">
-                      <span>{copy.receiveLabel}</span>
-                      <span className="text-xs text-text-dim print:text-black/60">
-                        Bitcoin Cash
-                      </span>
-                    </div>
-                    {ready.amount === undefined ? (
-                      <div className="flex flex-col items-start gap-3">
-                        {pusdIconUrl(token) && (
-                          <img
-                            src={pusdIconUrl(token)!}
-                            alt=""
-                            className="size-16 rounded-full"
-                          />
-                        )}
-                        <div className="flex w-full items-center gap-2">
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            inputMode="decimal"
-                            aria-label="Amount to pay"
-                            value={payerAmount}
-                            onChange={(e) => setPayerAmount(e.target.value)}
-                            placeholder="0.00"
-                            className="w-full rounded-well border border-hairline bg-surface-1 px-3 py-2 text-lg font-semibold text-text focus:border-lime focus:outline-none"
-                          />
-                          <span className="flex shrink-0 items-center gap-2 text-lg font-semibold text-text">
-                            {token}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-start gap-3 text-xl font-semibold text-text print:text-black">
-                        {pusdIconUrl(token) && (
-                          <img
-                            src={pusdIconUrl(token)!}
-                            alt=""
-                            className="size-16 rounded-full"
-                          />
-                        )}
-                        <span>
-                          {requestedAmount.toFixed(2)} {token}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* You pay: the label, then the chain across the card's width, then the amount */}
+                  {/* You pay: the label, the chain and stablecoin, then the amount at the bottom */}
                   <div className="flex flex-col gap-2 rounded-well border border-hairline bg-surface-2 p-3 print:hidden">
                     <span className="text-xs text-text-muted">
                       {copy.sendLabel}
@@ -513,8 +565,58 @@ export function PayLinkPage() {
                       className="w-full"
                       triggerClassName="w-full py-1 text-xs"
                     />
-                    <div className="text-xl font-semibold text-text">
-                      {youPayText} {selectedPayerToken}
+                    {ready.amount === undefined ? (
+                      <div className="mt-auto flex items-center gap-2 pt-2">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          aria-label="Amount you pay"
+                          value={payerAmount}
+                          onChange={(e) =>
+                            setPayerAmount(cleanAmountInput(e.target.value))
+                          }
+                          placeholder="0.00"
+                          className="w-full min-w-0 rounded-well border border-hairline bg-surface-1 px-3 py-2 text-xl font-semibold text-text focus:border-lime focus:outline-none"
+                        />
+                        <span className="shrink-0 text-xl font-semibold text-text">
+                          {selectedPayerToken}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="mt-auto pt-2 text-xl font-semibold text-text">
+                        {youPayText} {selectedPayerToken}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* They receive: the icon with room above and below, the amount at the bottom */}
+                  <div className="flex flex-col rounded-well border border-hairline bg-surface-2 p-3 print:border-black/20 print:bg-white">
+                    <div className="flex items-center justify-between text-xs text-text-muted print:text-black/60">
+                      <span>{copy.receiveLabel}</span>
+                      <span className="text-xs text-text-dim print:text-black/60">
+                        Bitcoin Cash
+                      </span>
+                    </div>
+                    <div className="flex flex-1 items-center py-4">
+                      {pusdIconUrl(token) && (
+                        <img
+                          src={pusdIconUrl(token)!}
+                          alt=""
+                          className="size-16 rounded-full"
+                        />
+                      )}
+                    </div>
+                    <div className="mt-auto text-xl font-semibold text-text print:text-black">
+                      {ready.amount === undefined
+                        ? `${
+                            openReceive !== null
+                              ? openReceive.toFixed(2)
+                              : quoteProblem && typedPay > 0
+                                ? `≈ ${(Math.floor(typedPay * (1 - SPREAD_BPS / 10_000) * 100) / 100).toFixed(2)}`
+                                : '0.00'
+                          } ${token}`
+                        : `${requestedAmount.toFixed(2)} ${token}`}
                     </div>
                   </div>
                 </div>
@@ -543,6 +645,15 @@ export function PayLinkPage() {
             </div>
           )}
 
+          {quoteProblem && !showSteps && !run && (
+            <p
+              className="mt-3 text-center text-xs text-warn print:hidden"
+              role="status"
+              data-testid="quote-problem"
+            >
+              {quoteProblem}
+            </p>
+          )}
           {payError && (
             <p
               className="mt-3 text-center text-sm text-danger"

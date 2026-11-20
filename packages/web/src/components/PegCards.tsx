@@ -48,11 +48,17 @@ export function PegCards() {
 
   useEffect(() => {
     let active = true;
-    solver.getPegPrices().then((res) => {
-      if (active) setPegPrices(res);
-    });
+    const load = () => {
+      solver.getPegPrices().then((res) => {
+        if (active) setPegPrices(res);
+      });
+    };
+    load();
+    // Live: the prices refresh while the page is open.
+    const timer = setInterval(load, 30_000);
     return () => {
       active = false;
+      clearInterval(timer);
     };
   }, [solver]);
 

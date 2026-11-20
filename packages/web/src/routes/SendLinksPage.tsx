@@ -1,8 +1,14 @@
-import { MIN_TRANSACTION_USD, type Hex32 } from '@ferry/core';
+import {
+  MIN_TRANSACTION_USD,
+  swapCancelKeyAt,
+  swapSecretAt,
+  type Hex32,
+} from '@ferry/core';
 import { LinkHowItWorks } from '../components/links/LinkHowItWorks';
 import { useState, useContext, useEffect, type FormEvent } from 'react';
 import {
   SEND_LINK_NOTE_MAX_LENGTH,
+  type CancelSendLinkQuota,
   type SendLinkQueryMatch,
 } from '@ferry/core/api';
 import { SolverClient } from '@ferry/solver-client';
@@ -59,17 +65,19 @@ function toRow(link: SendLinkData): LinkRow {
   const lock =
     link.lockStatus === 'pending_lock'
       ? { status: 'Pending lock', tone: 'warn' as const }
-      : link.status === 'claimed' || link.lockStatus === 'claimed'
-        ? { status: 'Claimed', tone: 'ok' as const }
-        : link.status === 'expired' || link.lockStatus === 'expired'
-          ? { status: 'Expired', tone: 'warn' as const }
-          : link.lockStatus === 'refunded'
-            ? { status: 'Refunded', tone: 'neutral' as const }
-            : link.lockStatus === 'released'
-              ? { status: 'Released', tone: 'neutral' as const }
-              : link.lockStatus === 'locked'
-                ? { status: 'Locked', tone: 'ok' as const }
-                : { status: 'Open', tone: 'neutral' as const };
+      : link.status === 'cancelled' || link.lockStatus === 'cancelled'
+        ? { status: 'Cancelled', tone: 'neutral' as const }
+        : link.status === 'claimed' || link.lockStatus === 'claimed'
+          ? { status: 'Claimed', tone: 'ok' as const }
+          : link.status === 'expired' || link.lockStatus === 'expired'
+            ? { status: 'Expired', tone: 'warn' as const }
+            : link.lockStatus === 'refunded'
+              ? { status: 'Refunded', tone: 'neutral' as const }
+              : link.lockStatus === 'released'
+                ? { status: 'Released', tone: 'neutral' as const }
+                : link.lockStatus === 'locked'
+                  ? { status: 'Locked', tone: 'ok' as const }
+                  : { status: 'Open', tone: 'neutral' as const };
   return {
     id: link.id,
     // With the secret in the fragment (kept only in this browser), so the link opens ready to claim.
@@ -109,6 +117,136 @@ export function SendLinksPage({
   const [resumingId, setResumingId] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [isContractWallet, setIsContractWallet] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<SendLinkData | null>(null);
+  const [cancelQuota, setCancelQuota] = useState<CancelSendLinkQuota | null>(
+    null,
+  );
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  async function openCancelModal(link: SendLinkData) {
+    setCancelTarget(link);
+    setCancelError(null);
+    setCancelQuota(null);
+    const solverUrl = listSolverUrl ?? 'http://localhost:3000';
+    try {
+      const res = await fetch(
+        `${solverUrl.replace(/\/+$/, '')}/v1/send-links/${encodeURIComponent(link.id)}/cancel-quota`,
+      );
+      if (res.ok) {
+        const quota = (await res.json()) as CancelSendLinkQuota;
+        setCancelQuota(quota);
+      } else {
+        setCancelQuota({
+          dailyUsed: 0,
+          dailyLimit: 2,
+          dailyRemaining: 2,
+          monthlyUsed: 0,
+          monthlyLimit: 10,
+          monthlyRemaining: 10,
+        });
+      }
+    } catch {
+      setCancelQuota({
+        dailyUsed: 0,
+        dailyLimit: 2,
+        dailyRemaining: 2,
+        monthlyUsed: 0,
+        monthlyLimit: 10,
+        monthlyRemaining: 10,
+      });
+    }
+  }
+
+  async function handleConfirmCancel() {
+    if (!cancelTarget) return;
+    setIsCancelling(true);
+    setCancelError(null);
+    const solverUrl = listSolverUrl ?? 'http://localhost:3000';
+
+    try {
+      let cancelKey: string | undefined = cancelTarget.cancelKey;
+
+      if (!cancelKey && wallets?.evm.address) {
+        try {
+          const rootResult = await getOrDeriveRecoveryRoot(wallets.evm);
+          if (rootResult.root && cancelTarget.secret) {
+            for (let i = 0; i < 200; i++) {
+              if (
+                swapSecretAt(rootResult.root, i).toLowerCase() ===
+                cancelTarget.secret.toLowerCase()
+              ) {
+                cancelKey = swapCancelKeyAt(rootResult.root, i);
+                break;
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!cancelKey && cancelTarget.secret) {
+        try {
+          const rescueRoot =
+            await browserRecoveryStorage.get('ferry.rescue.root');
+          if (rescueRoot && rescueRoot.startsWith('0x')) {
+            for (let i = 0; i < 200; i++) {
+              if (
+                swapSecretAt(rescueRoot as Hex32, i).toLowerCase() ===
+                cancelTarget.secret.toLowerCase()
+              ) {
+                cancelKey = swapCancelKeyAt(rescueRoot as Hex32, i);
+                break;
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const payload: Record<string, unknown> = {};
+      if (cancelKey) {
+        payload.cancelKey = cancelKey;
+      }
+
+      const res = await fetch(
+        `${solverUrl.replace(/\/+$/, '')}/v1/send-links/${encodeURIComponent(cancelTarget.id)}/cancel`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      if (!res.ok) {
+        const errJson = (await res.json()) as {
+          error?: { code?: string; message?: string };
+        };
+        throw new Error(
+          errJson.error?.message ?? `Failed to cancel (${res.status})`,
+        );
+      }
+
+      const next: SendLinkData = {
+        ...cancelTarget,
+        status: 'cancelled',
+        lockStatus: 'cancelled',
+      };
+      saveSendLink(next);
+      setCreatedLinks(listSendLinks());
+      showToast(
+        'Send link cancelled. Funds refunded to Bitcoin Cash.',
+        'success',
+      );
+      setCancelTarget(null);
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsCancelling(false);
+    }
+  }
 
   // The recovery file is never downloaded behind the person's back: a dialog asks them to save it
   // first, and the lock waits until they have.
@@ -160,6 +298,8 @@ export function SendLinksPage({
               snapshot.updatedAt ??
               link.claimedAt,
           };
+        } else if (snapshot.state === 'CANCELLED') {
+          next = { ...link, status: 'cancelled', lockStatus: 'cancelled' };
         } else if (
           snapshot.state === 'REFUNDED' ||
           snapshot.state === 'SOLVER_REFUNDED'
@@ -534,6 +674,99 @@ export function SendLinksPage({
         </div>
       </GlassModal>
 
+      <GlassModal
+        open={cancelTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !isCancelling) {
+            setCancelTarget(null);
+            setCancelError(null);
+          }
+        }}
+        title="Cancel send link & refund"
+        description="Cancelling returns your locked Bitcoin Cash directly to your address. The receiver will no longer be able to claim it."
+      >
+        <div className="flex flex-col gap-4 text-xs">
+          {cancelTarget && (
+            <div className="rounded-well border border-hairline bg-surface-2 p-3 space-y-1.5">
+              <div className="flex justify-between text-text-muted">
+                <span>Refund amount:</span>
+                <span className="font-medium text-text">
+                  {cancelTarget.amount} {cancelTarget.destinationToken}
+                </span>
+              </div>
+              <div className="flex justify-between text-text-muted">
+                <span>Recipient:</span>
+                <span className="font-mono text-text truncate max-w-[200px]">
+                  {cancelTarget.recipientEvmAddress}
+                </span>
+              </div>
+              {cancelQuota && (
+                <div className="pt-2 border-t border-hairline/50 space-y-1">
+                  <div className="flex justify-between text-[11px] text-text-dim">
+                    <span>Cancellations remaining today (24h):</span>
+                    <span className="font-mono text-text">
+                      {cancelQuota.dailyRemaining} / 2
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-text-dim">
+                    <span>Cancellations remaining this month (30d):</span>
+                    <span className="font-mono text-text">
+                      {cancelQuota.monthlyRemaining} / 10
+                    </span>
+                  </div>
+                </div>
+              )}
+              <div className="pt-2 border-t border-hairline/50 text-[11px] text-text-dim">
+                {cancelTarget.cancelKey ? (
+                  <span>
+                    A dedicated cancel key will authorize this cancellation
+                    without exposing your recovery key or other swaps.
+                  </span>
+                ) : (
+                  <span>
+                    Links without a stored cancel key (contract wallets or
+                    legacy links) require a Bitcoin Cash wallet signature to
+                    cancel.
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {cancelError && (
+            <div
+              data-testid="cancel-error"
+              className="rounded-well border border-danger/30 bg-danger/10 p-2.5 text-xs text-danger"
+            >
+              {cancelError}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setCancelTarget(null);
+                setCancelError(null);
+              }}
+              disabled={isCancelling}
+              className="flex-1 h-9 rounded-pill border border-hairline bg-surface-2 font-medium text-text hover:bg-surface-3 transition-colors"
+            >
+              Keep Link
+            </button>
+            <button
+              type="button"
+              data-testid="confirm-cancel-send-link"
+              onClick={handleConfirmCancel}
+              disabled={isCancelling}
+              className="flex-1 h-9 rounded-pill bg-danger text-white font-semibold hover:bg-danger/80 disabled:opacity-50 transition-colors"
+            >
+              {isCancelling ? 'Cancelling…' : 'Confirm Cancel & Refund'}
+            </button>
+          </div>
+        </div>
+      </GlassModal>
+
       <MorphWorkspace
         form={
           <div className="h-full rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card sm:p-7">
@@ -820,23 +1053,42 @@ export function SendLinksPage({
               renderAction={(row) => {
                 const link = createdLinks.find((item) => item.id === row.id);
                 if (!link) return null;
-                return link.lockStatus === 'pending_lock' ? (
-                  <button
-                    type="button"
-                    onClick={() => handleResume(link)}
-                    disabled={resumingId === link.id}
-                    className="rounded-pill border border-lime/40 bg-lime/20 px-2.5 py-1 text-xs font-semibold text-lime hover:bg-lime/30"
-                  >
-                    {resumingId === link.id ? 'Resuming…' : 'Resume'}
-                  </button>
-                ) : link.status !== 'open' ? null : (
-                  <button
-                    type="button"
-                    onClick={() => setActiveCreated(link)}
-                    className="rounded-pill bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text hover:text-lime"
-                  >
-                    View QR
-                  </button>
+                const isClaimed =
+                  link.status === 'claimed' || link.lockStatus === 'claimed';
+                const isCancelled =
+                  link.status === 'cancelled' ||
+                  link.lockStatus === 'cancelled';
+                if (isClaimed || isCancelled) return null;
+
+                return (
+                  <div className="flex items-center gap-1.5">
+                    {link.lockStatus === 'pending_lock' ? (
+                      <button
+                        type="button"
+                        onClick={() => handleResume(link)}
+                        disabled={resumingId === link.id}
+                        className="rounded-pill border border-lime/40 bg-lime/20 px-2.5 py-1 text-xs font-semibold text-lime hover:bg-lime/30"
+                      >
+                        {resumingId === link.id ? 'Resuming…' : 'Resume'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setActiveCreated(link)}
+                        className="rounded-pill bg-surface-3 px-2.5 py-1 text-xs font-semibold text-text hover:text-lime"
+                      >
+                        View QR
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      data-testid={`cancel-send-link-${link.id}`}
+                      onClick={() => openCancelModal(link)}
+                      className="rounded-pill border border-danger/30 bg-danger/10 px-2.5 py-1 text-xs font-semibold text-danger hover:bg-danger/20 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 );
               }}
             />

@@ -954,7 +954,13 @@ export class MockSolverClient implements SolverClient {
     return {
       id: link.id,
       status:
-        link.status === 'claimed' ? 'claimed' : expired ? 'expired' : 'open',
+        link.status === 'claimed'
+          ? 'claimed'
+          : link.status === 'cancelled'
+            ? 'cancelled'
+            : expired
+              ? 'expired'
+              : 'open',
       amount: link.amount,
       token: link.destinationToken,
       chain: link.destinationChain,

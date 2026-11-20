@@ -14,7 +14,7 @@ export function GlassNav({ children }: GlassNavProps) {
   const classes = [
     'top-0 z-40 w-full transition-[background-color,backdrop-filter,border-color] duration-200',
     scrolled
-      ? 'glass-nav site-bar glass-pop--dark'
+      ? 'glass-nav site-bar'
       : 'border-b border-transparent bg-transparent',
   ]
     .filter(Boolean)

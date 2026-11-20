@@ -155,7 +155,13 @@ export interface OperatorRouteInfo {
 export interface SendLinkView {
   readonly id: string;
   readonly status:
-    'open' | 'locked' | 'claimed' | 'refunded' | 'expired' | 'pending_lock';
+    | 'open'
+    | 'locked'
+    | 'claimed'
+    | 'refunded'
+    | 'expired'
+    | 'pending_lock'
+    | 'cancelled';
   /** Null when the token's decimals are not known to this page. */
   readonly amount: number | null;
   readonly token: string;

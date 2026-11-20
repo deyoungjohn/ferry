@@ -1,6 +1,7 @@
 import DatabaseConstructor, {
   type Database as DatabaseType,
 } from 'better-sqlite3';
+import type { CancelSendLinkQuota } from '@ferry/core/api';
 import type {
   ActionIntent,
   ActionRecord,
@@ -10,6 +11,10 @@ import type {
 
 export const SUPPORTED_SCHEMA_VERSION = 1;
 export const MAX_VALID_UNIX_SECONDS = 100_000_000_000; // ~year 5138
+export const DAILY_CANCELLATION_LIMIT = 2;
+export const MONTHLY_CANCELLATION_LIMIT = 10;
+export const ROLLING_24H_SECONDS = 86_400;
+export const ROLLING_30D_SECONDS = 30 * 86_400;
 
 export function assertSecondsTimestamp(ts: number, fieldName: string): number {
   if (ts >= MAX_VALID_UNIX_SECONDS) {
@@ -139,6 +144,7 @@ export class SolverDatabase {
           expires_at INTEGER,
           verified INTEGER NOT NULL DEFAULT 0,
           status TEXT NOT NULL,
+          owner_secret_hash TEXT,
           order_id TEXT,
           created_at INTEGER NOT NULL CHECK (created_at < 100000000000),
           updated_at INTEGER NOT NULL CHECK (updated_at < 100000000000)
@@ -169,13 +175,33 @@ export class SolverDatabase {
           created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
         );
         CREATE INDEX IF NOT EXISTS idx_send_link_tags_order_id ON send_link_tags(order_id);
-
         CREATE TABLE IF NOT EXISTS send_link_replacements (
           original_order_id TEXT PRIMARY KEY,
           replacement_order_id TEXT NOT NULL,
           switched_at INTEGER NOT NULL CHECK (switched_at < 100000000000)
         );
         CREATE INDEX IF NOT EXISTS idx_send_link_replacements_target ON send_link_replacements(replacement_order_id);
+
+        CREATE TABLE IF NOT EXISTS send_link_orders (
+          order_id TEXT PRIMARY KEY
+        );
+
+        CREATE TABLE IF NOT EXISTS send_link_cancellations (
+          id TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL,
+          sender_identity TEXT NOT NULL,
+          cancelled_at INTEGER NOT NULL CHECK (cancelled_at < 100000000000)
+        );
+        CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_sender ON send_link_cancellations(sender_identity, cancelled_at);
+        CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_order ON send_link_cancellations(order_id);
+
+        CREATE TABLE IF NOT EXISTS send_link_cancel_hashes (
+          order_id TEXT PRIMARY KEY,
+          cancel_hash TEXT NOT NULL,
+          spent INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+        );
+        CREATE INDEX IF NOT EXISTS idx_send_link_cancel_hashes_hash ON send_link_cancel_hashes(cancel_hash);
       `);
 
       this.db.pragma(`user_version = ${SUPPORTED_SCHEMA_VERSION}`);
@@ -206,6 +232,7 @@ export class SolverDatabase {
         expires_at INTEGER,
         verified INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL,
+        owner_secret_hash TEXT,
         order_id TEXT,
         created_at INTEGER NOT NULL CHECK (created_at < 100000000000),
         updated_at INTEGER NOT NULL CHECK (updated_at < 100000000000)
@@ -232,14 +259,40 @@ export class SolverDatabase {
         created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
       );
       CREATE INDEX IF NOT EXISTS idx_send_link_tags_order_id ON send_link_tags(order_id);
-
       CREATE TABLE IF NOT EXISTS send_link_replacements (
         original_order_id TEXT PRIMARY KEY,
         replacement_order_id TEXT NOT NULL,
         switched_at INTEGER NOT NULL CHECK (switched_at < 100000000000)
       );
       CREATE INDEX IF NOT EXISTS idx_send_link_replacements_target ON send_link_replacements(replacement_order_id);
+
+      CREATE TABLE IF NOT EXISTS send_link_orders (
+        order_id TEXT PRIMARY KEY
+      );
+
+      CREATE TABLE IF NOT EXISTS send_link_cancellations (
+        id TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL,
+        sender_identity TEXT NOT NULL,
+        cancelled_at INTEGER NOT NULL CHECK (cancelled_at < 100000000000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_sender ON send_link_cancellations(sender_identity, cancelled_at);
+      CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_order ON send_link_cancellations(order_id);
+
+      CREATE TABLE IF NOT EXISTS send_link_cancel_hashes (
+        order_id TEXT PRIMARY KEY,
+        cancel_hash TEXT NOT NULL,
+        spent INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_send_link_cancel_hashes_hash ON send_link_cancel_hashes(cancel_hash);
     `);
+
+    try {
+      this.db.exec('ALTER TABLE pay_links ADD COLUMN owner_secret_hash TEXT;');
+    } catch {
+      // Column already exists
+    }
   }
 
   /** The sender's note for a send link, kept apart from the order so the signed terms never change. */
@@ -251,6 +304,13 @@ export class SolverDatabase {
          ON CONFLICT(order_id) DO UPDATE SET note = excluded.note`,
       )
       .run(orderId, note, createdAt);
+  }
+
+  /** Marks an order as one made for a send link, so the public list of swaps leaves it out. */
+  markSendLinkOrder(orderId: string): void {
+    this.db
+      .prepare('INSERT OR IGNORE INTO send_link_orders (order_id) VALUES (?)')
+      .run(orderId);
   }
 
   getSendLinkNote(orderId: string): string | null {
@@ -415,7 +475,10 @@ export class SolverDatabase {
       }
 
       // 4. Refuse if order has been cancelled
-      if (currentOrder.status === 'CANCELLED') {
+      if (
+        currentOrder.status === 'CANCELLED' ||
+        this.isOrderCancelled(params.currentOrderId)
+      ) {
         const error = new Error(
           'Cannot switch route: send link has been cancelled',
         );
@@ -469,6 +532,16 @@ export class SolverDatabase {
         this.saveSendLinkNote(params.newOrder.id, note, params.switchedAt);
       }
 
+      // 10. Carry over send link cancel hash if one was registered
+      const cancelHashRow = this.getSendLinkCancelHash(params.currentOrderId);
+      if (cancelHashRow) {
+        this.saveSendLinkCancelHash(
+          params.newOrder.id,
+          cancelHashRow.cancelHash,
+          params.switchedAt,
+        );
+      }
+
       return {
         ok: true as const,
         originalOrderId: originalRoot ?? params.currentOrderId,
@@ -477,6 +550,69 @@ export class SolverDatabase {
     });
 
     return runInTx();
+  }
+
+  /**
+   * Save a cancel hash for a send link order.
+   * Stored beside the order, never inside its signed terms.
+   */
+  saveSendLinkCancelHash(
+    orderId: string,
+    cancelHash: string,
+    createdAt: number,
+  ): void {
+    assertSecondsTimestamp(createdAt, 'created_at');
+    const normalizedHash = cancelHash.startsWith('0x')
+      ? cancelHash.toLowerCase()
+      : `0x${cancelHash.toLowerCase()}`;
+    this.db
+      .prepare(
+        `INSERT INTO send_link_cancel_hashes (order_id, cancel_hash, spent, created_at)
+         VALUES (?, ?, 0, ?)
+         ON CONFLICT(order_id) DO UPDATE SET cancel_hash = excluded.cancel_hash`,
+      )
+      .run(orderId, normalizedHash, createdAt);
+  }
+
+  getSendLinkCancelHash(orderId: string): {
+    cancelHash: string;
+    spent: boolean;
+  } | null {
+    let row = this.db
+      .prepare(
+        'SELECT cancel_hash as cancelHash, spent FROM send_link_cancel_hashes WHERE order_id = ?',
+      )
+      .get(orderId) as { cancelHash: string; spent: number } | undefined;
+    if (!row) {
+      const orig = this.getOriginalSendLinkOrderId(orderId);
+      if (orig) {
+        row = this.db
+          .prepare(
+            'SELECT cancel_hash as cancelHash, spent FROM send_link_cancel_hashes WHERE order_id = ?',
+          )
+          .get(orig) as { cancelHash: string; spent: number } | undefined;
+      }
+    }
+    if (!row) return null;
+    return {
+      cancelHash: row.cancelHash,
+      spent: row.spent === 1,
+    };
+  }
+
+  markSendLinkCancelHashSpent(orderId: string): void {
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      this.db
+        .prepare(
+          'UPDATE send_link_cancel_hashes SET spent = 1 WHERE order_id = ?',
+        )
+        .run(id);
+    }
   }
 
   getOrdersBySendLinkTags(
@@ -510,6 +646,147 @@ export class SolverDatabase {
         order: initialOrder,
       };
     });
+  }
+
+  /**
+   * Record a send link cancellation for a sender identity.
+   */
+  recordSendLinkCancellation(
+    orderId: string,
+    senderIdentity: string,
+    cancelledAt: number,
+  ): void {
+    assertSecondsTimestamp(cancelledAt, 'cancelled_at');
+    const normalizedSender = senderIdentity.toLowerCase();
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      const recordId = `cancel_${id}`;
+      this.db
+        .prepare(
+          `INSERT INTO send_link_cancellations (id, order_id, sender_identity, cancelled_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET cancelled_at = excluded.cancelled_at`,
+        )
+        .run(recordId, id, normalizedSender, cancelledAt);
+      const ord = this.getOrder(id);
+      if (ord && ord.status !== 'CANCELLED') {
+        this.db
+          .prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?')
+          .run('CANCELLED', cancelledAt, id);
+      }
+    }
+  }
+
+  isOrderCancelled(orderId: string): boolean {
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      const row = this.db
+        .prepare(
+          'SELECT 1 FROM send_link_cancellations WHERE order_id = ? OR id = ?',
+        )
+        .get(id, `cancel_${id}`);
+      if (row !== undefined) return true;
+      const order = this.getOrder(id);
+      if (order && order.status === 'CANCELLED') return true;
+    }
+    return false;
+  }
+
+  getCancellationForOrder(orderId: string): {
+    id: string;
+    orderId: string;
+    senderIdentity: string;
+    cancelledAt: number;
+  } | null {
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      const row = this.db
+        .prepare(
+          'SELECT id, order_id as orderId, sender_identity as senderIdentity, cancelled_at as cancelledAt FROM send_link_cancellations WHERE order_id = ? OR id = ?',
+        )
+        .get(id, `cancel_${id}`) as
+        | {
+            id: string;
+            orderId: string;
+            senderIdentity: string;
+            cancelledAt: number;
+          }
+        | undefined;
+      if (row) return row;
+    }
+    return null;
+  }
+
+  getSendLinkCancellationQuota(
+    senderIdentity: string,
+    nowSeconds?: number,
+  ): CancelSendLinkQuota {
+    const now = nowSeconds ?? Math.floor(Date.now() / 1000);
+    const normalizedSender = senderIdentity.toLowerCase();
+
+    const dayWindowStart = now - ROLLING_24H_SECONDS; // 24 hours
+    const monthWindowStart = now - ROLLING_30D_SECONDS; // 30 days
+
+    const rows = this.db
+      .prepare(
+        `SELECT cancelled_at
+         FROM send_link_cancellations
+         WHERE sender_identity = ? AND cancelled_at >= ?
+         ORDER BY cancelled_at ASC`,
+      )
+      .all(normalizedSender, monthWindowStart) as Array<{
+      cancelled_at: number;
+    }>;
+
+    const monthlyUsed = rows.length;
+    const dailyRows = rows.filter((r) => r.cancelled_at >= dayWindowStart);
+    const dailyUsed = dailyRows.length;
+
+    const dailyLimit = DAILY_CANCELLATION_LIMIT;
+    const monthlyLimit = MONTHLY_CANCELLATION_LIMIT;
+
+    const dailyRemaining = Math.max(0, dailyLimit - dailyUsed);
+    const monthlyRemaining = Math.max(0, monthlyLimit - monthlyUsed);
+
+    let nextAllowedAt: number | null = null;
+    if (dailyRemaining === 0) {
+      const oldestDaily = dailyRows[0]?.cancelled_at;
+      if (oldestDaily !== undefined) {
+        nextAllowedAt = oldestDaily + ROLLING_24H_SECONDS;
+      }
+    }
+    if (monthlyRemaining === 0) {
+      const oldestMonthly = rows[0]?.cancelled_at;
+      if (oldestMonthly !== undefined) {
+        const nextMonthly = oldestMonthly + ROLLING_30D_SECONDS;
+        nextAllowedAt =
+          nextAllowedAt !== null
+            ? Math.max(nextAllowedAt, nextMonthly)
+            : nextMonthly;
+      }
+    }
+
+    return {
+      dailyUsed,
+      dailyLimit,
+      dailyRemaining,
+      monthlyUsed,
+      monthlyLimit,
+      monthlyRemaining,
+      nextAllowedAt: nextAllowedAt ?? null,
+    };
   }
 
   getSetting(key: string): string | null {
@@ -998,7 +1275,11 @@ export class SolverDatabase {
     asOf: number | null;
   } {
     const stmt = this.db.prepare(`
-      SELECT terms_json, lane, created_at, updated_at 
+      SELECT terms_json, lane, direction, created_at, updated_at,
+        (pay_link_id IS NOT NULL
+          OR id IN (SELECT order_id FROM send_link_orders)
+          OR id IN (SELECT order_id FROM send_link_notes)
+          OR id IN (SELECT order_id FROM send_link_tags)) AS is_link
       FROM orders 
       WHERE status = 'DONE'
     `);
@@ -1007,7 +1288,10 @@ export class SolverDatabase {
       lane: string;
       created_at: number;
       updated_at: number;
+      is_link: number;
+      direction: string;
     }>;
+    const payLinks = this.payLinkMatchers();
 
     if (rows.length === 0) {
       return {
@@ -1036,7 +1320,16 @@ export class SolverDatabase {
       // Every settled swap counts, whatever its lane: most run on the safe lane. Swaps that began
       // before MEDIAN_COUNTS_FROM ran on engine builds with known faults and are left out of the
       // median (they still count as completed swaps and in the volume).
-      if (toSeconds(row.created_at) >= MEDIAN_COUNTS_FROM) {
+      // A link's order waits for a person to pay or claim it, so its time is not the swap's speed.
+      const isLink =
+        Boolean(row.is_link) ||
+        this.isPayLinkPayment(
+          row.terms_json,
+          row.direction,
+          row.created_at,
+          payLinks,
+        );
+      if (!isLink && toSeconds(row.created_at) >= MEDIAN_COUNTS_FROM) {
         fastDurations.push(
           Math.max(0, toSeconds(row.updated_at) - toSeconds(row.created_at)),
         );
@@ -1065,6 +1358,60 @@ export class SolverDatabase {
     };
   }
 
+  /**
+   * The pay links, as the relation the server uses to tie a swap to its link (the recipient's
+   * script, the token and the amount), for leaving link payments out of swap lists and medians.
+   */
+  private payLinkMatchers(): Array<{
+    recipient: string;
+    token: string;
+    minAmount: bigint | null;
+    createdAt: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT recipient_locking_bytecode, token, amount_out, created_at FROM pay_links',
+      )
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      recipient: String(r.recipient_locking_bytecode ?? '').toLowerCase(),
+      token: String(r.token ?? ''),
+      minAmount:
+        r.amount_out === null || r.amount_out === undefined
+          ? null
+          : BigInt(String(r.amount_out)),
+      createdAt: Number(r.created_at ?? 0),
+    }));
+  }
+
+  private isPayLinkPayment(
+    termsJson: string,
+    direction: string,
+    orderCreatedAt: number,
+    links: ReturnType<SolverDatabase['payLinkMatchers']>,
+  ): boolean {
+    if (direction !== 'EVM_TO_BCH' && direction !== 'COUNTER_TO_BCH') {
+      return false;
+    }
+    try {
+      const terms = JSON.parse(termsJson) as Record<string, unknown>;
+      const recipient = String(
+        terms.userBchLockingBytecode ?? '',
+      ).toLowerCase();
+      const token = String(terms.bchToken ?? '');
+      const amount = termsBigInt(terms.bchTokenAmount);
+      return links.some(
+        (l) =>
+          l.recipient === recipient &&
+          l.token === token &&
+          (l.minAmount === null || amount >= l.minAmount) &&
+          toSeconds(orderCreatedAt) >= l.createdAt - 600,
+      );
+    } catch {
+      return false;
+    }
+  }
+
   getRecentSwaps(limit: number = 50): Array<{
     orderId: string;
     settledAt: number;
@@ -1086,10 +1433,26 @@ export class SolverDatabase {
     const stmt = this.db.prepare(`
       SELECT * FROM orders 
       WHERE status = 'DONE' 
+        AND pay_link_id IS NULL
+        AND id NOT IN (SELECT order_id FROM send_link_orders)
+        AND id NOT IN (SELECT order_id FROM send_link_notes)
+        AND id NOT IN (SELECT order_id FROM send_link_tags)
       ORDER BY updated_at DESC 
       LIMIT ?
     `);
-    const rows = stmt.all(limit) as Record<string, unknown>[];
+    // Link payments are filtered below, so read a wider window than the limit.
+    const links = this.payLinkMatchers();
+    const rows = (stmt.all(limit * 4 + 200) as Record<string, unknown>[])
+      .filter(
+        (r) =>
+          !this.isPayLinkPayment(
+            String(r.terms_json ?? '{}'),
+            String(r.direction ?? ''),
+            Number(r.created_at ?? 0),
+            links,
+          ),
+      )
+      .slice(0, limit);
     const result: Array<{
       orderId: string;
       settledAt: number;
@@ -1176,11 +1539,11 @@ export class SolverDatabase {
       INSERT INTO pay_links (
         id, kind, recipient_cashaddr, recipient_locking_bytecode, token,
         amount_out, min_amount_out, memo, reference, expires_at,
-        verified, status, order_id, created_at, updated_at
+        verified, status, owner_secret_hash, order_id, created_at, updated_at
       ) VALUES (
         @id, @kind, @recipient_cashaddr, @recipient_locking_bytecode, @token,
         @amount_out, @min_amount_out, @memo, @reference, @expires_at,
-        @verified, @status, @order_id, @created_at, @updated_at
+        @verified, @status, @owner_secret_hash, @order_id, @created_at, @updated_at
       )
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
@@ -1194,6 +1557,7 @@ export class SolverDatabase {
         expires_at = excluded.expires_at,
         verified = excluded.verified,
         status = excluded.status,
+        owner_secret_hash = COALESCE(excluded.owner_secret_hash, pay_links.owner_secret_hash),
         order_id = excluded.order_id,
         updated_at = excluded.updated_at
     `);
@@ -1213,6 +1577,7 @@ export class SolverDatabase {
       expires_at: link.expiresAt ?? null,
       verified: link.verified ? 1 : 0,
       status: link.status,
+      owner_secret_hash: link.ownerSecretHash ?? null,
       order_id: link.orderId ?? null,
       created_at: link.createdAt,
       updated_at: link.updatedAt,
@@ -1342,6 +1707,7 @@ export class SolverDatabase {
       expiresAt: (row.expires_at as number) || undefined,
       verified: Boolean(row.verified),
       status: row.status as PayLinkRecord['status'],
+      ownerSecretHash: (row.owner_secret_hash as string) || undefined,
       orderId: (row.order_id as string) || undefined,
       createdAt: row.created_at as number,
       updatedAt: row.updated_at as number,

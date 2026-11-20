@@ -61,6 +61,9 @@ export function computeWaitState(
   status: string,
   expiresAt: number | null,
 ): SendLinkWaitState {
+  if (status === 'cancelled') {
+    return 'cancelled by the sender';
+  }
   if (status === 'pending_lock') {
     return "the sender's funds are being locked";
   }
@@ -197,6 +200,7 @@ export function SendLinkPage({
     ? computeWaitState(link.status, link.expiresAt)
     : null;
 
+  const isCancelled = waitState === 'cancelled by the sender';
   const isReadyToClaim = waitState === 'ready to claim';
   const isPendingLock = waitState === "the sender's funds are being locked";
   const isClaimed = waitState === 'claimed';
@@ -233,6 +237,8 @@ export function SendLinkPage({
 
   const canSwitchRoute =
     link !== null &&
+    !isCancelled &&
+    link.status !== 'cancelled' &&
     !link.lockId &&
     (link.status === 'pending_lock' ||
       (link.status === 'open' && !link.lockId)) &&
@@ -246,7 +252,8 @@ export function SendLinkPage({
     link !== null &&
     connectedEvm !== null &&
     connectedEvm !== link.recipientEvmAddress.toLowerCase();
-  const claimable = isReadyToClaim && !claiming && !wrongWallet && !isTooLate;
+  const claimable =
+    isReadyToClaim && !claiming && !wrongWallet && !isCancelled && !isTooLate;
 
   async function handleSwitchRoute(target: ReceiverRouteOption) {
     if (!link) return;
@@ -266,14 +273,18 @@ export function SendLinkPage({
     }
 
     if (
+      isCancelled ||
       link.lockId ||
       link.status === 'locked' ||
       link.status === 'claimed' ||
       link.status === 'expired' ||
-      link.status === 'refunded'
+      link.status === 'refunded' ||
+      link.status === 'cancelled'
     ) {
       setError(
-        'Cannot switch route: the solver has already locked funds on the destination chain',
+        isCancelled || link.status === 'cancelled'
+          ? 'Cannot switch route: this send link has been cancelled'
+          : 'Cannot switch route: the solver has already locked funds on the destination chain',
       );
       return;
     }
@@ -712,19 +723,21 @@ export function SendLinkPage({
                 <span>
                   {claiming
                     ? 'Processing claim…'
-                    : isExpired
-                      ? 'expired: the sender gets their funds back'
-                      : isClaimed
-                        ? 'Claimed'
-                        : isTooLate
-                          ? 'Expired: cannot be claimed in time'
-                          : isPendingLock
-                            ? "the sender's funds are being locked"
-                            : isReadyToClaim
-                              ? isLive && wallets && !wallets.evm.address
-                                ? 'Connect and claim'
-                                : 'Claim'
-                              : 'This link is no longer open'}
+                    : isPendingLock
+                      ? "the sender's funds are being locked"
+                      : isCancelled
+                        ? 'Cancelled by the sender'
+                        : isExpired
+                          ? 'expired: the sender gets their funds back'
+                          : isClaimed
+                            ? 'Claimed'
+                            : isTooLate
+                              ? 'Expired: cannot be claimed in time'
+                              : isReadyToClaim
+                                ? isLive && wallets && !wallets.evm.address
+                                  ? 'Connect and claim'
+                                  : 'Claim'
+                                : 'This link is no longer open'}
                 </span>
               </button>
 

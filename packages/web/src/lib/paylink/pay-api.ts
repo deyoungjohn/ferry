@@ -6,6 +6,7 @@ interface SolverPayLink {
   readonly status: PayLinkData['status'];
   readonly createdAt: number;
   readonly paidAt?: number;
+  readonly order?: { summary?: { bchTokenAmount?: string } };
 }
 
 /** Creates the link on the solver, so the address people open actually exists. Returns its id. */
@@ -17,6 +18,7 @@ export async function createPayLinkOnSolver(
     /** In cents (2 decimals), when the amount is fixed. */
     readonly amountCents?: number | undefined;
     readonly note?: string | undefined;
+    readonly ownerSecretHash?: string | undefined;
   },
   fetchFn: typeof fetch = fetch,
 ): Promise<{ id: string; createdAt: number }> {
@@ -30,6 +32,9 @@ export async function createPayLinkOnSolver(
         ? { amountOut: String(input.amountCents) }
         : {}),
       ...(input.note ? { memo: input.note } : {}),
+      ...(input.ownerSecretHash
+        ? { ownerSecretHash: input.ownerSecretHash }
+        : {}),
     }),
   });
   const body = (await res
@@ -53,17 +58,50 @@ export async function readPayLinkState(
   solverUrl: string,
   id: string,
   fetchFn: typeof fetch = fetch,
-): Promise<Pick<PayLinkData, 'status' | 'paidAt'> | null> {
+): Promise<Pick<PayLinkData, 'status' | 'paidAt' | 'paidAmount'> | null> {
   try {
     const res = await fetchFn(
       `${solverUrl.replace(/\/+$/, '')}/v1/links/${encodeURIComponent(id)}`,
     );
     if (!res.ok) return null;
     const body = (await res.json()) as SolverPayLink;
-    return { status: body.status, paidAt: body.paidAt };
+    const received = body.order?.summary?.bchTokenAmount;
+    return {
+      status: body.status,
+      paidAt: body.paidAt,
+      paidAmount:
+        body.status === 'paid' && received && /^\d+$/.test(received)
+          ? Number(received) / 100
+          : undefined,
+    };
   } catch {
     return null;
   }
+}
+
+export async function deletePayLinkOnSolver(
+  solverUrl: string,
+  id: string,
+  secret: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<{ ok: boolean; id: string; status: string }> {
+  const res = await fetchFn(
+    `${solverUrl.replace(/\/+$/, '')}/v1/links/${encodeURIComponent(id)}`,
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret }),
+    },
+  );
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as {
+      error?: { message?: string };
+    };
+    throw new Error(
+      err.error?.message ?? `Failed to delete pay link (${res.status})`,
+    );
+  }
+  return res.json() as Promise<{ ok: boolean; id: string; status: string }>;
 }
 
 export interface PayLinkDetails {
@@ -125,4 +163,24 @@ export async function readPayLink(
   } catch {
     return null;
   }
+}
+
+/** What a finished payment moved: what the payer paid (token and chain) and what the recipient got. */
+export function paymentSummary(order: OrderSnapshot | undefined): {
+  readonly received: number;
+  readonly paid: number;
+  readonly payToken: string;
+  readonly chainId: number;
+} | null {
+  const s = order?.summary;
+  if (!s || !/^\d+$/.test(s.bchTokenAmount) || !/^\d+$/.test(s.evmAmount)) {
+    return null;
+  }
+  const decimals = s.evmDecimals ?? 6;
+  return {
+    received: Number(s.bchTokenAmount) / 100,
+    paid: Number(s.evmAmount) / 10 ** decimals,
+    payToken: s.evmToken ?? 'USDC',
+    chainId: s.evmChainId,
+  };
 }

@@ -22,8 +22,19 @@ export async function amountInForExactOut(
   for (let round = 0; round < 5; round++) {
     const priced = await preview(deps, { ...base, amountIn });
     receivedCents = BigInt(priced.terms.bchTokenAmount);
-    if (receivedCents >= targetCents && receivedCents - targetCents <= 2n) {
-      return { amountIn, receivedCents };
+    if (receivedCents >= targetCents) {
+      // Enough: trim a cent at a time while the recipient still gets the full amount, so the
+      // payer does not pay more than the price needs.
+      let best = { amountIn, receivedCents };
+      for (let trim = 0; trim < 6 && best.receivedCents > targetCents; trim++) {
+        const lower = best.amountIn - unit;
+        if (lower <= 0n) break;
+        const again = await preview(deps, { ...base, amountIn: lower });
+        const got = BigInt(again.terms.bchTokenAmount);
+        if (got < targetCents) break;
+        best = { amountIn: lower, receivedCents: got };
+      }
+      return best;
     }
     // Move by the shortfall (or the overshoot), plus a cent so rounding does not stall it.
     const diff = targetCents - receivedCents;

@@ -662,8 +662,8 @@ export function LiveOrderView({
       )}
       {done && (
         <p className="mt-4 text-sm text-ok" data-testid="order-done">
-          Done. The claim was sent. The balance shows in your wallet once it
-          confirms.
+          {labels?.doneMessage ??
+            'Done. The claim was sent. The balance shows in your wallet once it confirms.'}
         </p>
       )}
 
