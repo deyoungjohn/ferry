@@ -33,9 +33,15 @@ describe('Caddy configuration', () => {
     for (const host of [
       'wss://relay.riften.net',
       'wss://relay.cauldron.quest',
+      'wss://relay.example.org',
     ]) {
       expect(csp).toContain(host);
     }
+  });
+
+  it('proxies WebSocket connections on the dedicated relay hostname', () => {
+    expect(caddy).toContain('relay.{$FERRY_DOMAIN:example.org} {');
+    expect(caddy).toContain('reverse_proxy 127.0.0.1:8088');
   });
 
   it('has the security headers and no CDN trust', () => {
@@ -169,7 +175,7 @@ describe('the server operations script', () => {
     expect(ops).not.toMatch(/echo[^\n]*\$ENV_FILE/);
   });
 
-  it('offers update, health, caddy, logs and rollback', () => {
+  it('offers update, health, caddy, logs, rollback and relay', () => {
     for (const word of [
       'health)',
       'update)',
@@ -177,6 +183,7 @@ describe('the server operations script', () => {
       'env)',
       'logs)',
       'rollback)',
+      'relay)',
     ]) {
       expect(ops).toContain(word);
     }

@@ -7,6 +7,7 @@
 #   /opt/ferry/deploy/ferry-ops.sh env         what is wrong with the settings file (shows no secret)
 #   /opt/ferry/deploy/ferry-ops.sh logs        follow the solver's log
 #   /opt/ferry/deploy/ferry-ops.sh rollback <commit>   put the code back and restart
+#   /opt/ferry/deploy/ferry-ops.sh relay <cmd> manage the optional WizardConnect relay (install|status|logs|restart|remove|probe)
 #
 # Run it as the normal login user (ubuntu), not with sudo: it asks for sudo only where needed.
 # It never prints the contents of /etc/ferry/solver.env.
@@ -21,6 +22,12 @@ SERVICE="ferry-solver.service"
 CADDYFILE="${FERRY_CADDYFILE:-/etc/caddy/Caddyfile}"
 NODE_BIN="${FERRY_NODE_BIN:-/usr/local/bin/node}"
 
+RELAY_CONTAINER="${FERRY_RELAY_CONTAINER:-ferry-relay}"
+RELAY_IMAGE="scsibug/nostr-rs-relay:0.9.0@sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5"
+RELAY_PORT="${FERRY_RELAY_PORT:-8088}"
+RELAY_CONFIG="${FERRY_RELAY_CONFIG:-$FERRY_DIR/deploy/relay/config.toml}"
+RELAY_DATA_DIR="${FERRY_RELAY_DATA:-/var/lib/ferry/relay}"
+
 failures=0
 say() { printf '%s\n' "$*"; }
 ok() { printf '  [ok]   %s\n' "$*"; }
@@ -28,8 +35,18 @@ bad() { printf '  [FAIL] %s\n' "$*"; failures=$((failures + 1)); }
 warn() { printf '  [warn] %s\n' "$*"; }
 section() { printf '\n== %s ==\n' "$*"; }
 
+_sudo() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif sudo -n true 2>/dev/null; then
+    sudo "$@"
+  else
+    "$@"
+  fi
+}
+
 need_dir() {
-  if [ ! -d "$FERRY_DIR/.git" ]; then
+  if [ ! -e "$FERRY_DIR/.git" ]; then
     say "Cannot find the repository at $FERRY_DIR (set FERRY_DIR if it lives elsewhere)." >&2
     exit 2
   fi
@@ -107,6 +124,13 @@ cmd_health() {
   section "Recent solver errors (last 30 minutes)"
   recent="$(sudo journalctl -u "$SERVICE" --since '30 min ago' -p warning --no-pager -q 2>/dev/null | tail -n 15 || true)"
   if [ -n "$recent" ]; then warn "warnings or errors in the log:"; printf '%s\n' "$recent" | sed 's/^/    /'; else ok "no warnings or errors"; fi
+
+  section "Relay (optional)"
+  if command -v docker >/dev/null 2>&1 && _sudo docker inspect -f '{{.State.Status}}' "$RELAY_CONTAINER" 2>/dev/null | grep -q "^running$"; then
+    ok "relay is running ($RELAY_CONTAINER on 127.0.0.1:$RELAY_PORT)"
+  else
+    say "  [info] relay is not running (optional: $0 relay install)"
+  fi
 
   section "Result"
   if [ "$failures" -eq 0 ]; then say "  Everything checked is healthy."; else say "  $failures check(s) FAILED."; fi
@@ -238,6 +262,123 @@ cmd_rollback() {
   if wait_for_health; then say "Rolled back to $(git log -1 --format='%h %s' HEAD)."; else say "Rolled back, but the solver is not answering yet." >&2; exit 1; fi
 }
 
+cmd_relay() {
+  local sub="${1:-}"
+  case "$sub" in
+    install)
+      need_dir
+      if ! command -v docker >/dev/null 2>&1; then
+        bad "Docker is required to run the relay container. Install docker first."
+        return 1
+      fi
+      if [ ! -f "$RELAY_CONFIG" ]; then
+        bad "Relay config not found at $RELAY_CONFIG"
+        return 1
+      fi
+      section "Installing Ferry WizardConnect Relay"
+      _sudo install -d -m 0777 "${RELAY_DATA_DIR}/db"
+      if _sudo docker inspect "$RELAY_CONTAINER" >/dev/null 2>&1; then
+        say "Stopping and removing existing $RELAY_CONTAINER container..."
+        _sudo docker rm -f "$RELAY_CONTAINER" >/dev/null 2>&1 || true
+      fi
+      say "Launching pinned nostr-rs-relay container..."
+      _sudo docker run -d \
+        --name "$RELAY_CONTAINER" \
+        --restart unless-stopped \
+        -p "127.0.0.1:${RELAY_PORT}:8080" \
+        --memory 256m \
+        --cpus 0.5 \
+        -v "$RELAY_CONFIG:/usr/src/app/config.toml:ro" \
+        -v "${RELAY_DATA_DIR}/db:/usr/src/app/db" \
+        "$RELAY_IMAGE" \
+        ./nostr-rs-relay --config /usr/src/app/config.toml --db /usr/src/app/db
+      sleep 2
+      if _sudo docker inspect -f '{{.State.Status}}' "$RELAY_CONTAINER" 2>/dev/null | grep -q "^running$"; then
+        ok "Relay container $RELAY_CONTAINER is running on 127.0.0.1:$RELAY_PORT"
+      else
+        bad "Relay container failed to start. Check logs: $0 relay logs"
+        return 1
+      fi
+      ;;
+    status)
+      if ! command -v docker >/dev/null 2>&1; then
+        say "Docker is not installed."
+        return 1
+      fi
+      if ! _sudo docker inspect "$RELAY_CONTAINER" >/dev/null 2>&1; then
+        say "Relay container $RELAY_CONTAINER does not exist (run: $0 relay install)."
+        return 0
+      fi
+      section "Relay Container Status"
+      local state
+      state="$(_sudo docker inspect -f '{{.State.Status}}' "$RELAY_CONTAINER" 2>/dev/null || echo "unknown")"
+      say "  Container:   $RELAY_CONTAINER ($state)"
+      say "  Image:       $RELAY_IMAGE"
+
+      local version="0.9.0"
+      local nip11
+      if nip11="$(curl -fsS -H "Accept: application/nostr+json" --max-time 2 "http://127.0.0.1:${RELAY_PORT}/" 2>/dev/null)"; then
+        if command -v jq >/dev/null 2>&1; then
+          version="$(printf '%s' "$nip11" | jq -r '.version // "0.9.0"')"
+        fi
+      fi
+      say "  Version:     $version"
+
+      local mem="0B"
+      mem="$(_sudo docker stats --no-stream --format '{{.MemUsage}}' "$RELAY_CONTAINER" 2>/dev/null || echo "unknown")"
+      say "  Memory:      $mem (cap: 256MB)"
+
+      local conns=0
+      if command -v ss >/dev/null 2>&1; then
+        conns="$(ss -tn sport = :"$RELAY_PORT" or dport = :"$RELAY_PORT" 2>/dev/null | grep -c ESTAB || true)"
+      fi
+      say "  Connections: $conns active"
+
+      local events=0
+      local db_path="${RELAY_DATA_DIR}/db/nostr.db"
+      if [ -f "$db_path" ]; then
+        if command -v python3 >/dev/null 2>&1; then
+          events="$(python3 -c "import sqlite3; con=sqlite3.connect('$db_path'); print(con.execute('SELECT count(*) FROM event').fetchone()[0])" 2>/dev/null || echo "0")"
+        fi
+      fi
+      say "  Events:      $events stored in ephemeral SQLite (backup-free)"
+      ;;
+    logs)
+      _sudo docker logs -f --tail 50 "$RELAY_CONTAINER"
+      ;;
+    restart)
+      say "Restarting relay container $RELAY_CONTAINER..."
+      _sudo docker restart "$RELAY_CONTAINER"
+      ok "Relay container restarted."
+      ;;
+    remove)
+      say "Removing relay container $RELAY_CONTAINER..."
+      _sudo docker rm -f "$RELAY_CONTAINER" >/dev/null 2>&1 || true
+      say "Relay container removed. Ephemeral DB directory (${RELAY_DATA_DIR}/db) preserved."
+      ;;
+    probe)
+      local target="${2:-http://127.0.0.1:${RELAY_PORT}/}"
+      section "Probing Relay ($target)"
+      local resp
+      if resp="$(curl -fsS -H "Accept: application/nostr+json" --max-time 5 "$target" 2>&1)"; then
+        ok "Relay probe succeeded at $target"
+        if command -v jq >/dev/null 2>&1; then
+          printf '%s' "$resp" | jq '{name, version, supported_nips}' 2>/dev/null || echo "$resp"
+        else
+          echo "$resp"
+        fi
+      else
+        bad "Relay probe failed at $target: $resp"
+        return 1
+      fi
+      ;;
+    *)
+      say "Usage: $0 relay {install|status|logs|restart|remove|probe [url]}"
+      return 2
+      ;;
+  esac
+}
+
 case "${1:-}" in
   health) cmd_health ;;
   update) shift; cmd_update "$@" ;;
@@ -245,8 +386,9 @@ case "${1:-}" in
   env) cmd_env ;;
   logs) cmd_logs ;;
   rollback) shift; cmd_rollback "$@" ;;
+  relay) shift; cmd_relay "$@" ;;
   *)
-    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

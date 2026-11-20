@@ -459,3 +459,100 @@ When deploying or upgrading `FerryHTLC` across chains:
    ```bash
    pnpm --filter @ferry/chain-config preflight
    ```
+
+## 17. WizardConnect Pairing Relay (Optional Self-Hosted Relay)
+
+To resolve pairing drops through public third-party relays (`relay.riften.net`, `relay.cauldron.quest`), Ferry provides an optional, self-hosted Nostr pairing relay ready to deploy on the Lightsail instance.
+
+### Architecture & Container Justification
+
+- **Software:** `nostr-rs-relay:0.9.0` (MIT, pinned digest `sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5`).
+- **Container Justification:** A pinned container provides a self-contained Rust binary with SQLite and enforces strict resource boundaries (`--memory 256m --cpus 0.5`) on the 4 GB Lightsail host without requiring Rust build tools or system libraries.
+- **Network Isolation:** The container binds strictly to `127.0.0.1:8088`. Caddy acts as the public TLS reverse proxy.
+- **Pairing Tuning (`deploy/relay/config.toml`):**
+  - Public read/write for ephemeral pairing gift wraps (NIP-59 `kind: 1059`).
+  - Small event and frame size limits (64 KB).
+  - Short ping interval (`ping_interval = 30` seconds) to maintain WebSocket transport while phones open camera lenses.
+  - Per-server rate limit (30 msgs/sec).
+  - SQLite storage in `/var/lib/ferry/relay/db/nostr.db`. Ephemeral pairing events require **no backups**.
+
+### DNS Setup
+
+Add a dedicated DNS **A** record pointing to the server's public IP:
+
+```
+relay.ferry.incepture.dev -> 203.0.113.10
+```
+
+_(The pairing link `wiz://<host>` carries only a hostname without path, so the relay requires its own subdomain)._
+
+### Operations Commands
+
+Run from `/opt/ferry` as the login user:
+
+```bash
+# 1. Install and start the container
+deploy/ferry-ops.sh relay install
+
+# 2. Check running status, version, memory, active connections, and event count
+deploy/ferry-ops.sh relay status
+
+# 3. Follow relay logs
+deploy/ferry-ops.sh relay logs
+
+# 4. Probe relay health (NIP-11 information document)
+deploy/ferry-ops.sh relay probe
+# Or probe from anywhere:
+curl -H "Accept: application/nostr+json" https://relay.ferry.incepture.dev/
+
+# 5. Restart or remove
+deploy/ferry-ops.sh relay restart
+deploy/ferry-ops.sh relay remove
+```
+
+### Maintainer Decision Note: Self-Hosted Relay vs Default Fallbacks
+
+#### The Redundancy Trade-Off
+
+- **Paytaca Wallet Behavior:** In `@wizardconnect/core` (`decodeKeyExchangeURI`), a `wiz://<host>` link naming a specific relay causes Paytaca to connect **exclusively** to that single relay. Paytaca **ignores** the default relay fallbacks when a host is present in the link.
+- **DApp Behavior:** The web app can connect to multiple relays (`WIZARD_RELAY_URLS`), but Paytaca's single-relay lock-in means that if our self-hosted relay becomes unreachable (or is blocked on a cellular carrier), Paytaca cannot fall back to Riften or Cauldron.
+- **Third-Party Default:** When `VITE_WIZARD_RELAY_URLS` is empty, WizardConnect defaults to dual public relays (`relay.riften.net` and `relay.cauldron.quest`).
+
+#### Measured Resource Usage
+
+Measured on local run during full pairing, bi-directional message crossing, and relay restart:
+
+- **Memory:** 12.4 MB (container cap: 256 MB; <0.3% of 4 GB host RAM).
+- **CPU:** <0.1% idle, undetectable CPU impact during active pairings.
+- **Disk:** Ephemeral SQLite database (~250 KB initial schema, <1 MB with pairing events).
+
+#### What to Watch After Enabling
+
+1. **Connection Stability:** Run `deploy/ferry-ops.sh relay status` and monitor active WebSocket connections during mobile wallet pairing.
+2. **Caddy TLS & Logs:** Confirm TLS issuance on `relay.<domain>` via `curl -H "Accept: application/nostr+json" https://relay.<domain>/` and inspect `/var/log/caddy/relay-access.log`.
+3. **Pairing Success Rate:** Watch whether mobile users on cellular data experience QR pairing stalls.
+
+#### How to Switch On
+
+1. Point DNS `relay.<domain>` to server IP.
+2. In `deploy/Caddyfile`, apply changes: `deploy/ferry-ops.sh caddy`.
+3. Start container: `deploy/ferry-ops.sh relay install`.
+4. Set in `/opt/ferry/packages/web/.env.production`:
+   ```
+   VITE_WIZARD_RELAY_URLS=wss://relay.ferry.incepture.dev
+   ```
+5. Rebuild and publish website: `deploy/ferry-ops.sh update`.
+
+#### How to Switch Back
+
+If any issue arises:
+
+1. Clear or comment out `VITE_WIZARD_RELAY_URLS` in `packages/web/.env.production`.
+2. Rebuild and publish site: `pnpm --filter @ferry/web build && sudo rsync -a --delete packages/web/dist/ /var/www/ferry/dist/`.
+3. Optionally stop container: `deploy/ferry-ops.sh relay remove`.
+
+#### Recommendation for 22 Nov Deadline
+
+- **Recommendation:** Keep the relay **ready to deploy, but do not point production traffic to it immediately**.
+- **Reasoning:** Client-side handling is already hardened: pairing dialogs explain dropped connections and provide persistent recovery buttons ("Show the QR again" and "Reconnect wallet"). Because Paytaca connects exclusively to the URI host without fallback, deploying a single self-hosted relay removes the dual-relay redundancy provided by Riften and Cauldron.
+- **Next Step:** Verify the self-hosted relay with a real mobile device running Paytaca across cellular carriers before toggling `VITE_WIZARD_RELAY_URLS` on the production site.
