@@ -16,4 +16,5 @@ export * from './link-url.js';
 export * from './balance.js';
 export * from './liquidity.js';
 export * from './recovery.js';
+export * from './recovery-key.js';
 export * from './api/index.js';
