@@ -233,4 +233,104 @@ describe('Pay link delete with owner secret (Task B4-20 Item 4)', () => {
     expect(deleteRes.json().error.code).toBe('ALREADY_PAID');
     expect(deleteRes.json().error.message).toContain('paid');
   });
+
+  it('5. stored hash itself passed as secret is refused with 401 UNAUTHORIZED', async () => {
+    const rawSecret = 'preimage_known_only_to_owner';
+    const secretHash =
+      `0x${libauth.binToHex(libauth.sha256.hash(new TextEncoder().encode(rawSecret)))}`.toLowerCase();
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/links',
+      payload: {
+        token: 'PUSD',
+        recipientAddress: validRecipient,
+        recipientLockingBytecode: validLockingBytecode,
+        amountOut: '1500',
+        ownerSecretHash: secretHash,
+      },
+    });
+
+    const linkId = createRes.json().id;
+
+    // Attacker only knows the stored hash, not the preimage
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/links/${linkId}`,
+      payload: { secret: secretHash },
+    });
+
+    expect(deleteRes.statusCode).toBe(401);
+    expect(deleteRes.json().error.code).toBe('UNAUTHORIZED');
+
+    // Link must remain open
+    const link = db.getPayLink(linkId);
+    expect(link?.status).toBe('open');
+  });
+
+  it('6. secret in query string is ignored and refused with 401 UNAUTHORIZED', async () => {
+    const rawSecret = 'secret_in_url_query_param';
+    const secretHash =
+      `0x${libauth.binToHex(libauth.sha256.hash(new TextEncoder().encode(rawSecret)))}`.toLowerCase();
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/links',
+      payload: {
+        token: 'PUSD',
+        recipientAddress: validRecipient,
+        recipientLockingBytecode: validLockingBytecode,
+        amountOut: '2500',
+        ownerSecretHash: secretHash,
+      },
+    });
+
+    const linkId = createRes.json().id;
+
+    // Attempting delete with secret only in query string
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/links/${linkId}?secret=${encodeURIComponent(rawSecret)}`,
+    });
+
+    expect(deleteRes.statusCode).toBe(401);
+    expect(deleteRes.json().error.code).toBe('UNAUTHORIZED');
+
+    // Link must remain open
+    const link = db.getPayLink(linkId);
+    expect(link?.status).toBe('open');
+  });
+
+  it('7. secret in x-owner-secret header deletes successfully', async () => {
+    const rawSecret = 'secret_in_http_header_ok';
+    const secretHash =
+      `0x${libauth.binToHex(libauth.sha256.hash(new TextEncoder().encode(rawSecret)))}`.toLowerCase();
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/links',
+      payload: {
+        token: 'PUSD',
+        recipientAddress: validRecipient,
+        recipientLockingBytecode: validLockingBytecode,
+        amountOut: '4500',
+        ownerSecretHash: secretHash,
+      },
+    });
+
+    const linkId = createRes.json().id;
+
+    // Provide secret via header
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/links/${linkId}`,
+      headers: {
+        'x-owner-secret': rawSecret,
+      },
+    });
+
+    expect(deleteRes.statusCode).toBe(200);
+    expect(deleteRes.json().ok).toBe(true);
+    expect(deleteRes.json().status).toBe('closed');
+  });
 });

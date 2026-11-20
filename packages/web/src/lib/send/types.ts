@@ -22,6 +22,7 @@ export interface SendLinkLiveCreationInput {
 export interface SendLinkLiveCreationResult {
   readonly orderId: Hex32;
   readonly secret: Hex32;
+  readonly cancelKey?: Hex32 | undefined;
   readonly hashLock: Hex32;
   readonly shareableUrl: string;
   readonly refundDate: string;

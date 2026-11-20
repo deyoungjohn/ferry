@@ -33,6 +33,7 @@ export interface SendLinkData {
   /** When the link was claimed (Unix seconds), when known. */
   readonly claimedAt?: number | undefined;
   readonly secret?: string | undefined;
+  readonly cancelKey?: string | undefined;
   readonly orderId?: string | undefined;
   readonly refundDate?: string | undefined;
   readonly txId?: string | undefined;

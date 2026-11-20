@@ -1,4 +1,9 @@
-import { MIN_TRANSACTION_USD, type Hex32 } from '@ferry/core';
+import {
+  MIN_TRANSACTION_USD,
+  swapCancelKeyAt,
+  swapSecretAt,
+  type Hex32,
+} from '@ferry/core';
 import { LinkHowItWorks } from '../components/links/LinkHowItWorks';
 import { useState, useContext, useEffect, type FormEvent } from 'react';
 import {
@@ -160,28 +165,50 @@ export function SendLinksPage({
     const solverUrl = listSolverUrl ?? 'http://localhost:3000';
 
     try {
-      let recoveryRoot: string | undefined;
-      if (wallets?.evm.address) {
+      let cancelKey: string | undefined = cancelTarget.cancelKey;
+
+      if (!cancelKey && wallets?.evm.address) {
         try {
           const rootResult = await getOrDeriveRecoveryRoot(wallets.evm);
-          if (rootResult.root) {
-            recoveryRoot = rootResult.root;
+          if (rootResult.root && cancelTarget.secret) {
+            for (let i = 0; i < 200; i++) {
+              if (
+                swapSecretAt(rootResult.root, i).toLowerCase() ===
+                cancelTarget.secret.toLowerCase()
+              ) {
+                cancelKey = swapCancelKeyAt(rootResult.root, i);
+                break;
+              }
+            }
           }
         } catch {
           // ignore
         }
       }
 
-      if (!recoveryRoot && wallets?.evm.address) {
-        const stored = await browserRecoveryStorage.get(
-          `ferry.recovery.root.${wallets.evm.address.toLowerCase()}`,
-        );
-        if (stored) recoveryRoot = stored;
+      if (!cancelKey && cancelTarget.secret) {
+        try {
+          const rescueRoot =
+            await browserRecoveryStorage.get('ferry.rescue.root');
+          if (rescueRoot && rescueRoot.startsWith('0x')) {
+            for (let i = 0; i < 200; i++) {
+              if (
+                swapSecretAt(rescueRoot as Hex32, i).toLowerCase() ===
+                cancelTarget.secret.toLowerCase()
+              ) {
+                cancelKey = swapCancelKeyAt(rescueRoot as Hex32, i);
+                break;
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
       }
 
       const payload: Record<string, unknown> = {};
-      if (recoveryRoot) {
-        payload.recoveryRoot = recoveryRoot;
+      if (cancelKey) {
+        payload.cancelKey = cancelKey;
       }
 
       const res = await fetch(
@@ -689,6 +716,20 @@ export function SendLinksPage({
                   </div>
                 </div>
               )}
+              <div className="pt-2 border-t border-hairline/50 text-[11px] text-text-dim">
+                {cancelTarget.cancelKey ? (
+                  <span>
+                    A dedicated cancel key will authorize this cancellation
+                    without exposing your recovery key or other swaps.
+                  </span>
+                ) : (
+                  <span>
+                    Links without a stored cancel key (contract wallets or
+                    legacy links) require a Bitcoin Cash wallet signature to
+                    cancel.
+                  </span>
+                )}
+              </div>
             </div>
           )}
 

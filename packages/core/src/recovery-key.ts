@@ -105,3 +105,27 @@ export function swapTagAt(root: Hex32, index: number): `0x${string}` {
     ).slice(0, 8),
   );
 }
+
+/**
+ * Swap n's 32-byte cancel key under a root key. Used only to cancel an unclaimed send link.
+ * Domain-separated from swap secrets and tags so revealing it opens nothing else.
+ */
+export function swapCancelKeyAt(root: Hex32, index: number): Hex32 {
+  if (!Number.isSafeInteger(index) || index < 0) {
+    throw new RangeError('The swap index must be a non-negative integer');
+  }
+  return bytesToHex(
+    hmacSha256(
+      hexToBytes(root),
+      stringToBytes(`ferry:swap-cancel:v1:${index}`),
+    ),
+  ) as Hex32;
+}
+
+/**
+ * Swap n's cancel hash (sha256 of its cancel key), sent with the send quote at creation
+ * and stored beside the order.
+ */
+export function swapCancelHashAt(root: Hex32, index: number): Hex32 {
+  return sha256(swapCancelKeyAt(root, index)) as Hex32;
+}

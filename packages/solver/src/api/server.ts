@@ -18,7 +18,6 @@ import { base, baseSepolia } from 'viem/chains';
 import {
   decodeCashAddress,
   DEFAULT_TIMING_CONFIG,
-  deriveRecoveryRoot,
   effectiveSendLinkSpreadBps,
   evmLockId,
   invariantF,
@@ -29,7 +28,6 @@ import {
   quoteInForExactOut,
   quoteOut,
   signOrderId,
-  swapHashLockAt,
   validatePayLinkRecipient,
   type Hex,
   type Hex32,
@@ -3317,7 +3315,6 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   // 18b. DELETE /v1/links/:id (Delete/Close PayLink with Owner Secret)
   app.delete<{
     Params: { id: string };
-    Querystring: { secret?: string };
     Body?: { secret?: string };
   }>('/v1/links/:id', async (req, reply) => {
     const { id } = req.params;
@@ -3325,9 +3322,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       typeof req.body === 'object' && req.body !== null
         ? (req.body as { secret?: string }).secret
         : undefined;
-    const querySecret = (req.query as { secret?: string })?.secret;
     const headerSecret = req.headers['x-owner-secret'] as string | undefined;
-    const secret = bodySecret ?? querySecret ?? headerSecret;
+    const secret = bodySecret ?? headerSecret;
 
     const link = db.getPayLink(id);
     if (!link) {
@@ -3361,11 +3357,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       }
       const hashedHex =
         `0x${libauth.binToHex(libauth.sha256.hash(secretBytes))}`.toLowerCase();
-      const directHex = `0x${cleanSecret}`.toLowerCase();
-      if (
-        hashedHex === link.ownerSecretHash.toLowerCase() ||
-        directHex === link.ownerSecretHash.toLowerCase()
-      ) {
+      if (hashedHex === link.ownerSecretHash.toLowerCase()) {
         secretMatches = true;
       }
     } catch {
@@ -3467,6 +3459,16 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       viewTag = `0x${viewTag}`;
     }
 
+    let cancelHash =
+      raw.cancelHash !== undefined ? String(raw.cancelHash) : undefined;
+    if (
+      cancelHash &&
+      !cancelHash.startsWith('0x') &&
+      /^[0-9a-fA-F]{64}$/.test(cancelHash)
+    ) {
+      cancelHash = `0x${cancelHash}`;
+    }
+
     const normalizedBody = {
       token,
       chainId,
@@ -3479,6 +3481,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       windowSeconds,
       ...(raw.note !== undefined ? { note: raw.note } : {}),
       ...(viewTag !== undefined ? { viewTag } : {}),
+      ...(cancelHash !== undefined ? { cancelHash } : {}),
       lane,
     };
 
@@ -3687,6 +3690,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     if (request.viewTag !== undefined) {
       db.saveSendLinkTag(request.viewTag, orderIdHex, now);
     }
+    // The cancelHash is kept beside the order, not inside its signed terms.
+    if (request.cancelHash !== undefined) {
+      db.saveSendLinkCancelHash(orderIdHex, request.cancelHash, now);
+    }
 
     const response = {
       orderId: (orderIdHex.startsWith('0x')
@@ -3890,51 +3897,31 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     terms: OrderTerms,
     body: CancelSendLinkRequest,
     orderId: string,
+    storedCancelHash: { cancelHash: string; spent: boolean } | null,
   ): Promise<boolean> {
-    // Method 1: Recovery root derived from wallet signature, or recovery root directly
-    let recoveryRoot: Hex32 | undefined = body.recoveryRoot as
-      Hex32 | undefined;
-    if (!recoveryRoot && body.evmSignature) {
-      try {
-        recoveryRoot = deriveRecoveryRoot(body.evmSignature as Hex);
-      } catch {
-        // invalid signature format
-      }
+    // 1. Refuse any request providing recoveryRoot or recovery/EVM signatures
+    if (body.recoveryRoot || body.recoverySignature || body.evmSignature) {
+      return false;
     }
 
-    if (recoveryRoot) {
-      if (
-        body.swapIndex !== undefined &&
-        Number.isInteger(body.swapIndex) &&
-        body.swapIndex >= 0
-      ) {
-        try {
-          if (
-            swapHashLockAt(recoveryRoot, body.swapIndex).toLowerCase() ===
-            terms.hashLock.toLowerCase()
-          ) {
+    // 2. Method 1: Cancel key (revealed by sender, hashes to stored cancelHash)
+    if (body.cancelKey && storedCancelHash && !storedCancelHash.spent) {
+      try {
+        const cleanKey = body.cancelKey.replace(/^0x/i, '');
+        if (/^[0-9a-fA-F]{64}$/.test(cleanKey)) {
+          const keyBytes = libauth.hexToBin(cleanKey);
+          const computedHash =
+            `0x${libauth.binToHex(libauth.sha256.hash(keyBytes))}`.toLowerCase();
+          if (computedHash === storedCancelHash.cancelHash.toLowerCase()) {
             return true;
           }
-        } catch {
-          // ignore
         }
-      } else {
-        for (let i = 0; i < 200; i++) {
-          try {
-            if (
-              swapHashLockAt(recoveryRoot, i).toLowerCase() ===
-              terms.hashLock.toLowerCase()
-            ) {
-              return true;
-            }
-          } catch {
-            break;
-          }
-        }
+      } catch {
+        // invalid cancel key
       }
     }
 
-    // Method 2: Bitcoin Cash wallet signature
+    // 3. Method 2: Bitcoin Cash wallet signature (exact P2PKH refund bytecode check)
     if (body.bchPublicKey && body.bchSignature) {
       try {
         const pubKeyBin = libauth.hexToBin(
@@ -3947,10 +3934,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           .replace(/^0x/i, '')
           .toLowerCase();
 
-        if (
-          userLocking === expectedP2pkh ||
-          userLocking.includes(libauth.binToHex(pkh).toLowerCase())
-        ) {
+        // Exact match: the lock's refund bytecode must be the pubkey hash's P2PKH, no substring match
+        if (userLocking === expectedP2pkh) {
           const cancelMsg = `cancel:${orderId}`;
           const msgHash = libauth.sha256.hash(
             new TextEncoder().encode(cancelMsg),
@@ -4097,17 +4082,31 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         return reply.status(200).send(response);
       }
 
-      // 4. Verify authorization (proves knowledge of recoveryRoot or BCH wallet key)
+      // 4. Verify authorization (proves knowledge of cancelKey or BCH wallet key)
+      if (
+        parseResult.data.recoveryRoot ||
+        parseResult.data.recoverySignature ||
+        parseResult.data.evmSignature
+      ) {
+        return sendApiError(
+          reply,
+          'NOT_YOUR_LINK',
+          'Recovery root or signatures are refused as proof to prevent secret disclosure. Use the cancel key or Bitcoin Cash wallet signature.',
+        );
+      }
+
+      const storedCancelHash = db.getSendLinkCancelHash(order.id);
       const isAuthorized = await verifySenderCancellationAuth(
         terms,
         parseResult.data,
         order.id,
+        storedCancelHash,
       );
       if (!isAuthorized) {
         return sendApiError(
           reply,
           'NOT_YOUR_LINK',
-          'Unauthorized: cancellation requires the wallet-derived recovery key or the Bitcoin Cash wallet that created the lock',
+          'Unauthorized: cancellation requires the cancel key or the Bitcoin Cash wallet that created the lock',
         );
       }
 
@@ -4130,6 +4129,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
       // 6. Record cancellation and update order state
       db.recordSendLinkCancellation(order.id, senderIdentity, now);
+      db.markSendLinkCancelHashSpent(order.id);
       order.status = 'CANCELLED';
       order.updatedAt = now;
 

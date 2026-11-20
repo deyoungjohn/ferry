@@ -4,6 +4,8 @@ import * as libauth from '@bitauth/libauth';
 import type { EvmChainAdapter } from '@ferry/chain-evm';
 import {
   deriveRecoveryRoot,
+  swapCancelHashAt,
+  swapCancelKeyAt,
   swapHashLockAt,
   swapSecretAt,
   type Hex32,
@@ -131,10 +133,13 @@ describe('Send link cancellation and quota limits', () => {
     status?: string;
     senderBchLocking?: string;
     solverLockTxId?: string;
+    omitCancelHash?: boolean;
   }) {
     const swapIndex = options.swapIndex ?? 0;
     const hashLock = swapHashLockAt(senderRoot, swapIndex);
     const secret = swapSecretAt(senderRoot, swapIndex);
+    const cancelKey = swapCancelKeyAt(senderRoot, swapIndex);
+    const cancelHash = swapCancelHashAt(senderRoot, swapIndex);
     const senderLocking = (
       options.senderBchLocking ?? bchP2pkhLockingBytecode
     ).toLowerCase();
@@ -186,19 +191,22 @@ describe('Send link cancellation and quota limits', () => {
       updatedAt: now,
     });
 
-    return { terms, secret, hashLock };
+    if (!options.omitCancelHash) {
+      db.saveSendLinkCancelHash(options.id, cancelHash, now);
+    }
+
+    return { terms, secret, hashLock, cancelKey, cancelHash };
   }
 
-  it('1. cancel of an unclaimed send link succeeds with wallet-derived recoveryRoot', async () => {
+  it('1. cancel of an unclaimed send link succeeds with cancelKey', async () => {
     const orderId = 'send_cancel_001';
-    seedSendLinkOrder({ id: orderId, swapIndex: 0 });
+    const { cancelKey } = seedSendLinkOrder({ id: orderId, swapIndex: 0 });
 
     const res = await app.inject({
       method: 'POST',
       url: `/v1/send-links/${orderId}/cancel`,
       payload: {
-        recoveryRoot: senderRoot,
-        swapIndex: 0,
+        cancelKey,
       },
     });
 
@@ -212,6 +220,10 @@ describe('Send link cancellation and quota limits', () => {
     expect(body.quota.monthlyUsed).toBe(1);
     expect(body.quota.monthlyRemaining).toBe(9);
 
+    // Verify cancel hash is now marked spent in DB
+    const cancelRecord = db.getSendLinkCancelHash(orderId);
+    expect(cancelRecord?.spent).toBe(true);
+
     // Verify GET /v1/send-links/:id returns status: 'cancelled'
     const viewRes = await app.inject({
       method: 'GET',
@@ -221,15 +233,74 @@ describe('Send link cancellation and quota limits', () => {
     expect(viewRes.json().status).toBe('cancelled');
   });
 
+  it('1b. cancel key opens only its own link (isolated per index)', async () => {
+    const orderA = 'send_isolate_00a';
+    const orderB = 'send_isolate_00b';
+    const seedA = seedSendLinkOrder({ id: orderA, swapIndex: 10 });
+    seedSendLinkOrder({ id: orderB, swapIndex: 11 });
+
+    // Attempting to cancel orderB with orderA's cancelKey
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/send-links/${orderB}/cancel`,
+      payload: {
+        cancelKey: seedA.cancelKey,
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('NOT_YOUR_LINK');
+  });
+
+  it('1c. recoveryRoot, recoverySignature, or evmSignature bodies are refused', async () => {
+    const orderId = 'send_refuse_root_001';
+    seedSendLinkOrder({ id: orderId, swapIndex: 12 });
+
+    // 1. recoveryRoot body is refused
+    const resRoot = await app.inject({
+      method: 'POST',
+      url: `/v1/send-links/${orderId}/cancel`,
+      payload: {
+        recoveryRoot: senderRoot,
+        swapIndex: 12,
+      },
+    });
+    expect(resRoot.statusCode).toBe(403);
+    expect(resRoot.json().error.code).toBe('NOT_YOUR_LINK');
+    expect(resRoot.json().error.message).toContain('Recovery root');
+
+    // 2. evmSignature body is refused
+    const resSig = await app.inject({
+      method: 'POST',
+      url: `/v1/send-links/${orderId}/cancel`,
+      payload: {
+        evmSignature: mockSig,
+      },
+    });
+    expect(resSig.statusCode).toBe(403);
+    expect(resSig.json().error.code).toBe('NOT_YOUR_LINK');
+
+    // 3. recoverySignature body is refused
+    const resRecSig = await app.inject({
+      method: 'POST',
+      url: `/v1/send-links/${orderId}/cancel`,
+      payload: {
+        recoverySignature: mockSig,
+      },
+    });
+    expect(resRecSig.statusCode).toBe(403);
+    expect(resRecSig.json().error.code).toBe('NOT_YOUR_LINK');
+  });
+
   it('2. cancel of an already cancelled send link is idempotent', async () => {
     const orderId = 'send_cancel_001';
+    const cancelKey = swapCancelKeyAt(senderRoot, 0);
 
     const res = await app.inject({
       method: 'POST',
       url: `/v1/send-links/${orderId}/cancel`,
       payload: {
-        recoveryRoot: senderRoot,
-        swapIndex: 0,
+        cancelKey,
       },
     });
 
@@ -244,25 +315,27 @@ describe('Send link cancellation and quota limits', () => {
 
   it('3. cancel of a claimed send link refuses with ALREADY_CLAIMED', async () => {
     const orderId = 'send_claimed_001';
-    seedSendLinkOrder({ id: orderId, swapIndex: 1, status: 'DONE' });
+    const { cancelKey } = seedSendLinkOrder({
+      id: orderId,
+      swapIndex: 1,
+      status: 'DONE',
+    });
 
     const res = await app.inject({
       method: 'POST',
       url: `/v1/send-links/${orderId}/cancel`,
       payload: {
-        recoveryRoot: senderRoot,
-        swapIndex: 1,
+        cancelKey,
       },
     });
 
     expect(res.statusCode).toBe(409);
-    const body = res.json();
-    expect(body.error.code).toBe('ALREADY_CLAIMED');
+    expect(res.json().error.code).toBe('ALREADY_CLAIMED');
   });
 
   it('4. cancel when counter-lock / claim is in progress refuses with CLAIM_IN_PROGRESS', async () => {
     const orderId = 'send_in_flight_001';
-    seedSendLinkOrder({
+    const { cancelKey } = seedSendLinkOrder({
       id: orderId,
       swapIndex: 2,
       status: 'SOLVER_LOCK_BROADCAST',
@@ -273,33 +346,29 @@ describe('Send link cancellation and quota limits', () => {
       method: 'POST',
       url: `/v1/send-links/${orderId}/cancel`,
       payload: {
-        recoveryRoot: senderRoot,
-        swapIndex: 2,
+        cancelKey,
       },
     });
 
     expect(res.statusCode).toBe(409);
-    const body = res.json();
-    expect(body.error.code).toBe('CLAIM_IN_PROGRESS');
+    expect(res.json().error.code).toBe('CLAIM_IN_PROGRESS');
   });
 
-  it('5. unauthorized recoveryRoot refuses with NOT_YOUR_LINK', async () => {
+  it('5. unauthorized cancelKey refuses with NOT_YOUR_LINK', async () => {
     const orderId = 'send_unauth_001';
     seedSendLinkOrder({ id: orderId, swapIndex: 3 });
 
-    const wrongRoot = ('0x' + '99'.repeat(32)) as Hex32;
+    const wrongKey = ('0x' + '99'.repeat(32)) as Hex32;
     const res = await app.inject({
       method: 'POST',
       url: `/v1/send-links/${orderId}/cancel`,
       payload: {
-        recoveryRoot: wrongRoot,
-        swapIndex: 3,
+        cancelKey: wrongKey,
       },
     });
 
     expect(res.statusCode).toBe(403);
-    const body = res.json();
-    expect(body.error.code).toBe('NOT_YOUR_LINK');
+    expect(res.json().error.code).toBe('NOT_YOUR_LINK');
   });
 
   it('6. secret in link is rejected as insufficient authorization without recovery key or BCH key', async () => {
@@ -316,8 +385,7 @@ describe('Send link cancellation and quota limits', () => {
     });
 
     expect(res.statusCode).toBe(403);
-    const body = res.json();
-    expect(body.error.code).toBe('NOT_YOUR_LINK');
+    expect(res.json().error.code).toBe('NOT_YOUR_LINK');
   });
 
   it('7. authorizes cancellation via Bitcoin Cash wallet signature over cancel:orderId', async () => {
@@ -350,16 +418,109 @@ describe('Send link cancellation and quota limits', () => {
     expect(body.quota.dailyRemaining).toBe(0);
   });
 
-  it('8. third cancellation in rolling 24 hours refuses with LIMIT_REACHED and returns nextAllowedAt', async () => {
-    const orderId = 'send_exceed_daily_001';
-    seedSendLinkOrder({ id: orderId, swapIndex: 6 });
+  it('7b. Bitcoin Cash signature requires EXACT P2PKH match (no substring match)', async () => {
+    const orderId = 'send_bch_exact_001';
+    // User locking bytecode embeds the pubkey hash but contains extra script opcodes (not exact P2PKH)
+    const secp = await libauth.instantiateSecp256k1();
+    const privBin = libauth.hexToBin(bchPrivHex);
+    const pubBin = secp.derivePublicKeyCompressed(privBin);
+    if (typeof pubBin === 'string') throw new Error(pubBin);
+    const pkh = libauth.binToHex(libauth.hash160(pubBin));
+    // Non-P2PKH script that contains the pkh substring
+    const nonP2pkhLocking = `0x0014${pkh}00`;
+
+    seedSendLinkOrder({
+      id: orderId,
+      swapIndex: 55,
+      senderBchLocking: nonP2pkhLocking,
+    });
+
+    const msg = `cancel:${orderId}`;
+    const msgHash = libauth.sha256.hash(new TextEncoder().encode(msg));
+    const sigBin = secp.signMessageHashSchnorr(privBin, msgHash);
+    if (typeof sigBin === 'string') throw new Error(sigBin);
+    const sigHex = libauth.binToHex(sigBin);
 
     const res = await app.inject({
       method: 'POST',
       url: `/v1/send-links/${orderId}/cancel`,
       payload: {
-        recoveryRoot: senderRoot,
-        swapIndex: 6,
+        bchPublicKey: bchPubHex,
+        bchSignature: sigHex,
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('NOT_YOUR_LINK');
+  });
+
+  it('7c. legacy link without cancel hash can only be cancelled by Bitcoin Cash signature path', async () => {
+    const orderId = 'send_legacy_001';
+    const { cancelKey } = seedSendLinkOrder({
+      id: orderId,
+      swapIndex: 56,
+      omitCancelHash: true, // Legacy link made before cancel keys
+    });
+
+    // 1. cancelKey fails because link has no stored cancel key
+    const resKey = await app.inject({
+      method: 'POST',
+      url: `/v1/send-links/${orderId}/cancel`,
+      payload: {
+        cancelKey,
+      },
+    });
+    expect(resKey.statusCode).toBe(403);
+    expect(resKey.json().error.code).toBe('NOT_YOUR_LINK');
+
+    // 2. Bitcoin Cash signature path succeeds
+    const secp = await libauth.instantiateSecp256k1();
+    const freshPrivHex = '77'.repeat(32);
+    const freshPrivBin = libauth.hexToBin(freshPrivHex);
+    const freshPubBin = secp.derivePublicKeyCompressed(freshPrivBin);
+    if (typeof freshPubBin === 'string') throw new Error(freshPubBin);
+    const freshPubHex = libauth.binToHex(freshPubBin);
+    const freshPkh = libauth.hash160(freshPubBin);
+    const freshLocking =
+      `0x76a914${libauth.binToHex(freshPkh)}88ac`.toLowerCase();
+
+    const legacyOrder = 'send_legacy_fresh_001';
+    seedSendLinkOrder({
+      id: legacyOrder,
+      swapIndex: 57,
+      senderBchLocking: freshLocking,
+      omitCancelHash: true,
+    });
+
+    const msg = `cancel:${legacyOrder}`;
+    const msgHash = libauth.sha256.hash(new TextEncoder().encode(msg));
+    const sigBin = secp.signMessageHashSchnorr(freshPrivBin, msgHash);
+    if (typeof sigBin === 'string') throw new Error(sigBin);
+    const sigHex = libauth.binToHex(sigBin);
+
+    const resSig = await app.inject({
+      method: 'POST',
+      url: `/v1/send-links/${legacyOrder}/cancel`,
+      payload: {
+        bchPublicKey: freshPubHex,
+        bchSignature: sigHex,
+      },
+    });
+
+    expect(resSig.statusCode).toBe(200);
+    expect(resSig.json().success).toBe(true);
+    expect(resSig.json().status).toBe('cancelled');
+  });
+
+  it('8. third cancellation in rolling 24 hours refuses with LIMIT_REACHED and returns nextAllowedAt', async () => {
+    const orderId = 'send_exceed_daily_001';
+    const { cancelKey } = seedSendLinkOrder({ id: orderId, swapIndex: 6 });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/send-links/${orderId}/cancel`,
+      payload: {
+        cancelKey,
       },
     });
 
@@ -391,7 +552,7 @@ describe('Send link cancellation and quota limits', () => {
 
     // Now attempt 11th cancellation
     const orderId = 'send_exceed_monthly_001';
-    seedSendLinkOrder({
+    const { cancelKey } = seedSendLinkOrder({
       id: orderId,
       swapIndex: 7,
       senderBchLocking: freshSender,
@@ -401,8 +562,7 @@ describe('Send link cancellation and quota limits', () => {
       method: 'POST',
       url: `/v1/send-links/${orderId}/cancel`,
       payload: {
-        recoveryRoot: senderRoot,
-        swapIndex: 7,
+        cancelKey,
       },
     });
 
@@ -450,7 +610,7 @@ describe('Send link cancellation and quota limits', () => {
     // Test 10 consecutive concurrent races
     for (let i = 0; i < 10; i++) {
       const orderId = `send_race_${i}`;
-      const { secret } = seedSendLinkOrder({
+      const { secret, cancelKey } = seedSendLinkOrder({
         id: orderId,
         swapIndex: 20 + i,
         senderBchLocking: `0x76a914${(i + 1).toString(16).padStart(40, '0')}88ac`,
@@ -460,8 +620,7 @@ describe('Send link cancellation and quota limits', () => {
         method: 'POST',
         url: `/v1/send-links/${orderId}/cancel`,
         payload: {
-          recoveryRoot: senderRoot,
-          swapIndex: 20 + i,
+          cancelKey,
         },
       });
 

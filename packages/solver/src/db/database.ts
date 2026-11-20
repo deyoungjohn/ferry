@@ -187,6 +187,14 @@ export class SolverDatabase {
         );
         CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_sender ON send_link_cancellations(sender_identity, cancelled_at);
         CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_order ON send_link_cancellations(order_id);
+
+        CREATE TABLE IF NOT EXISTS send_link_cancel_hashes (
+          order_id TEXT PRIMARY KEY,
+          cancel_hash TEXT NOT NULL,
+          spent INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+        );
+        CREATE INDEX IF NOT EXISTS idx_send_link_cancel_hashes_hash ON send_link_cancel_hashes(cancel_hash);
       `);
 
       this.db.pragma(`user_version = ${SUPPORTED_SCHEMA_VERSION}`);
@@ -256,6 +264,14 @@ export class SolverDatabase {
       );
       CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_sender ON send_link_cancellations(sender_identity, cancelled_at);
       CREATE INDEX IF NOT EXISTS idx_send_link_cancellations_order ON send_link_cancellations(order_id);
+
+      CREATE TABLE IF NOT EXISTS send_link_cancel_hashes (
+        order_id TEXT PRIMARY KEY,
+        cancel_hash TEXT NOT NULL,
+        spent INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_send_link_cancel_hashes_hash ON send_link_cancel_hashes(cancel_hash);
     `);
 
     try {
@@ -317,6 +333,52 @@ export class SolverDatabase {
       .prepare(`SELECT tag FROM send_link_tags WHERE order_id = ?`)
       .get(orderId) as { tag: string } | undefined;
     return row ? row.tag : null;
+  }
+
+  /**
+   * Save a cancel hash for a send link order.
+   * Stored beside the order, never inside its signed terms.
+   */
+  saveSendLinkCancelHash(
+    orderId: string,
+    cancelHash: string,
+    createdAt: number,
+  ): void {
+    assertSecondsTimestamp(createdAt, 'created_at');
+    const normalizedHash = cancelHash.startsWith('0x')
+      ? cancelHash.toLowerCase()
+      : `0x${cancelHash.toLowerCase()}`;
+    this.db
+      .prepare(
+        `INSERT INTO send_link_cancel_hashes (order_id, cancel_hash, spent, created_at)
+         VALUES (?, ?, 0, ?)
+         ON CONFLICT(order_id) DO UPDATE SET cancel_hash = excluded.cancel_hash`,
+      )
+      .run(orderId, normalizedHash, createdAt);
+  }
+
+  getSendLinkCancelHash(orderId: string): {
+    cancelHash: string;
+    spent: boolean;
+  } | null {
+    const row = this.db
+      .prepare(
+        'SELECT cancel_hash as cancelHash, spent FROM send_link_cancel_hashes WHERE order_id = ?',
+      )
+      .get(orderId) as { cancelHash: string; spent: number } | undefined;
+    if (!row) return null;
+    return {
+      cancelHash: row.cancelHash,
+      spent: row.spent === 1,
+    };
+  }
+
+  markSendLinkCancelHashSpent(orderId: string): void {
+    this.db
+      .prepare(
+        'UPDATE send_link_cancel_hashes SET spent = 1 WHERE order_id = ?',
+      )
+      .run(orderId);
   }
 
   getOrdersBySendLinkTags(

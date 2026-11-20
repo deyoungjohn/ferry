@@ -796,6 +796,8 @@ export const SendQuoteRequestSchema = z.strictObject({
   note: sendLinkNoteSchema.optional(),
   /** Optional blinded tag (32 bytes hex) so the sender can list their send links across devices. */
   viewTag: viewTagSchema.optional(),
+  /** Optional cancel hash (sha256 of cancel key) so the sender can cancel without leaking wallet root. */
+  cancelHash: hex32Schema.optional(),
   lane: z.enum(['fast', 'safe']),
 });
 
@@ -845,13 +847,17 @@ export const CancelSendLinkQuotaSchema = z.strictObject({
 export type CancelSendLinkQuota = z.infer<typeof CancelSendLinkQuotaSchema>;
 
 export const CancelSendLinkRequestSchema = z.strictObject({
-  /** Recovery root key derived from wallet signature (swapHashLockAt(recoveryRoot, n) == terms.hashLock). */
+  /** Cancel key derived from recovery root (swapCancelKeyAt(root, n)). */
+  cancelKey: hex32Schema.optional(),
+  /** Recovery root key (REFUSED: revealing root leaks all secrets and view tags). */
   recoveryRoot: hex32Schema.optional(),
+  /** Recovery signature (REFUSED: revealing recovery proof leaks secrets and view tags). */
+  recoverySignature: z.string().optional(),
   swapIndex: z.number().int().nonnegative().optional(),
-  /** Signature from the BCH key that created userBchLockingBytecode. */
+  /** Signature from the BCH key that created userBchLockingBytecode (exact P2PKH match). */
   bchSignature: z.string().optional(),
   bchPublicKey: z.string().optional(),
-  /** EIP-712 or personal-sign signature from sender wallet. */
+  /** EVM signature (REFUSED: recovery signatures cannot be accepted as proof). */
   evmSignature: z.string().optional(),
   signerAddress: z.string().optional(),
   /** Secret preimage from link (not accepted as authorization on its own). */
