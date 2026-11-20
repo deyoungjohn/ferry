@@ -52,7 +52,12 @@ describe('Funding scan for rotating BCH wallet', () => {
       },
       getHistory: async (scriptHash: string) => {
         options.onRequest?.('getHistory', scriptHash);
-        return options.historyByHash?.get(scriptHash) ?? [];
+        const explicit = options.historyByHash?.get(scriptHash);
+        if (explicit) return explicit;
+        return (options.utxosByHash?.get(scriptHash) ?? []).map((utxo) => ({
+          tx_hash: utxo.tx_hash,
+          height: utxo.height,
+        }));
       },
       getFirstUse: async (scriptHash: string) => {
         options.onRequest?.('getFirstUse', scriptHash);

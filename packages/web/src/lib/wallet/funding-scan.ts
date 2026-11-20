@@ -7,6 +7,7 @@ import {
 } from '@ferry/htlc-bch';
 import { addressFromPubkey } from '../bch/address';
 import { DEFAULT_MAINNET_FULCRUM } from '../live/bch-chain';
+import { createBchReader, type BchReader } from '../live/bch-reader';
 import type { BchUtxo } from './types';
 
 export const DEFAULT_GAP_LIMIT = 20;
@@ -44,6 +45,8 @@ export interface FundingScanOptions {
   ) => Uint8Array | undefined;
   readonly startIndex?: number | undefined;
   readonly urls?: readonly string[] | undefined;
+  readonly solverUrl?: string | undefined;
+  readonly reader?: BchReader | undefined;
   readonly createClient?: ((url: string) => FulcrumClientLike) | undefined;
   readonly gapLimit?: number | undefined;
   readonly maxAddresses?: number | undefined;
@@ -149,6 +152,8 @@ export async function scanFundingAddresses(
     getPubkey,
     startIndex = 0,
     urls = DEFAULT_MAINNET_FULCRUM,
+    solverUrl,
+    reader: providedReader,
     createClient = (url: string) => new FulcrumClient(url),
     gapLimit = DEFAULT_GAP_LIMIT,
     maxAddresses = DEFAULT_MAX_ADDRESSES,
@@ -172,30 +177,17 @@ export async function scanFundingAddresses(
   signal?.throwIfAborted();
   onProgress?.({ message: "Checking your wallet's addresses…", scanned: 0 });
 
-  // 2. Open one pipelined connection per server
-  const activeClients: FulcrumClientLike[] = [];
-  const clientErrors: string[] = [];
-
-  for (const url of urls) {
-    const client = createClient(url);
-    try {
-      await client.connect();
-      activeClients.push(client);
-    } catch (err) {
-      clientErrors.push(err instanceof Error ? err.message : String(err));
-      try {
-        client.close();
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  if (activeClients.length === 0) {
-    throw new Error(
-      `No Bitcoin Cash server answered (${clientErrors.join('; ')}).`,
-    );
-  }
+  const reader =
+    providedReader ??
+    createBchReader({
+      solverUrl:
+        solverUrl ??
+        (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+          ?.split(',')[0]
+          ?.trim(),
+      fallbackUrls: urls,
+      createClient,
+    });
 
   const foundAddresses: FundingAddressItem[] = [];
   const foundUtxos: BchUtxo[] = [];
@@ -205,188 +197,147 @@ export async function scanFundingAddresses(
   let capReached = false;
   let capMessage: string | null = null;
 
-  try {
-    const branches: readonly [BranchName, number][] = [
-      ['receive', 0],
-      ['change', 1],
+  const branches: readonly [BranchName, number][] = [
+    ['receive', 0],
+    ['change', 1],
+  ];
+
+  for (const [branch, childIndex] of branches) {
+    signal?.throwIfAborted();
+    if (capReached) break;
+
+    // Directions: Forward (startIndex -> ...) and Backward (startIndex - 1 -> 0)
+    const directions: Array<{
+      name: 'forward' | 'backward';
+      nextIndex: number;
+      step: number;
+      min?: number;
+    }> = [
+      { name: 'forward', nextIndex: startIndex, step: 1 },
+      ...(startIndex > 0
+        ? [
+            {
+              name: 'backward' as const,
+              nextIndex: startIndex - 1,
+              step: -1,
+              min: 0,
+            },
+          ]
+        : []),
     ];
 
-    for (const [branch, childIndex] of branches) {
+    for (const dir of directions) {
       signal?.throwIfAborted();
       if (capReached) break;
+      let consecutiveUnused = 0;
 
-      // Directions: Forward (startIndex -> ...) and Backward (startIndex - 1 -> 0)
-      const directions: Array<{
-        name: 'forward' | 'backward';
-        nextIndex: number;
-        step: number;
-        min?: number;
-      }> = [
-        { name: 'forward', nextIndex: startIndex, step: 1 },
-        ...(startIndex > 0
-          ? [
-              {
-                name: 'backward' as const,
-                nextIndex: startIndex - 1,
-                step: -1,
-                min: 0,
-              },
-            ]
-          : []),
-      ];
-
-      for (const dir of directions) {
+      while (consecutiveUnused < gapLimit && !capReached) {
         signal?.throwIfAborted();
-        if (capReached) break;
-        let consecutiveUnused = 0;
 
-        while (consecutiveUnused < gapLimit && !capReached) {
-          signal?.throwIfAborted();
+        // Prepare batch indices
+        const batchIndices: number[] = [];
+        for (let i = 0; i < batchSize; i++) {
+          const idx = dir.nextIndex;
+          if (dir.min !== undefined && idx < dir.min) break;
+          batchIndices.push(idx);
+          dir.nextIndex += dir.step;
+        }
 
-          // Prepare batch indices
-          const batchIndices: number[] = [];
-          for (let i = 0; i < batchSize; i++) {
-            const idx = dir.nextIndex;
-            if (dir.min !== undefined && idx < dir.min) break;
-            batchIndices.push(idx);
-            dir.nextIndex += dir.step;
+        if (batchIndices.length === 0) break;
+
+        // Derive addresses for batch
+        const batchAddresses: Array<{
+          index: number;
+          derivationPath: readonly [BranchName, number];
+          lockingBytecodeHex: string;
+          scriptHash: string;
+        }> = [];
+
+        for (const idx of batchIndices) {
+          if (totalScanned >= maxAddresses) {
+            capReached = true;
+            capMessage = `Address scan reached the limit of ${maxAddresses.toLocaleString()} addresses. Some funds on higher addresses may not be visible.`;
+            break;
           }
-
-          if (batchIndices.length === 0) break;
-
-          // Derive addresses for batch
-          const batchAddresses: Array<{
-            index: number;
-            derivationPath: readonly [BranchName, number];
-            lockingBytecodeHex: string;
-            scriptHash: string;
-          }> = [];
-
-          for (const idx of batchIndices) {
-            if (totalScanned >= maxAddresses) {
-              capReached = true;
-              capMessage = `Address scan reached the limit of ${maxAddresses.toLocaleString()} addresses. Some funds on higher addresses may not be visible.`;
-              break;
-            }
-            const pubkey = getPubkey(childIndex, BigInt(idx));
-            if (!pubkey) continue;
-            totalScanned++;
-            const lockingBytecodeHex = addressFromPubkey(
-              pubkey,
-            ).lockingBytecode.replace(/^0x/, '');
-            const scriptHash = scriptHashOf(lockingBytecodeHex);
-            batchAddresses.push({
-              index: idx,
-              derivationPath: [branch, idx],
-              lockingBytecodeHex,
-              scriptHash,
-            });
-          }
-
-          if (batchAddresses.length === 0) break;
-
-          onProgress?.({
-            message: "Checking your wallet's addresses…",
-            scanned: totalScanned,
+          const pubkey = getPubkey(childIndex, BigInt(idx));
+          if (!pubkey) continue;
+          totalScanned++;
+          const lockingBytecodeHex = addressFromPubkey(
+            pubkey,
+          ).lockingBytecode.replace(/^0x/, '');
+          const scriptHash = scriptHashOf(lockingBytecodeHex);
+          batchAddresses.push({
+            index: idx,
+            derivationPath: [branch, idx],
+            lockingBytecodeHex,
+            scriptHash,
           });
+        }
 
-          // Query all active servers pipelined for this batch
-          const batchResults = await Promise.all(
-            batchAddresses.map(async (addr) => {
-              // Ask every active server in parallel for UTXOs and history
-              const serverAnswers = await Promise.allSettled(
-                activeClients.map(async (client) => {
-                  const [unspent, history, firstUse] = await Promise.all([
-                    client.listUnspent(addr.scriptHash, 'include_tokens'),
-                    client.getHistory
-                      ? client.getHistory(addr.scriptHash).catch(() => [])
-                      : Promise.resolve([]),
-                    client.getFirstUse
-                      ? client.getFirstUse(addr.scriptHash).catch(() => null)
-                      : Promise.resolve(null),
-                  ]);
-                  return { unspent, history, firstUse };
-                }),
-              );
+        if (batchAddresses.length === 0) break;
 
-              // Merge answers: lagging server must not hide an output
-              let isUsed = false;
-              const mergedUtxos: ElectrumUtxo[] = [];
-              const seenServerUtxos = new Set<string>();
+        onProgress?.({
+          message: "Checking your wallet's addresses…",
+          scanned: totalScanned,
+        });
 
-              for (const ans of serverAnswers) {
-                if (ans.status !== 'fulfilled') continue;
-                const { unspent, history, firstUse } = ans.value;
-                if (
-                  (unspent && unspent.length > 0) ||
-                  (history && history.length > 0) ||
-                  firstUse !== null
-                ) {
-                  isUsed = true;
-                }
-                for (const u of unspent ?? []) {
-                  const key = `${u.tx_hash}:${u.tx_pos}`;
-                  if (!seenServerUtxos.has(key)) {
-                    seenServerUtxos.add(key);
-                    mergedUtxos.push(u);
-                  }
-                }
+        const used = await Promise.all(
+          batchAddresses.map(async (addr) => ({
+            addr,
+            used: (await reader.getHistory(addr.scriptHash)).length > 0,
+          })),
+        );
+        const usedAddresses = used
+          .filter((item) => item.used)
+          .map((item) => item.addr);
+        const utxosByHash =
+          usedAddresses.length > 0
+            ? await reader.getUtxosMany(
+                usedAddresses.map((addr) => addr.scriptHash),
+              )
+            : new Map<string, readonly ElectrumUtxo[]>();
+
+        const batchResults = used.map(({ addr, used: isUsed }) => ({
+          addr,
+          isUsed,
+          utxos: utxosByHash.get(addr.scriptHash) ?? [],
+        }));
+
+        signal?.throwIfAborted();
+
+        // Process batch results in sequential address order
+        for (const res of batchResults) {
+          const { addr, isUsed, utxos } = res;
+
+          if (isUsed) {
+            consecutiveUnused = 0;
+            const addrKey = `${branch}:${addr.index}`;
+            if (!seenAddressKeys.has(addrKey)) {
+              seenAddressKeys.add(addrKey);
+              foundAddresses.push({
+                lockingBytecodeHex: addr.lockingBytecodeHex,
+                derivationPath: addr.derivationPath,
+              });
+            }
+            for (const u of utxos) {
+              const utxoKey = `${u.tx_hash}:${u.tx_pos}`;
+              if (!seenUtxoKeys.has(utxoKey)) {
+                seenUtxoKeys.add(utxoKey);
+                foundUtxos.push(
+                  rowToUtxo(u, addr.lockingBytecodeHex, addr.derivationPath),
+                );
               }
-
-              return {
-                addr,
-                isUsed,
-                utxos: mergedUtxos,
-              };
-            }),
-          );
-
-          signal?.throwIfAborted();
-
-          // Process batch results in sequential address order
-          for (const res of batchResults) {
-            const { addr, isUsed, utxos } = res;
-
-            if (isUsed) {
-              consecutiveUnused = 0;
-              const addrKey = `${branch}:${addr.index}`;
-              if (!seenAddressKeys.has(addrKey)) {
-                seenAddressKeys.add(addrKey);
-                foundAddresses.push({
-                  lockingBytecodeHex: addr.lockingBytecodeHex,
-                  derivationPath: addr.derivationPath,
-                });
-              }
-              for (const u of utxos) {
-                const utxoKey = `${u.tx_hash}:${u.tx_pos}`;
-                if (!seenUtxoKeys.has(utxoKey)) {
-                  seenUtxoKeys.add(utxoKey);
-                  foundUtxos.push(
-                    rowToUtxo(u, addr.lockingBytecodeHex, addr.derivationPath),
-                  );
-                }
-              }
-            } else {
-              consecutiveUnused++;
-              if (consecutiveUnused >= gapLimit) {
-                break;
-              }
+            }
+          } else {
+            consecutiveUnused++;
+            if (consecutiveUnused >= gapLimit) {
+              break;
             }
           }
         }
       }
     }
-  } finally {
-    // Close all opened client connections
-    for (const client of activeClients) {
-      try {
-        client.close();
-      } catch {
-        // ignore
-      }
-    }
   }
-
   // If no used addresses were found, include at least the start address
   if (foundAddresses.length === 0) {
     const pub = getPubkey(0, BigInt(startIndex));
