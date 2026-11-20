@@ -30,6 +30,8 @@ import {
   StatsResponseSchema,
   CancelSendLinkQuotaSchema,
   CancelSendLinkResponseSchema,
+  ConfirmSendLinkRouteRequestSchema,
+  ConfirmSendLinkRouteResponseSchema,
   DeletePayLinkResponseSchema,
   SwitchSendLinkRouteRequestSchema,
   SwitchSendLinkRouteResponseSchema,
@@ -39,6 +41,8 @@ import {
   type CancelSendLinkRequest,
   type CancelSendLinkResponse,
   type ChainsResponse,
+  type ConfirmSendLinkRouteRequest,
+  type ConfirmSendLinkRouteResponse,
   type CreatePayLinkRequest,
   type CreatePayLinkResponse,
   type DeletePayLinkResponse,
@@ -440,6 +444,21 @@ export class SolverClient {
       'POST',
       `/v1/send-links/${encodeURIComponent(id)}/switch-route`,
       SwitchSendLinkRouteResponseSchema,
+      body,
+      options,
+    );
+  }
+
+  async confirmSendLinkRoute(
+    id: string,
+    request: ConfirmSendLinkRouteRequest,
+    options?: RequestCallOptions,
+  ): Promise<ConfirmSendLinkRouteResponse> {
+    const body = ConfirmSendLinkRouteRequestSchema.parse(request);
+    return this.requestJson(
+      'POST',
+      `/v1/send-links/${encodeURIComponent(id)}/confirm`,
+      ConfirmSendLinkRouteResponseSchema,
       body,
       options,
     );
