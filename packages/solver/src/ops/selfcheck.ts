@@ -227,6 +227,14 @@ export async function runSelfCheck(
   log(
     `   - Bitcoin Cash:  tip height ${quorum.quorumTip ?? 0}, age ${bchAge} (max: ${config.tipMaxAgeBchSeconds}s, healthy: ${quorum.isQuorumHealthy})`,
   );
+  log('   - BCH Proxy Routes:');
+  log('     * GET  /v1/bch/utxos/:scriptHash');
+  log('     * GET  /v1/bch/history/:scriptHash');
+  log('     * GET  /v1/bch/first-use/:scriptHash');
+  log('     * GET  /v1/bch/tx/:txid');
+  log('     * POST /v1/bch/broadcast');
+  log('     * GET  /v1/bch/tip');
+  log(`     Backed by quorum: ${electrumUrls.join(', ')}`);
 
   for (const enabledRoute of routesContext.enabledRoutes) {
     const chainKey = enabledRoute.chain.toLowerCase();
