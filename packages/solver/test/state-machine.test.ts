@@ -416,5 +416,24 @@ describe('Solver pure state machine transitions', () => {
       expect(decision.allowed).toBe(true);
       expect(decision.reason).toBe('ready');
     });
+
+    it('values an 18-decimal swap (BNB USDT) by its dollars, so $4.99 is under the fast-lane cap', () => {
+      const order = makeOrder('USER_LOCK_FINAL', 'COUNTER_TO_BCH');
+      order.lane = 'fast';
+      order.fastOptIn = true;
+      order.terms = {
+        ...order.terms,
+        evmChainId: 56,
+        evmAmount: 4_990_000_000_000_000_000n,
+        bchTokenAmount: 498n,
+      };
+      const decision = checkLockRevealPolicy(order, {
+        exists: true,
+        confirmations: 3,
+        finalized: true,
+      });
+      expect(decision.reason).not.toBe('fast-cap');
+      expect(decision).toEqual({ allowed: true, reason: 'ready' });
+    });
   });
 });

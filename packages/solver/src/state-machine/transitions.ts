@@ -84,9 +84,9 @@ export function checkLockRevealPolicy(
     ? resolveEvmChainName(order.terms.evmChainId)
     : 'bch';
 
-  const amountUsdMicros = isForward
-    ? BigInt(order.terms.evmAmount)
-    : BigInt(order.terms.bchTokenAmount) * 10_000n; // PUSD 2 decimals -> 6 decimals ($)
+  // The swap's value from its Bitcoin Cash stablecoin amount (2 decimals, a cent per unit), the same
+  // in both directions and whatever the EVM token's decimals (BNB's USDT has 18).
+  const amountUsdMicros = BigInt(order.terms.bchTokenAmount) * 10_000n;
 
   return revealPolicy(
     {
