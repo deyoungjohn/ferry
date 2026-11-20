@@ -646,6 +646,17 @@ export const PayLinkJsonSchema = z.strictObject({
       createdAt: unixTimestampSeconds,
       updatedAt: unixTimestampSeconds,
       timeline: OrderTimelineSchema,
+      /** What the swap moved: token, amounts and chain, so a paid link can show what was paid. */
+      summary: z
+        .strictObject({
+          bchToken: z.string().min(1).max(16),
+          bchTokenAmount: z.string().regex(/^\d+$/),
+          evmAmount: z.string().regex(/^\d+$/),
+          evmChainId: positiveUint,
+          evmToken: z.string().min(1).max(32).optional(),
+          evmDecimals: z.number().int().min(0).max(36).optional(),
+        })
+        .optional(),
     })
     .optional(),
   verified: z.boolean().optional(),

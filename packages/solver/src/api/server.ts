@@ -442,6 +442,55 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       : (engine.quotingBlockReason?.() ??
         'Quoting is currently disabled on the solver');
 
+  /** What a swap moved (token, amounts, chain), from its signed terms, for answers about links. */
+  const orderSummaryOf = (
+    termsJson: string,
+  ): {
+    summary?: {
+      bchToken: string;
+      bchTokenAmount: string;
+      evmAmount: string;
+      evmChainId: number;
+      evmToken?: string;
+      evmDecimals?: number;
+    };
+  } => {
+    try {
+      const raw = JSON.parse(termsJson) as Record<string, unknown>;
+      const num = (v: unknown) => String(v ?? '').replace(/n$/, '');
+      const chainId = Number(raw.evmChainId);
+      if (
+        !Number.isInteger(chainId) ||
+        chainId <= 0 ||
+        !/^\d+$/.test(num(raw.bchTokenAmount)) ||
+        !/^\d+$/.test(num(raw.evmAmount))
+      ) {
+        return {};
+      }
+      const asset = (
+        options.routesContext ?? buildActiveRoutes(config)
+      ).chainConfig.facts
+        .find((c) => c.chainId === chainId)
+        ?.assets.find(
+          (a) =>
+            a.address?.toLowerCase() === String(raw.evmToken).toLowerCase(),
+        );
+      return {
+        summary: {
+          bchToken: String(raw.bchToken),
+          bchTokenAmount: num(raw.bchTokenAmount),
+          evmAmount: num(raw.evmAmount),
+          evmChainId: chainId,
+          ...(asset
+            ? { evmToken: asset.symbol, evmDecimals: asset.decimals ?? 6 }
+            : {}),
+        },
+      };
+    } catch {
+      return {};
+    }
+  };
+
   const quoteBuilder = new QuoteBuilder(
     priceSource,
     liquidityManager,
@@ -2980,6 +3029,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
                 createdAt: linked.createdAt,
                 updatedAt: linked.updatedAt,
                 timeline: db.listOrderEvents(linked.id),
+                ...orderSummaryOf(linked.termsJson),
               },
             }
           : {};
