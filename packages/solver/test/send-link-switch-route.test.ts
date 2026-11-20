@@ -10,6 +10,8 @@ import { SolverConfigSchema } from '../src/config.js';
 import { SolverEngine } from '../src/engine/runner.js';
 import type { BchQuorumClient } from '../src/bch/quorum-client.js';
 import { MockPriceSource } from '../src/pricing/price-source.js';
+import type { InventoryReader } from '../src/inventory/index.js';
+import type { ActiveRoutesContext } from '../src/routes/active-routes.js';
 
 describe('Send link route switching (receiver chooses destination)', () => {
   let app: FastifyInstance;
@@ -203,8 +205,8 @@ describe('Send link route switching (receiver chooses destination)', () => {
       bchClient: fakeBchClient,
       priceSource,
       engine,
-      inventoryReader: fakeInventoryReader as any,
-      routesContext: routesContext as any,
+      inventoryReader: fakeInventoryReader as unknown as InventoryReader,
+      routesContext: routesContext as unknown as ActiveRoutesContext,
     });
 
     await app.ready();
@@ -258,7 +260,9 @@ describe('Send link route switching (receiver chooses destination)', () => {
       token: arbitrumUsdc,
     });
 
-    const signature = await recipient.signTypedData(typedData as any);
+    const signature = await recipient.signTypedData(
+      typedData as unknown as Parameters<typeof recipient.signTypedData>[0],
+    );
 
     // Call switch route
     const switchRes = await app.inject({
@@ -341,7 +345,9 @@ describe('Send link route switching (receiver chooses destination)', () => {
       orderId,
       token: arbitrumUsdc,
     });
-    const signature = await recipient.signTypedData(typedData as any);
+    const signature = await recipient.signTypedData(
+      typedData as unknown as Parameters<typeof recipient.signTypedData>[0],
+    );
 
     const switchRes = await app.inject({
       method: 'POST',
@@ -374,7 +380,9 @@ describe('Send link route switching (receiver chooses destination)', () => {
       orderId,
       token: arbitrumUsdc,
     });
-    const signature = await stranger.signTypedData(typedData as any);
+    const signature = await stranger.signTypedData(
+      typedData as unknown as Parameters<typeof stranger.signTypedData>[0],
+    );
 
     const switchRes = await app.inject({
       method: 'POST',
@@ -410,7 +418,9 @@ describe('Send link route switching (receiver chooses destination)', () => {
         orderId,
         token: arbitrumUsdc,
       });
-      const signature = await recipient.signTypedData(typedData as any);
+      const signature = await recipient.signTypedData(
+        typedData as unknown as Parameters<typeof recipient.signTypedData>[0],
+      );
 
       const switchRes = await app.inject({
         method: 'POST',
@@ -422,9 +432,6 @@ describe('Send link route switching (receiver chooses destination)', () => {
         },
       });
 
-      if (switchRes.statusCode !== 422) {
-        console.error('short liquidity test failed with body:', switchRes.body);
-      }
       expect(switchRes.statusCode).toBe(422);
       const body = JSON.parse(switchRes.body);
       expect(body.error.code).toBe('TIMING_INVARIANT_FAILED');
@@ -452,7 +459,9 @@ describe('Send link route switching (receiver chooses destination)', () => {
       orderId,
       token: arbitrumUsdc,
     });
-    const signature = await recipient.signTypedData(typedData as any);
+    const signature = await recipient.signTypedData(
+      typedData as unknown as Parameters<typeof recipient.signTypedData>[0],
+    );
 
     const switchRes = await app.inject({
       method: 'POST',
@@ -464,9 +473,6 @@ describe('Send link route switching (receiver chooses destination)', () => {
       },
     });
 
-    if (switchRes.statusCode !== 422) {
-      console.error('short liquidity test failed with body:', switchRes.body);
-    }
     expect(switchRes.statusCode).toBe(422);
     const body = JSON.parse(switchRes.body);
     expect(body.error.code).toBe('INSUFFICIENT_INVENTORY');
@@ -474,9 +480,9 @@ describe('Send link route switching (receiver chooses destination)', () => {
     expect(body.suggestedRoutes.length).toBeGreaterThanOrEqual(1);
 
     // Suggested routes should have liquidity (e.g. Base or Ethereum USDC)
-    const suggested = body.suggestedRoutes;
-    expect(
-      suggested.some((r: any) => r.chain.toLowerCase().includes('base')),
-    ).toBe(true);
+    const suggested = body.suggestedRoutes as { chain: string }[];
+    expect(suggested.some((r) => r.chain.toLowerCase().includes('base'))).toBe(
+      true,
+    );
   });
 });

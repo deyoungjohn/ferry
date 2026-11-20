@@ -3819,7 +3819,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         token: request.token as `0x${string}`,
       });
 
-      let signedByRecipient = false;
+      let signedByRecipient: boolean;
       try {
         signedByRecipient = await verifyTypedData({
           address: currentOrderTerms.userEvmAddress as `0x${string}`,
