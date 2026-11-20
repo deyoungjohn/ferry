@@ -31,8 +31,16 @@ export function farTokenFacts(
   chainName: string,
   symbol: string,
 ): FarTokenFacts | null {
-  const chain = NETWORK_PROFILE.farChains.find((c) => c.name === chainName);
-  const key = chain?.chainKey;
+  const norm = chainName.toLowerCase().trim();
+  const chain = NETWORK_PROFILE.farChains.find(
+    (c) =>
+      c.name.toLowerCase() === norm ||
+      c.chainKey?.toLowerCase() === norm ||
+      c.shortName?.toLowerCase() === norm,
+  );
+  const key =
+    chain?.chainKey ??
+    (norm in (chainsData as unknown as ChainsJson).chains ? norm : null);
   if (!key) return null;
   const entry = (chainsData as unknown as ChainsJson).chains[key]?.mainnet;
   const token = entry?.tokens.find(

@@ -5,6 +5,10 @@ import type {
   OrderTerms,
   QuoteRefusal,
 } from '@ferry/core';
+import type {
+  SwitchSendLinkRouteRequest,
+  SwitchSendLinkRouteResponse,
+} from '@ferry/core/api';
 
 export type { LiquidityResponse };
 
@@ -165,6 +169,9 @@ export interface SendLinkView {
   readonly lockId?: string | undefined;
   /** The EVM chain the funds arrive on; the claim is signed and sent on it. */
   readonly chainId?: number | undefined;
+  readonly orderId?: string | undefined;
+  readonly bchRefundHeight?: number | undefined;
+  readonly evmToken?: string | undefined;
 }
 
 export interface SolverClient {
@@ -179,6 +186,10 @@ export interface SolverClient {
   getOrder(orderId: string): Promise<SwapOrder | null>;
   /** The receiver's view of a send link, or null when there is none with this id. */
   getSendLink?(id: string): Promise<SendLinkView | null>;
+  switchSendLinkRoute?(
+    id: string,
+    request: SwitchSendLinkRouteRequest,
+  ): Promise<SwitchSendLinkRouteResponse>;
   createOrder?(quote: SignedQuote, userAddress?: string): Promise<SwapOrder>;
   submitLock?(orderId: string, txHash: string): Promise<SwapOrder>;
   getHealth?(): Promise<SolverHealthResponse>;

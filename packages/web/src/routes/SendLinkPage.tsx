@@ -11,7 +11,7 @@ import {
 } from '../lib/paylink/order-steps';
 import { getModeCopy } from '../lib/copy';
 import { SolverContext } from '../lib/solver/context';
-import type { SendLinkView } from '../lib/solver/types';
+import type { SendLinkView, SolverClient } from '../lib/solver/types';
 import { extractSecretFromHash } from '../lib/send/secret';
 import { loadSendLink } from '../lib/paylink/send-store';
 import {
@@ -20,12 +20,20 @@ import {
 } from '../lib/send/claim-send-link';
 import { WalletContext } from '../lib/wallet/context';
 import { evmSignerFromWallet } from '../lib/live/ports';
-import { SolverClient } from '@ferry/solver-client';
+import { SolverClient as RealSolverClient } from '@ferry/solver-client';
 import { plainWalletMessage } from '@ferry/user-flow';
 import type { SendLinkSolverPort } from '../lib/send/ports';
 import type { SendLinkWaitState } from '../lib/send/types';
-import type { Hex32 } from '@ferry/core';
+import type { Hex32, LiquidityResponse } from '@ferry/core';
+import { switchRouteRequestTypedData } from '@ferry/core/api';
 import { useToast } from '../lib/toast/ToastContext';
+import {
+  evaluateReceiverRoutes,
+  findAlternativeRoutes,
+  normalizeChainKey,
+  type ReceiverRouteOption,
+} from '../lib/send/receiver-routes';
+import { farTokenFacts } from '../lib/solver/core-quote';
 
 type Load =
   | { readonly state: 'loading' }
@@ -37,6 +45,16 @@ function formatDeadline(seconds: number): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(seconds * 1000));
+}
+
+export function formatTimeLeft(seconds: number): string {
+  if (seconds <= 0) return 'Expired';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${minutes}m left`;
+  }
+  return `${minutes}m left`;
 }
 
 export function computeWaitState(
@@ -86,6 +104,47 @@ export function SendLinkPage({
   const [error, setError] = useState<string | null>(null);
 
   const isLive = propIsLive ?? import.meta.env?.VITE_LIVE_EXECUTION === '1';
+  const solverUrl = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+    ?.split(',')[0]
+    ?.trim();
+
+  const [switchingRoute, setSwitchingRoute] = useState(false);
+  const [liquidity, setLiquidity] = useState<LiquidityResponse | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch liquidity for receiver route options
+  useEffect(() => {
+    let active = true;
+    const fetchLiquidity = async () => {
+      try {
+        const liveSolver =
+          dependencies?.solver ??
+          (solverUrl
+            ? new RealSolverClient({ baseUrl: solverUrl })
+            : undefined) ??
+          solverContext;
+        if (liveSolver && 'getLiquidity' in liveSolver) {
+          const res = await (
+            liveSolver as unknown as SolverClient
+          ).getLiquidity();
+          if (active && res) setLiquidity(res);
+        }
+      } catch {
+        // Telemetry fallback
+      }
+    };
+    void fetchLiquidity();
+    return () => {
+      active = false;
+    };
+  }, [dependencies, solverContext, solverUrl]);
 
   // The secret rides in the link's fragment. The sender's own browser also keeps it, so a link of
   // theirs opens ready to claim even when the fragment was lost on the way.
@@ -143,6 +202,43 @@ export function SendLinkPage({
   const isClaimed = waitState === 'claimed';
   const isExpired = waitState === 'expired: the sender gets their funds back';
 
+  const nowSeconds = Math.floor(nowMs / 1000);
+  const secondsLeft =
+    link?.expiresAt !== null && link?.expiresAt !== undefined
+      ? Math.max(0, link.expiresAt - nowSeconds)
+      : null;
+  // Safety margin: 30 minutes (1800s) buffer before deadline while still open
+  const isTooLate =
+    !isExpired && !isClaimed && secondsLeft !== null && secondsLeft < 1800;
+
+  const currentRouteKey = link
+    ? `${link.token.toLowerCase()}:${normalizeChainKey(link.chain)}`
+    : '';
+  const evaluatedRoutes = evaluateReceiverRoutes(liquidity, link?.amount ?? 0);
+  const currentRouteOption = evaluatedRoutes.find(
+    (r) => r.routeKey.toLowerCase() === currentRouteKey.toLowerCase(),
+  );
+
+  const isShortLiquidity =
+    liquidity !== null &&
+    Array.isArray(liquidity.routes) &&
+    liquidity.routes.length > 0 &&
+    (!currentRouteOption || !currentRouteOption.hasLiquidity);
+
+  const alternativeRoutes = findAlternativeRoutes(
+    liquidity,
+    currentRouteKey,
+    link?.amount ?? 0,
+  );
+
+  const canSwitchRoute =
+    link !== null &&
+    !link.lockId &&
+    (link.status === 'pending_lock' ||
+      (link.status === 'open' && !link.lockId)) &&
+    !claimedLocally &&
+    !isTooLate;
+
   // The funds go to the address entered when the link was made, whoever sends the claim. A
   // different wallet is told so, and cannot start the claim from here.
   const connectedEvm = wallets?.evm.address?.toLowerCase() ?? null;
@@ -150,7 +246,120 @@ export function SendLinkPage({
     link !== null &&
     connectedEvm !== null &&
     connectedEvm !== link.recipientEvmAddress.toLowerCase();
-  const claimable = isReadyToClaim && !claiming && !wrongWallet;
+  const claimable = isReadyToClaim && !claiming && !wrongWallet && !isTooLate;
+
+  async function handleSwitchRoute(target: ReceiverRouteOption) {
+    if (!link) return;
+
+    if (isLive && wallets && !wallets.evm.address) {
+      wallets.evm.connect();
+      return;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const timeLeft = link.expiresAt ? link.expiresAt - now : null;
+    if (timeLeft !== null && timeLeft < 1800) {
+      setError(
+        'This send link can no longer be claimed in time. The sender will receive a refund on Bitcoin Cash.',
+      );
+      return;
+    }
+
+    if (
+      link.lockId ||
+      link.status === 'locked' ||
+      link.status === 'claimed' ||
+      link.status === 'expired' ||
+      link.status === 'refunded'
+    ) {
+      setError(
+        'Cannot switch route: the solver has already locked funds on the destination chain',
+      );
+      return;
+    }
+
+    const connectedAddress = wallets?.evm.address?.toLowerCase();
+    if (
+      connectedAddress &&
+      connectedAddress !== link.recipientEvmAddress.toLowerCase()
+    ) {
+      setError(
+        `Only ${link.recipientEvmAddress} can change this route: sign the switch request with that wallet`,
+      );
+      return;
+    }
+
+    const facts = farTokenFacts(target.chain, target.asset);
+    const targetChainId = target.chainId ?? facts?.chainId;
+    const targetToken = facts?.address;
+
+    if (!targetChainId || !targetToken) {
+      setError(
+        `Cannot find token facts for ${target.asset} on ${target.chain}`,
+      );
+      return;
+    }
+
+    setSwitchingRoute(true);
+    setError(null);
+    try {
+      const activeOrderId = (link.orderId ?? link.id) as `0x${string}`;
+      const typed = switchRouteRequestTypedData({
+        orderId: activeOrderId.startsWith('0x')
+          ? activeOrderId
+          : `0x${activeOrderId}`,
+        targetChainId,
+        token: targetToken,
+      });
+
+      const evmSigner =
+        dependencies?.evmSigner ??
+        (wallets?.evm ? evmSignerFromWallet(wallets.evm) : undefined);
+
+      if (!evmSigner) {
+        throw new Error('EVM signer not available to authorize route switch');
+      }
+
+      const signature = await evmSigner.signTypedData(typed);
+
+      const liveSolver =
+        dependencies?.solver ??
+        (solverUrl
+          ? new RealSolverClient({ baseUrl: solverUrl })
+          : undefined) ??
+        solverContext;
+
+      if (!liveSolver?.switchSendLinkRoute) {
+        throw new Error('Solver client does not support route switching');
+      }
+
+      await liveSolver.switchSendLinkRoute(id ?? '', {
+        chainId: targetChainId,
+        token: targetToken,
+        signature,
+      });
+
+      showToast(`Switched route to ${target.chain.toUpperCase()}!`, 'success');
+
+      // Refresh link details
+      if (solver?.getSendLink && id) {
+        const updated = await solver.getSendLink(id);
+        if (updated) {
+          setLoad({ state: 'ready', link: updated });
+          writeSnapshot(`sendview.${id}`, updated);
+        }
+      }
+    } catch (cause) {
+      const text = cause instanceof Error ? cause.message : String(cause);
+      setError(
+        /^(Only 0x|Cannot switch|This send link|Your wallet)/.test(text)
+          ? text
+          : plainWalletMessage(cause),
+      );
+    } finally {
+      setSwitchingRoute(false);
+    }
+  }
 
   async function handleClaim() {
     if (isLive && wallets && !wallets.evm.address) {
@@ -183,7 +392,9 @@ export function SendLinkPage({
           ?.trim();
         const liveSolver: SendLinkSolverPort | undefined =
           dependencies?.solver ??
-          (solverUrl ? new SolverClient({ baseUrl: solverUrl }) : undefined);
+          (solverUrl
+            ? new RealSolverClient({ baseUrl: solverUrl })
+            : undefined);
         if (!liveSolver) {
           throw new Error(
             'No solver is configured, so the claim cannot be sent through it.',
@@ -206,7 +417,7 @@ export function SendLinkPage({
           {
             solver: liveSolver,
             evmSigner,
-            chainId: dependencies?.chainId,
+            chainId: rawLink?.chainId ?? dependencies?.chainId,
             htlcAddress: dependencies?.htlcAddress,
             solverEvmAddress: dependencies?.solverEvmAddress,
             hashLock: dependencies?.hashLock,
@@ -238,9 +449,6 @@ export function SendLinkPage({
   }
 
   // The steps of the swap behind the link, from the solver's record of its transactions.
-  const solverUrl = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
-    ?.split(',')[0]
-    ?.trim();
   const [snapshot, setSnapshot] = useState<OrderSnapshot | null>(() =>
     id ? readSnapshot<OrderSnapshot>(`send.${id}`) : null,
   );
@@ -389,15 +597,104 @@ export function SendLinkPage({
 
                 {link.expiresAt !== null && (
                   <div className="rounded-well border border-hairline bg-surface-2 p-3">
-                    <span className="text-text-dim block mb-1">
-                      Claim before
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-text-dim block mb-1">
+                        Claim before
+                      </span>
+                      {secondsLeft !== null && (
+                        <span
+                          data-testid="send-link-time-left"
+                          className={`text-[11px] font-medium ${isTooLate ? 'text-danger font-semibold' : 'text-text-muted'}`}
+                        >
+                          {formatTimeLeft(secondsLeft)}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-text">
                       {formatDeadline(link.expiresAt)}
                     </span>
                   </div>
                 )}
               </div>
+
+              {isTooLate && (
+                <div
+                  data-testid="send-link-too-late-notice"
+                  className="mb-4 rounded-well border border-danger/30 bg-danger/10 p-3 text-danger text-xs"
+                  role="alert"
+                >
+                  This send link can no longer be claimed in time. The sender
+                  will receive a refund on Bitcoin Cash.
+                </div>
+              )}
+
+              {isShortLiquidity && (
+                <div
+                  data-testid="send-link-liquidity-warning"
+                  className="mb-4 rounded-well border border-warn/30 bg-warn/10 p-3 text-warn text-xs"
+                >
+                  <p className="font-semibold">
+                    Not enough liquidity on {link.chain} right now
+                  </p>
+                  {alternativeRoutes.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-[11px] text-text-muted mb-2">
+                        Switch to an alternative chain with available liquidity:
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {alternativeRoutes.map((alt) => (
+                          <button
+                            key={alt.routeKey}
+                            type="button"
+                            data-testid={`switch-route-${alt.chain.toLowerCase()}`}
+                            disabled={switchingRoute || isTooLate}
+                            onClick={() => handleSwitchRoute(alt)}
+                            className="rounded-pill bg-surface-2 border border-hairline px-3 py-1 text-xs font-medium text-text hover:bg-surface-3 transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            Switch to {alt.chain.toUpperCase()} ({alt.asset})
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {canSwitchRoute &&
+                !isShortLiquidity &&
+                alternativeRoutes.length > 0 && (
+                  <div
+                    data-testid="send-link-route-selector"
+                    className="mb-4 rounded-well border border-hairline bg-surface-2 p-3 text-xs"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-text-dim">
+                        Receiver route choice
+                      </span>
+                      <span className="text-[11px] text-lime font-medium">
+                        Available
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-text-muted mb-2">
+                      You can switch destination chain before solver locks
+                      funds:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {alternativeRoutes.map((alt) => (
+                        <button
+                          key={alt.routeKey}
+                          type="button"
+                          data-testid={`switch-route-${alt.chain.toLowerCase()}`}
+                          disabled={switchingRoute}
+                          onClick={() => handleSwitchRoute(alt)}
+                          className="rounded-pill bg-surface-1 border border-hairline px-2.5 py-1 text-[11px] font-medium text-text hover:bg-surface-3 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          Switch to {alt.chain.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               {error && (
                 <p className="mb-3 text-danger text-xs" role="alert">
@@ -415,17 +712,19 @@ export function SendLinkPage({
                 <span>
                   {claiming
                     ? 'Processing claim…'
-                    : isPendingLock
-                      ? "the sender's funds are being locked"
-                      : isReadyToClaim
-                        ? isLive && wallets && !wallets.evm.address
-                          ? 'Connect and claim'
-                          : 'Claim'
-                        : isClaimed
-                          ? 'Claimed'
-                          : isExpired
-                            ? 'expired: the sender gets their funds back'
-                            : 'This link is no longer open'}
+                    : isExpired
+                      ? 'expired: the sender gets their funds back'
+                      : isClaimed
+                        ? 'Claimed'
+                        : isTooLate
+                          ? 'Expired: cannot be claimed in time'
+                          : isPendingLock
+                            ? "the sender's funds are being locked"
+                            : isReadyToClaim
+                              ? isLive && wallets && !wallets.evm.address
+                                ? 'Connect and claim'
+                                : 'Claim'
+                              : 'This link is no longer open'}
                 </span>
               </button>
 

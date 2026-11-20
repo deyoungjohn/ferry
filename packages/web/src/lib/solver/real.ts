@@ -14,7 +14,12 @@ import type {
   RecentSwap,
 } from './types';
 import { orderTermsFromJson, type LiquidityResponse } from '@ferry/core';
-import { SendLinkDetailsResponseSchema } from '@ferry/core/api';
+import {
+  SendLinkDetailsResponseSchema,
+  SwitchSendLinkRouteResponseSchema,
+  type SwitchSendLinkRouteRequest,
+  type SwitchSendLinkRouteResponse,
+} from '@ferry/core/api';
 import { buildCoreQuoteRequest, describeFarToken } from './core-quote';
 
 export const LIVE_EXECUTION_MESSAGE =
@@ -387,10 +392,38 @@ export class RealSolverClient implements SolverClient {
         note: body.note,
         lockId: body.lockId,
         chainId: body.chainId,
+        orderId: body.orderId,
+        bchRefundHeight: body.bchRefundHeight,
+        evmToken: body.evmToken,
       };
     } catch {
       return null;
     }
+  }
+
+  async switchSendLinkRoute(
+    id: string,
+    request: SwitchSendLinkRouteRequest,
+  ): Promise<SwitchSendLinkRouteResponse> {
+    if (!this.baseUrl) {
+      throw new Error('No solver URL configured');
+    }
+    const res = await this.fetchFn(
+      `${this.baseUrl}/v1/send-links/${encodeURIComponent(id)}/switch-route`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(request),
+      },
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(
+        (err as { message?: string }).message ||
+          `Route switch failed with status ${res.status}`,
+      );
+    }
+    return SwitchSendLinkRouteResponseSchema.parse(await res.json());
   }
 
   async getOrder(orderId: string): Promise<SwapOrder | null> {
