@@ -817,7 +817,13 @@ export function LiveOrderView({
                           </p>
                           <p className="mt-1 text-text-muted">
                             Ferry then completes the payout for you and only
-                            takes your funds after the payout is sent.
+                            takes your funds after the payout is sent.{' '}
+                            <Link
+                              to="/docs/trust-model#the-optional-handoff"
+                              className="text-lime underline-offset-4 hover:underline"
+                            >
+                              How this works
+                            </Link>
                           </p>
                           {delegationError && (
                             <p className="mt-1 text-rose-400">

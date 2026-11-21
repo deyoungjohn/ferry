@@ -24,6 +24,7 @@ export const PUBLIC_NAV: readonly NavItem[] = [
   { label: 'Features', to: '/features' },
   { label: 'How it works', to: '/how-it-works' },
   { label: 'Stats', to: '/stats' },
+  { label: 'Docs', to: '/docs' },
 ];
 
 /** Shown once a wallet is connected. The guide and GitHub live in the footer. */
@@ -61,8 +62,10 @@ export function footerColumns(): readonly FooterColumn[] {
     {
       title: 'Help',
       links: [
-        { label: 'User guide', to: ROUTES.guide },
-        { label: 'FAQ', to: '/how-it-works#faq' },
+        { label: 'Docs', to: '/docs' },
+        { label: 'How we tested', to: '/docs/testing' },
+        { label: 'Mainnet record', to: '/docs/mainnet-record' },
+        { label: 'FAQ', to: '/docs/faq' },
         { label: 'Route status', to: '/status' },
         ...(SITE.repo
           ? [{ label: 'GitHub', to: SITE.repo, external: true }]

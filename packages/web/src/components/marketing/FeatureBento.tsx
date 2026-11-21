@@ -1,3 +1,5 @@
+import { ArrowRight } from 'lucide-react';
+import { Link } from 'react-router';
 import { lazy, Suspense, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 import { ScrollReveal } from './MotionPrimitives';
@@ -24,9 +26,12 @@ function Tile({
   className,
   tone = 'plain',
   delay = 0,
+  docs,
 }: {
   title: ReactNode;
   body: string;
+  /** The docs page that explains this card. */
+  docs?: string;
   children: ReactNode;
   className?: string;
   tone?: 'plain' | 'deep';
@@ -46,6 +51,15 @@ function Tile({
         <p className="mt-3 max-w-sm text-sm leading-relaxed text-text-muted">
           {body}
         </p>
+        {docs && (
+          <Link
+            to={docs}
+            className="mt-3 inline-flex w-fit items-center gap-1 text-[13px] font-medium text-text-muted transition-colors hover:text-lime"
+          >
+            Read the docs
+            <ArrowRight aria-hidden="true" className="size-3.5" />
+          </Link>
+        )}
         <div className="mt-6 flex flex-1 items-end justify-center">
           {children}
         </div>
@@ -74,6 +88,7 @@ export function FeatureBento() {
         <Tile
           tone="deep"
           delay={0}
+          docs="/docs/swap-to-bch"
           className="md:col-span-3"
           title={
             <>
@@ -94,6 +109,7 @@ export function FeatureBento() {
         <Tile
           delay={90}
           className="md:col-span-3"
+          docs="/docs/chains-and-tokens#mainnet-contracts"
           title="Six EVM chains, one contract address"
           body="Ethereum, Base, Arbitrum, BNB Chain, Arc and Robinhood Chain. USDC, USDT and USDG on one side; PUSD and MUSD on the other."
         >
@@ -105,6 +121,7 @@ export function FeatureBento() {
         <Tile
           delay={0}
           className="md:col-span-2"
+          docs="/docs/pay-links"
           title="Get paid with a link"
           body="Ask for an amount in PUSD or MUSD. The payer pays in whatever stablecoin and chain they hold."
         >
@@ -114,6 +131,7 @@ export function FeatureBento() {
         <Tile
           delay={80}
           className="md:col-span-2"
+          docs="/docs/send-links"
           title="Send to someone on another chain"
           body="Lock on Bitcoin Cash and share a link. Only the address you named can claim it."
         >
@@ -123,6 +141,7 @@ export function FeatureBento() {
         <Tile
           delay={160}
           className="md:col-span-2"
+          docs="/docs/timing#refunds"
           title="Your money comes back"
           body="If the solver won't finish a swap from an EVM chain, it returns your lock at once. Every lock also refunds on its own deadline."
         >

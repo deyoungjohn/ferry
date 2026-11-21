@@ -36,6 +36,12 @@ export function HelpPage() {
             ← Back to Swap
           </Link>
           <Link
+            to="/docs"
+            className="rounded-pill bg-surface-2 border border-hairline px-3.5 py-1.5 text-text-muted hover:text-text hover:border-text-muted/40 transition-colors"
+          >
+            Full documentation
+          </Link>
+          <Link
             to="/status"
             className="rounded-pill bg-surface-2 border border-hairline px-3.5 py-1.5 text-text-muted hover:text-text hover:border-text-muted/40 transition-colors"
           >

@@ -702,7 +702,13 @@ export function RecoverPage() {
           </h1>
           <p className="text-xs text-text-muted">
             Claim or refund an atomic swap directly from your recovery file,
-            independent of any server.
+            independent of any server.{' '}
+            <Link
+              to="/docs/recovery"
+              className="text-lime underline-offset-4 hover:underline"
+            >
+              How recovery works
+            </Link>
           </p>
         </div>
         <Link

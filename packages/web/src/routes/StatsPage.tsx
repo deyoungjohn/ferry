@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import {
   listDeployedContracts,
   PREDICTED_FERRY_HTLC_ADDRESS,
@@ -126,6 +127,12 @@ export function StatsPage() {
           >
             Deployed contracts
           </h2>
+          <Link
+            to="/docs/chains-and-tokens#mainnet-contracts"
+            className="text-xs font-medium text-lime underline-offset-4 hover:underline"
+          >
+            Every chain and explorer in the docs →
+          </Link>
           {deployed.length === 0 ? (
             <p className="mt-3 text-sm text-text-muted">
               No contract is recorded as deployed yet.
@@ -193,6 +200,12 @@ export function StatsPage() {
           >
             What we tested
           </h2>
+          <Link
+            to="/docs/testing"
+            className="text-xs font-medium text-lime underline-offset-4 hover:underline"
+          >
+            How each test was run, and how to run it yourself →
+          </Link>
         </ScrollReveal>
         <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {TESTED.map((item, index) => (
@@ -235,6 +248,12 @@ export function StatsPage() {
           >
             What we have not done
           </h2>
+          <Link
+            to="/docs/limitations"
+            className="text-xs font-medium text-lime underline-offset-4 hover:underline"
+          >
+            Known limitations in the docs →
+          </Link>
           <ul className="mt-4 space-y-2">
             {NOT_YET.map((line) => (
               <li
@@ -259,6 +278,12 @@ export function StatsPage() {
           >
             Verify it yourself
           </h2>
+          <Link
+            to="/docs/mainnet-record"
+            className="text-xs font-medium text-lime underline-offset-4 hover:underline"
+          >
+            Every mainnet swap with explorer links →
+          </Link>
           <ul className="mt-4 space-y-2 text-sm leading-relaxed text-text-muted">
             <li>
               Read the contract source on the explorer and compare its address

@@ -40,7 +40,7 @@ describe('navigation', () => {
     }
   });
 
-  it('puts the guide and GitHub in the footer', async () => {
+  it('puts the docs and GitHub in the footer', async () => {
     renderAt('/features');
     const footer = await screen.findByRole(
       'contentinfo',
@@ -48,7 +48,7 @@ describe('navigation', () => {
       { timeout: 30_000 },
     );
     expect(
-      within(footer).getByRole('link', { name: 'User guide' }),
+      within(footer).getByRole('link', { name: 'Docs' }),
     ).toBeInTheDocument();
     expect(
       within(footer).getAllByRole('link', { name: 'GitHub' })[0],

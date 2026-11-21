@@ -52,6 +52,12 @@ export function LinkHowItWorks({ kind }: { kind: Kind }) {
             </li>
           ))}
         </ol>
+        <a
+          href={kind === 'pay' ? '/docs/pay-links' : '/docs/send-links'}
+          className="mt-5 inline-flex items-center gap-1 text-xs font-medium text-lime underline-offset-4 hover:underline"
+        >
+          Read the full guide in the docs →
+        </a>
       </GlassModal>
     </>
   );

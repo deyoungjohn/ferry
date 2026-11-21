@@ -21,6 +21,16 @@ export function Faq() {
           description: item.answer,
         }))}
       />
+      <p className="mt-6 text-center text-sm text-text-muted">
+        More answers in the{' '}
+        <a
+          href="/docs/faq"
+          className="font-medium text-lime underline-offset-4 hover:underline"
+        >
+          docs
+        </a>
+        .
+      </p>
     </section>
   );
 }

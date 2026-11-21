@@ -13,6 +13,8 @@ interface StatCell {
   readonly suffix?: string;
   readonly label: string;
   readonly accent?: boolean;
+  /** The docs section that explains this number. */
+  readonly href?: string;
 }
 
 /**
@@ -48,11 +50,13 @@ export function LandingStats() {
           id: 'swaps',
           value: live.completedSwaps,
           label: 'COMPLETED SWAPS',
+          href: '/docs/mainnet-record',
         }
       : {
           id: 'evm-chains',
           value: 6,
           label: 'EVM CHAINS · ONE ADDRESS',
+          href: '/docs/chains-and-tokens#mainnet-contracts',
         },
     hasLiveVolume
       ? {
@@ -61,11 +65,13 @@ export function LandingStats() {
           decimals: 2,
           prefix: '$',
           label: 'SETTLED VOLUME, USD',
+          href: '/docs/mainnet-record#totals',
         }
       : {
           id: 'stablecoins',
           value: 5,
           label: 'STABLECOINS BRIDGED',
+          href: '/docs/chains-and-tokens',
         },
     hasLiveVolume && live.medianSecondsFast > 0
       ? {
@@ -74,6 +80,7 @@ export function LandingStats() {
           suffix: ' s',
           label: 'MEDIAN FAST SETTLEMENT',
           accent: true,
+          href: '/docs/fees-and-limits#lanes',
         }
       : {
           id: 'settlement',
@@ -82,22 +89,26 @@ export function LandingStats() {
           suffix: ' s',
           label: 'FAST-LANE SETTLEMENT',
           accent: true,
+          href: '/docs/fees-and-limits#lanes',
         },
     {
       id: 'fuzz',
       value: 20000,
       label: 'FOUNDRY FUZZ RUNS',
+      href: '/docs/testing#foundry-fuzz-runs',
     },
     {
       id: 'covenant',
       value: 1100,
       suffix: '+',
       label: 'BCH COVENANT ATTACKS REJECTED',
+      href: '/docs/testing#bch-covenant-attacks',
     },
     {
       id: 'load-run',
       value: 200,
       label: 'FORK LOAD-RUN SWAPS · 0 FAILURES',
+      href: '/docs/testing#load-run',
     },
   ];
 
@@ -160,6 +171,15 @@ export function LandingStats() {
                 <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.08em] text-text-muted">
                   {cell.label}
                 </p>
+                {cell.href && (
+                  <Link
+                    to={cell.href}
+                    className="mt-3 inline-flex items-center gap-1 text-[12.5px] font-medium text-text-muted transition-colors hover:text-lime"
+                  >
+                    How we know
+                    <ArrowRight aria-hidden="true" className="size-3.5" />
+                  </Link>
+                )}
               </div>
             );
           })}
