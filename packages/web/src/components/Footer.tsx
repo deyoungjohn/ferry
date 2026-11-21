@@ -64,8 +64,7 @@ export function Footer() {
             Mainnet contracts
           </p>
           <div className="mt-3">
-            <p className="text-[12px] text-text-dim">Contracts</p>
-            <ul className="mt-2 space-y-2">
+            <ul className="space-y-2">
               {mainnet.contracts.map((link) => (
                 <li key={link.label}>
                   <a
