@@ -3,6 +3,19 @@ import { useWallets } from '../lib/wallet/context';
 import { WalletIcon } from './icons';
 import { WalletPanel } from './WalletSheet';
 
+/** `bitcoincash:zplzkj…8ff65` → `zplz…8ff65`. */
+function shortBch(address: string): string {
+  const body = address.includes(':') ? address.split(':')[1]! : address;
+  return body.length > 10 ? `${body.slice(0, 4)}…${body.slice(-5)}` : body;
+}
+
+/** `0x12dcbbc7…da841` → `0x12dc…a841`. */
+function shortEvm(address: string): string {
+  return address.length > 12
+    ? `${address.slice(0, 6)}…${address.slice(-4)}`
+    : address;
+}
+
 export interface WalletMenuProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -18,10 +31,15 @@ export function WalletMenu({ open, onOpenChange }: WalletMenuProps) {
   const bchOn = bch.status === 'connected';
   const isConnected = evmOn || bchOn;
 
-  let label = 'Connect';
-  if (evmOn && bchOn) label = 'Wallets connected';
-  else if (evmOn) label = `${evm.address?.slice(0, 6)}…`;
-  else if (bchOn) label = `${bch.address?.address.slice(0, 10)}…`;
+  // The Bitcoin Cash wallet is named first when it is connected; otherwise the EVM wallet.
+  const label =
+    bchOn && bch.address
+      ? shortBch(bch.address.address)
+      : evmOn && evm.address
+        ? shortEvm(evm.address)
+        : isConnected
+          ? 'Connected'
+          : 'Connect';
 
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
