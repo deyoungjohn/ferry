@@ -115,9 +115,11 @@ export async function createSendLinkLive(
         (preview.terms as { evmAmount: string | bigint }).evmAmount,
       );
       if (delivered >= wantedUnits) break;
+      // Exactly the shortfall, rounded up to a cent: the first lock that delivers enough is the
+      // smallest one, so the receiver gets the amount entered and the sender pays no extra cent.
       const shortCents =
         (wantedUnits - delivered + unitsPerCent - 1n) / unitsPerCent;
-      amountIn += shortCents + 1n;
+      amountIn += shortCents > 0n ? shortCents : 1n;
     }
     sendQuoteRequest = quoteFor(amountIn);
     try {

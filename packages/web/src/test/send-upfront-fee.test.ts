@@ -57,6 +57,9 @@ describe('send link quotes the fee on the sender', () => {
     const last = real[0]!;
     const delivered = last - (last * 15n) / 10000n - 1n;
     expect(delivered).toBeGreaterThanOrEqual(2000n);
+    // The smallest such lock: one cent less would not deliver the amount (no extra cent charged).
+    const less = last - 1n;
+    expect(less - (less * 15n) / 10000n - 1n).toBeLessThan(2000n);
   });
 
   it('moves to the next secret when the solver already holds an order with this one', async () => {
