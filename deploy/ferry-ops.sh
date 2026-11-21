@@ -187,7 +187,10 @@ cmd_update() {
 
   section "Build the site"
   pnpm --filter @ferry/web build
-  sudo rsync -a --delete packages/web/dist/ "$WEB_ROOT/"
+  # No --delete: a tab opened before this deploy still asks for the previous build's chunks.
+  # Hashed assets older than a week are removed instead.
+  sudo rsync -a packages/web/dist/ "$WEB_ROOT/"
+  sudo find "$WEB_ROOT/assets" -type f -mtime +7 -delete 2>/dev/null || true
   sudo chown -R root:root "$WEB_ROOT"
 
   if [ "$before" != "$after" ] && ! git diff --quiet "$before" "$after" -- deploy/Caddyfile; then
@@ -273,7 +276,10 @@ cmd_rollback() {
   git switch --detach "$target"
   pnpm install --frozen-lockfile
   pnpm --filter @ferry/web build
-  sudo rsync -a --delete packages/web/dist/ "$WEB_ROOT/"
+  # No --delete: a tab opened before this deploy still asks for the previous build's chunks.
+  # Hashed assets older than a week are removed instead.
+  sudo rsync -a packages/web/dist/ "$WEB_ROOT/"
+  sudo find "$WEB_ROOT/assets" -type f -mtime +7 -delete 2>/dev/null || true
   sudo systemctl restart "$SERVICE"
   if wait_for_health; then say "Rolled back to $(git log -1 --format='%h %s' HEAD)."; else say "Rolled back, but the solver is not answering yet." >&2; exit 1; fi
 }

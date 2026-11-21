@@ -743,44 +743,87 @@ export function RecoverPage() {
             {walletError}
           </p>
         )}
-        {walletSwaps.length > 0 && (
-          <ul className="mt-4 divide-y divide-hairline/60">
-            {walletSwaps.map((swap) => (
-              <li
-                key={`${swap.chainId}-${swap.index}-${swap.lockId}`}
-                className="py-2 text-xs"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium text-text">
-                    {swap.chainName} · {swap.status} · index {swap.index}
-                  </span>
-                  <span className="text-text-muted">
-                    {walletOrders.get(swap.lockId)
-                      ? `Solver order ${walletOrders.get(swap.lockId)!.state}${
-                          walletOrders.get(swap.lockId)!.bchTokenAmount
-                            ? ` · BCH ${walletOrders.get(swap.lockId)!.bchTokenAmount}`
-                            : ''
-                        }`
-                      : walletAction(swap)}
-                  </span>
-                </div>
-                <div className="mt-1 font-mono text-[10px] text-text-dim break-all">
-                  {swap.lockId}
-                </div>
-                {walletOrders.get(swap.lockId) && (
-                  <Link
-                    to={ROUTES.swapOrder(
-                      walletOrders.get(swap.lockId)!.orderId,
-                    )}
-                    className="mt-1 inline-flex text-[11px] font-semibold text-lime hover:underline"
+        {walletSwaps.length > 0 &&
+          (() => {
+            const FINISHED = new Set([
+              'DONE',
+              'REFUNDED',
+              'SOLVER_REFUNDED',
+              'RELEASED',
+              'EXPIRED',
+              'REJECTED',
+              'CANCELLED',
+              'SUPERSEDED',
+            ]);
+            const needsAction = (swap: WalletEvmSwap) => {
+              const order = walletOrders.get(swap.lockId);
+              if (swap.status === 'locked') return true;
+              return order ? !FINISHED.has(order.state) : false;
+            };
+            const amountText = (swap: WalletEvmSwap) => {
+              const raw = walletOrders.get(swap.lockId)?.bchTokenAmount;
+              return raw && /^\d+$/.test(raw)
+                ? `${(Number(raw) / 100).toFixed(2)} PUSD`
+                : null;
+            };
+            const open = walletSwaps.filter(needsAction);
+            const row = (swap: WalletEvmSwap, actionable: boolean) => {
+              const order = walletOrders.get(swap.lockId);
+              const amount = amountText(swap);
+              return (
+                <li
+                  key={`${swap.chainId}-${swap.index}-${swap.lockId}`}
+                  className="py-2 text-xs"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium text-text">
+                      {swap.chainName}
+                      {amount ? ` · ${amount}` : ''}
+                    </span>
+                    <span className="text-text-muted">
+                      {actionable
+                        ? swap.status === 'locked'
+                          ? walletAction(swap)
+                          : `In progress (${order?.state ?? swap.status})`
+                        : swap.status === 'refunded'
+                          ? 'Refunded'
+                          : 'Completed'}
+                    </span>
+                  </div>
+                  {actionable && order && (
+                    <Link
+                      to={ROUTES.swapOrder(order.orderId)}
+                      className="mt-1 inline-flex text-[11px] font-semibold text-lime hover:underline"
+                    >
+                      Continue this swap
+                    </Link>
+                  )}
+                </li>
+              );
+            };
+            return (
+              <div className="mt-4" data-testid="wallet-recovery-results">
+                {open.length > 0 ? (
+                  <>
+                    <h4 className="text-xs font-semibold text-text">
+                      Needs your action ({open.length})
+                    </h4>
+                    <ul className="mt-1 divide-y divide-hairline/60">
+                      {open.map((swap) => row(swap, true))}
+                    </ul>
+                  </>
+                ) : (
+                  <p
+                    className="text-xs text-ok"
+                    data-testid="nothing-to-recover"
                   >
-                    Open solver order to claim or refund
-                  </Link>
+                    Nothing to recover: every swap found for this wallet is
+                    finished.
+                  </p>
                 )}
-              </li>
-            ))}
-          </ul>
-        )}
+              </div>
+            );
+          })()}
         <div className="mt-5 border-t border-lime/20 pt-4">
           <h3 className="text-xs font-semibold text-text">
             Recover from your Bitcoin Cash wallet

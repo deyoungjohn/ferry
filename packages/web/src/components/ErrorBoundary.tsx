@@ -1,4 +1,5 @@
 import React, { Component, type ReactNode } from 'react';
+import { isChunkLoadError, reloadOnceForNewBuild } from '../lib/chunk-reload';
 import { Link } from 'react-router';
 import { CopyDiagnosticsButton } from './CopyDiagnosticsButton';
 import { AlertCircleIcon } from './icons';
@@ -27,6 +28,8 @@ export class ErrorBoundary extends Component<
   }
 
   override componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
+    // A chunk from the previous build is gone after a deploy: load the new build once.
+    if (isChunkLoadError(error) && reloadOnceForNewBuild()) return;
     if (process.env.NODE_ENV !== 'production') {
       console.error(
         'Unhandled React Error in ErrorBoundary:',
