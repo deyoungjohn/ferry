@@ -102,7 +102,7 @@ export interface RecoveryStorePort {
 /** The slice of the solver client the session uses. */
 export type SolverPort = Pick<
   SolverClient,
-  'quote' | 'getOrder' | 'relayLock' | 'relayClaim' | 'health'
+  'quote' | 'getOrder' | 'relayLock' | 'relayClaim' | 'health' | 'revealSecret'
 >;
 
 /** A small in-memory store: the reference implementation and the one tests use. */

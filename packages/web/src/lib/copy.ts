@@ -93,7 +93,7 @@ export const FAQ_ITEMS: readonly FaqItem[] = [
   {
     question: 'What is the trust model of Ferry?',
     answer:
-      'Ferry is trust-minimised. You do not trust a custodian with your funds, but you do depend on an active solver to provide liquidity and complete the counter-lock. If the solver will not counter-lock a swap that started on an EVM chain, it returns your deposit at once; in any case every deposit can be refunded when its deadline passes.',
+      'Ferry is trust-minimised. You do not trust a custodian with your funds, but you do depend on an active solver to provide liquidity and complete the counter-lock. If the solver will not counter-lock a swap that started on an EVM chain, it returns your deposit at once; in any case every deposit can be refunded when its deadline passes. Custody never passes to Ferry. The optional handoff makes the order of steps depend on Ferry’s code for the hours of the swap, and the page says so before you choose.',
   },
   {
     question: 'Can the solver steal my money or can I lose funds?',

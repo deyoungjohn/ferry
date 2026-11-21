@@ -22,6 +22,7 @@ export interface BchChainPort {
     txid: string,
     hashLock?: string,
   ): Promise<`0x${string}` | null>;
+  getTransaction?(txid: string, verbose?: boolean): Promise<unknown>;
   listUnspent?(
     scriptHash: string,
     filter?: string,

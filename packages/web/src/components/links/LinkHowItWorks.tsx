@@ -12,6 +12,7 @@ const STEPS: Record<Kind, { title: string; steps: readonly string[] }> = {
       'The payer connects an EVM wallet and confirms. Their stablecoin is locked in a Ferry contract on their chain. This is a lock, not a payment: it can be refunded if anything goes wrong.',
       'Ferry locks the same amount of PUSD or MUSD for you on Bitcoin Cash. When you receive it, the payer’s lock is released to Ferry. Either both happen or neither does.',
       'The money arrives at your address in about two minutes. The fee is shown to the payer before they confirm.',
+      'Custody never passes to Ferry. The optional handoff makes the order of steps depend on Ferry’s code for the hours of the swap, and the page says so before you choose.',
     ],
   },
   send: {

@@ -210,6 +210,16 @@ export function createWorld(options: WorldOptions = {}) {
         txHash: `0x${'e2'.repeat(32)}` as Hex32,
       });
     },
+    revealSecret: (orderId: Hex32, secret: Hex32) => {
+      world.events.push('revealSecret');
+      void secret;
+      return Promise.resolve({
+        ok: true,
+        orderId,
+        state: 'SECRET_KNOWN',
+        updatedAt: world.now,
+      });
+    },
     health: () => {
       if (!world.solverAnswers) return Promise.reject(new Error('solver down'));
       return Promise.resolve({

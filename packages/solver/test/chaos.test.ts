@@ -117,6 +117,18 @@ describe('Chaos & Failure Tests (Blueprint §11.3)', () => {
         isOnChain: async () => bchOnChain,
         getScriptHashHistory: async () => bchHistory,
         extractSecretFromSpend: async () => defaultSecret,
+        // The chain returns the user's claim: one output paying the recipient the token.
+        getTransaction: async () => ({
+          outputs: [
+            {
+              lockingBytecode: dummyForwardTerms.userBchLockingBytecode,
+              token: {
+                category: dummyForwardTerms.bchTokenCategory,
+                amount: dummyForwardTerms.bchTokenAmount,
+              },
+            },
+          ],
+        }),
       };
 
       const evmPort: EvmChainPort = {

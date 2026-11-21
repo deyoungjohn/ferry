@@ -9,6 +9,7 @@ import {
   buildSolverBchClaim as buildSolverBchClaimHelper,
   buildSolverBchLock as buildSolverBchLockHelper,
   buildSolverBchRelease as buildSolverBchReleaseHelper,
+  classifyCovenantSpend,
   deriveBchKeyDetails,
   getHtlcScriptHash,
 } from '../bch/lock-builder.js';
@@ -120,6 +121,7 @@ export class SolverEngine {
   private readonly onEngineEvent?: EngineConfig['onEngineEvent'];
   private lastSummary = '';
   private readonly lastLockSeen = new Map<string, string>();
+  private readonly knownBchTxs = new Map<string, unknown>();
   private passes = 0;
   private heartbeatAt = 0;
   private readonly lastErrors = new Map<string, string>();
@@ -187,19 +189,87 @@ export class SolverEngine {
     });
   }
 
+  async fetchBchTx(txid: string): Promise<unknown> {
+    const cached = this.knownBchTxs.get(txid);
+    if (cached) return cached;
+    if (this.bchPort.getTransaction) {
+      try {
+        const tx = await this.bchPort.getTransaction(txid);
+        if (tx) {
+          this.knownBchTxs.set(txid, tx);
+          return tx;
+        }
+      } catch {
+        // Fall through
+      }
+    }
+    return null;
+  }
+
+  async isBchClaimSeenOnNetwork(order: SolverOrderRecord): Promise<boolean> {
+    const solverOrder =
+      'terms' in order && order.terms
+        ? order
+        : orderRecordToSolverOrder(order as unknown as OrderRecord);
+    if (solverOrder.userClaimTxId) {
+      const onChain = await this.bchPort.isOnChain(solverOrder.userClaimTxId);
+      if (onChain) {
+        const tx = await this.fetchBchTx(solverOrder.userClaimTxId);
+        // Fails closed: a transaction that cannot be read is not proof of the payout; the next
+        // pass asks again.
+        return tx
+          ? classifyCovenantSpend(tx, solverOrder.terms) === 'claim'
+          : false;
+      }
+    }
+    const shHex = getHtlcScriptHash(solverOrder.terms, this.bchNetwork);
+    let history = await this.bchPort.getScriptHashHistory(shHex);
+    if (history.length === 0) {
+      const legacyHash = solverOrder.terms.hashLock.slice(2);
+      history = await this.bchPort.getScriptHashHistory(legacyHash);
+    }
+    for (const entry of history) {
+      if (entry.tx_hash !== solverOrder.solverLockTxId) {
+        const onChain = await this.bchPort.isOnChain(entry.tx_hash);
+        if (onChain) {
+          const tx = await this.fetchBchTx(entry.tx_hash);
+          if (tx) {
+            const kind = classifyCovenantSpend(tx, solverOrder.terms);
+            if (kind === 'claim') {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   async buildSolverEvmClaim(
     order: SolverOrderRecord,
   ): Promise<{ txid: string; txHex: string }> {
-    if (!order.secret) {
+    const solverOrder =
+      'terms' in order && order.terms
+        ? order
+        : orderRecordToSolverOrder(order as unknown as OrderRecord);
+    if (!solverOrder.secret) {
       throw new Error(
-        `Cannot build solver EVM claim without revealed secret for order ${order.id}`,
+        `Cannot build solver EVM claim without revealed secret for order ${solverOrder.id}`,
       );
     }
-    const isForward = isForwardDirection(order.direction);
+    const isForward = isForwardDirection(solverOrder.direction);
+    if (isForward) {
+      const bchSeen = await this.isBchClaimSeenOnNetwork(solverOrder);
+      if (!bchSeen) {
+        throw new Error(
+          `Ordering invariant violated: cannot claim EVM lock for forward order ${solverOrder.id} before Bitcoin Cash claim is seen on network`,
+        );
+      }
+    }
     const locker = isForward
-      ? order.terms.userEvmAddress
-      : order.terms.solverEvmAddress;
-    const lockId = evmLockId(locker, order.terms.hashLock);
+      ? solverOrder.terms.userEvmAddress
+      : solverOrder.terms.solverEvmAddress;
+    const lockId = evmLockId(locker, solverOrder.terms.hashLock);
     if (!this.evmPort.claim) {
       throw new Error(
         'Cannot build the solver EVM claim: the chain port cannot claim',
@@ -207,8 +277,8 @@ export class SolverEngine {
     }
     return this.evmPort.claim(
       lockId,
-      order.secret,
-      Number(order.terms.evmChainId),
+      solverOrder.secret,
+      Number(solverOrder.terms.evmChainId),
     );
   }
 
@@ -235,22 +305,23 @@ export class SolverEngine {
       return this.bchPort.buildClaim(order);
     }
     const shHex = getHtlcScriptHash(order.terms, this.bchNetwork);
-    let userUtxo:
+    let lockUtxo:
       { tx_hash: string; tx_pos: number; value: number } | undefined;
+    const isForward = isForwardDirection(order.direction);
+    const targetTxId = isForward ? order.solverLockTxId : order.userLockTxId;
     if (this.bchPort.listUnspent) {
       const utxos = await this.bchPort.listUnspent(shHex, 'include_tokens');
-      userUtxo =
-        utxos.find((u) => u.tx_hash === order.userLockTxId) ?? utxos[0];
+      lockUtxo = utxos.find((u) => u.tx_hash === targetTxId) ?? utxos[0];
     }
-    if (!userUtxo) {
+    if (!lockUtxo) {
       throw new Error(
-        'Cannot build the solver Bitcoin Cash claim: the user lock output was not found on chain',
+        `Cannot build the Bitcoin Cash claim: the lock output was not found on chain for order ${order.id}`,
       );
     }
     const utxo = {
-      txid: userUtxo.tx_hash,
-      vout: userUtxo.tx_pos,
-      satoshis: userUtxo.value,
+      txid: lockUtxo.tx_hash,
+      vout: lockUtxo.tx_pos,
+      satoshis: lockUtxo.value,
     };
     return buildSolverBchClaimHelper({
       order,
@@ -400,27 +471,9 @@ export class SolverEngine {
     return orders.find((o) => o.lockId.toLowerCase() === normLockId) ?? null;
   }
 
-  private applyEvent(
-    solverOrder: SolverOrderRecord,
-    event: SolverEvent,
-  ): OrderStatus {
-    const res = transition(solverOrder, event);
-    this.onEngineEvent?.(
-      {
-        orderId: solverOrder.id,
-        from: solverOrder.status,
-        to: res.nextStatus,
-        event: event.type,
-      },
-      'Order moved',
-    );
-    solverOrder.status = res.nextStatus;
-    if (res.mutations) {
-      Object.assign(solverOrder, res.mutations);
-    }
+  private saveSolverOrder(solverOrder: SolverOrderRecord): void {
     const now = Math.floor(Date.now() / 1000);
     solverOrder.updatedAt = now;
-
     this.db.saveOrder({
       id: solverOrder.id,
       direction: solverOrder.direction as OrderRecord['direction'],
@@ -448,7 +501,27 @@ export class SolverEngine {
       createdAt: solverOrder.createdAt,
       updatedAt: solverOrder.updatedAt,
     });
+  }
 
+  private applyEvent(
+    solverOrder: SolverOrderRecord,
+    event: SolverEvent,
+  ): OrderStatus {
+    const res = transition(solverOrder, event);
+    this.onEngineEvent?.(
+      {
+        orderId: solverOrder.id,
+        from: solverOrder.status,
+        to: res.nextStatus,
+        event: event.type,
+      },
+      'Order moved',
+    );
+    solverOrder.status = res.nextStatus;
+    if (res.mutations) {
+      Object.assign(solverOrder, res.mutations);
+    }
+    this.saveSolverOrder(solverOrder);
     return res.nextStatus;
   }
 
@@ -617,7 +690,10 @@ export class SolverEngine {
     }
 
     // Step 2: Solver counter-locks on BCH
-    if (order.status === 'USER_LOCK_FINAL') {
+    if (
+      order.status === 'USER_LOCK_FINAL' ||
+      (order.status === 'SECRET_KNOWN' && !order.solverLockTxId)
+    ) {
       const bchTip = await this.bchPort.getTip();
       const timingDecision = checkCounterLockTiming(order, bchTip.height, now);
       if (!timingDecision.allowed) {
@@ -731,20 +807,40 @@ export class SolverEngine {
       if (history.length > 0) {
         for (const entry of history) {
           if (entry.tx_hash !== order.solverLockTxId) {
-            let secret = order.secret;
-            if (!secret && this.bchPort.extractSecretFromSpend) {
-              const extracted = await this.bchPort.extractSecretFromSpend(
-                entry.tx_hash,
-                order.terms.hashLock,
+            const onChain = await this.bchPort.isOnChain(entry.tx_hash);
+            if (!onChain) continue;
+
+            const tx = await this.fetchBchTx(entry.tx_hash);
+            const kind = tx ? classifyCovenantSpend(tx, order.terms) : 'claim';
+
+            if (kind === 'claim') {
+              let secret = order.secret;
+              if (!secret && this.bchPort.extractSecretFromSpend) {
+                const extracted = await this.bchPort.extractSecretFromSpend(
+                  entry.tx_hash,
+                  order.terms.hashLock,
+                );
+                if (extracted) secret = extracted;
+              }
+              order.userClaimTxId = entry.tx_hash;
+              this.applyEvent(order, {
+                type: 'USER_CLAIM_SEEN',
+                txId: entry.tx_hash,
+                secret,
+              });
+              break;
+            } else if (kind === 'refund') {
+              this.onEngineEvent?.(
+                { orderId: order.id, txId: entry.tx_hash },
+                'Bitcoin Cash covenant spent by refund path; moving to refund handling',
               );
-              if (extracted) secret = extracted;
+              this.applyEvent(order, {
+                type: 'BCH_DEADLINE_PASSED',
+                refundTxId: entry.tx_hash,
+              });
+              return;
             }
-            this.applyEvent(order, {
-              type: 'USER_CLAIM_SEEN',
-              txId: entry.tx_hash,
-              secret,
-            });
-            break;
+            // An unrelated transaction to the covenant address does not count
           }
         }
       }
@@ -758,11 +854,80 @@ export class SolverEngine {
       }
     }
 
-    // Step 5: Solver claims on EVM
+    // Step 4c: If secret is known and user hasn't claimed yet on BCH, solver completes Bitcoin Cash claim for recipient
     if (
-      order.status === 'USER_CLAIM_SEEN' ||
-      (order.status === 'SECRET_KNOWN' && order.secret)
+      order.status === 'SECRET_KNOWN' &&
+      order.secret &&
+      order.solverLockTxId
     ) {
+      let bchClaimTxId = order.userClaimTxId;
+      if (!bchClaimTxId) {
+        this.onEngineEvent?.(
+          { orderId: order.id },
+          'Solver completing Bitcoin Cash claim for recipient',
+        );
+        try {
+          const claimResult = await this.bchExecutor.executeOrAdopt({
+            orderId: order.id,
+            actionType: 'FORWARD_BCH_CLAIM',
+            secret: order.secret,
+            hashLock: order.hashLock,
+            buildTx: async () => this.buildSolverBchClaim(order),
+          });
+          bchClaimTxId = claimResult.txid;
+          order.userClaimTxId = bchClaimTxId;
+          this.knownBchTxs.set(bchClaimTxId, claimResult.txHex);
+          this.saveSolverOrder(order);
+        } catch (err) {
+          // If broadcast failed due to a race with the page's claim, check if history shows the spend
+          const shHex = getHtlcScriptHash(order.terms, this.bchNetwork);
+          let historyNow = await this.bchPort.getScriptHashHistory(shHex);
+          if (historyNow.length === 0) {
+            const legacyHash = order.terms.hashLock.slice(2);
+            historyNow = await this.bchPort.getScriptHashHistory(legacyHash);
+          }
+          let spendTxId: string | null = null;
+          for (const e of historyNow) {
+            if (e.tx_hash !== order.solverLockTxId) {
+              const tx = await this.fetchBchTx(e.tx_hash);
+              // Fails closed: an unreadable spend is not adopted as the payout.
+              const kind = tx ? classifyCovenantSpend(tx, order.terms) : null;
+              if (kind === 'claim') {
+                spendTxId = e.tx_hash;
+                break;
+              }
+            }
+          }
+          if (spendTxId) {
+            bchClaimTxId = spendTxId;
+            order.userClaimTxId = bchClaimTxId;
+            this.saveSolverOrder(order);
+          } else {
+            throw err;
+          }
+        }
+      }
+
+      // STRICT ORDERING INVARIANT:
+      // Wait until the Bitcoin Cash claim is seen on the network (mempool or confirmed)
+      const isSeen = await this.isBchClaimSeenOnNetwork(order);
+      if (!isSeen) {
+        this.onEngineEvent?.(
+          { orderId: order.id, txId: bchClaimTxId },
+          'Waiting for Bitcoin Cash claim to be seen on network before claiming EVM',
+        );
+        return;
+      }
+
+      this.applyEvent(order, {
+        type: 'USER_CLAIM_SEEN',
+        txId: bchClaimTxId,
+        secret: order.secret,
+      });
+    }
+
+    // Step 5: Solver claims on EVM (strictly only after BCH claim is seen on network)
+    if (order.status === 'USER_CLAIM_SEEN') {
       if (!order.secret) return;
 
       const claimResult = await this.evmExecutor.executeOrAdopt({
