@@ -916,9 +916,7 @@ export function SwapCard({
             <AmountSlider
               percent={sharePercent}
               onPercent={applyShare}
-              balanceText={(Number(walletBalance) / 10 ** sendDecimals).toFixed(
-                2,
-              )}
+              balanceText={floorUnitsToText(walletBalance, sendDecimals, 2)}
               symbol={sendTokenSymbol}
             />
           )}

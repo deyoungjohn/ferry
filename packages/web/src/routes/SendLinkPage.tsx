@@ -11,21 +11,33 @@ import {
 } from '../lib/paylink/order-steps';
 import { getModeCopy } from '../lib/copy';
 import { SolverContext } from '../lib/solver/context';
-import type { SendLinkView } from '../lib/solver/types';
+import type { SendLinkView, SolverClient } from '../lib/solver/types';
 import { extractSecretFromHash } from '../lib/send/secret';
 import { loadSendLink } from '../lib/paylink/send-store';
 import {
   claimSendLinkLive,
+  ensureLinkChain,
   type ClaimSendLinkDependencies,
 } from '../lib/send/claim-send-link';
 import { WalletContext } from '../lib/wallet/context';
 import { evmSignerFromWallet } from '../lib/live/ports';
-import { SolverClient } from '@ferry/solver-client';
+import { SolverClient as RealSolverClient } from '@ferry/solver-client';
 import { plainWalletMessage } from '@ferry/user-flow';
 import type { SendLinkSolverPort } from '../lib/send/ports';
 import type { SendLinkWaitState } from '../lib/send/types';
-import type { Hex32 } from '@ferry/core';
+import type { Hex32, LiquidityResponse } from '@ferry/core';
+import {
+  confirmRouteRequestTypedData,
+  switchRouteRequestTypedData,
+} from '@ferry/core/api';
 import { useToast } from '../lib/toast/ToastContext';
+import {
+  evaluateReceiverRoutes,
+  findAlternativeRoutes,
+  normalizeChainKey,
+  type ReceiverRouteOption,
+} from '../lib/send/receiver-routes';
+import { farTokenFacts } from '../lib/solver/core-quote';
 
 type Load =
   | { readonly state: 'loading' }
@@ -39,7 +51,17 @@ function formatDeadline(seconds: number): string {
   }).format(new Date(seconds * 1000));
 }
 
-export function computeWaitState(
+function formatTimeLeft(seconds: number): string {
+  if (seconds <= 0) return 'Expired';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${minutes}m left`;
+  }
+  return `${minutes}m left`;
+}
+
+function computeWaitState(
   status: string,
   expiresAt: number | null,
 ): SendLinkWaitState {
@@ -89,6 +111,50 @@ export function SendLinkPage({
   const [error, setError] = useState<string | null>(null);
 
   const isLive = propIsLive ?? import.meta.env?.VITE_LIVE_EXECUTION === '1';
+  const solverUrl = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
+    ?.split(',')[0]
+    ?.trim();
+
+  const [selectedRoute, setSelectedRoute] =
+    useState<ReceiverRouteOption | null>(null);
+  const [lockingProgress, setLockingProgress] = useState<string | null>(null);
+  const [liquidity, setLiquidity] = useState<LiquidityResponse | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch liquidity for receiver route options
+  useEffect(() => {
+    let active = true;
+    const fetchLiquidity = async () => {
+      try {
+        const liveSolver =
+          dependencies?.solver ??
+          (solverUrl
+            ? new RealSolverClient({ baseUrl: solverUrl })
+            : undefined) ??
+          solverContext ??
+          undefined;
+        if (liveSolver && 'getLiquidity' in liveSolver) {
+          const res = await (
+            liveSolver as unknown as SolverClient
+          ).getLiquidity();
+          if (active && res) setLiquidity(res);
+        }
+      } catch {
+        // Telemetry fallback
+      }
+    };
+    void fetchLiquidity();
+    return () => {
+      active = false;
+    };
+  }, [dependencies, solverContext, solverUrl]);
 
   // The secret rides in the link's fragment. The sender's own browser also keeps it, so a link of
   // theirs opens ready to claim even when the fragment was lost on the way.
@@ -146,6 +212,49 @@ export function SendLinkPage({
   const isPendingLock = waitState === "the sender's funds are being locked";
   const isClaimed = waitState === 'claimed';
   const isExpired = waitState === 'expired: the sender gets their funds back';
+  const isHeld = Boolean(link?.isHeld);
+  const nowSeconds = Math.floor(nowMs / 1000);
+  const secondsLeft =
+    link?.expiresAt !== null && link?.expiresAt !== undefined
+      ? Math.max(0, link.expiresAt - nowSeconds)
+      : null;
+  // Safety margin: 30 minutes (1800s) buffer before deadline while still open
+  const isTooLate =
+    !isExpired && !isClaimed && secondsLeft !== null && secondsLeft < 1800;
+  const canClaimOrConfirm = isHeld
+    ? !isCancelled && !isExpired && !isClaimed && !isTooLate
+    : isReadyToClaim;
+
+  const currentRouteKey = link
+    ? `${link.token.toLowerCase()}:${normalizeChainKey(link.chain)}`
+    : '';
+  const evaluatedRoutes = evaluateReceiverRoutes(liquidity, link?.amount ?? 0);
+  const currentRouteOption = evaluatedRoutes.find(
+    (r) => r.routeKey.toLowerCase() === currentRouteKey.toLowerCase(),
+  );
+
+  const isShortLiquidity =
+    liquidity !== null &&
+    Array.isArray(liquidity.routes) &&
+    liquidity.routes.length > 0 &&
+    (!currentRouteOption || !currentRouteOption.hasLiquidity);
+
+  const alternativeRoutes = findAlternativeRoutes(
+    liquidity,
+    currentRouteKey,
+    link?.amount ?? 0,
+  );
+
+  const canSwitchRoute =
+    link !== null &&
+    !isCancelled &&
+    link.status !== 'cancelled' &&
+    !link.lockId &&
+    (link.status === 'pending_lock' ||
+      (link.status === 'open' && !link.lockId) ||
+      isHeld) &&
+    !claimedLocally &&
+    !isTooLate;
 
   // The funds go to the address entered when the link was made, whoever sends the claim. A
   // different wallet is told so, and cannot start the claim from here.
@@ -154,7 +263,62 @@ export function SendLinkPage({
     link !== null &&
     connectedEvm !== null &&
     connectedEvm !== link.recipientEvmAddress.toLowerCase();
-  const claimable = isReadyToClaim && !claiming && !wrongWallet && !isCancelled;
+  const claimable =
+    canClaimOrConfirm &&
+    !claiming &&
+    !wrongWallet &&
+    !isCancelled &&
+    !isTooLate;
+
+  const displayChain = selectedRoute?.chain
+    ? selectedRoute.chain.toUpperCase()
+    : (link?.chain ?? '');
+  const displayToken = selectedRoute?.asset ?? link?.token ?? 'USDC';
+  const displayAmount = link?.amount ?? null;
+
+  async function handleSwitchRoute(target: ReceiverRouteOption) {
+    if (!link) return;
+
+    const now = Math.floor(Date.now() / 1000);
+    const timeLeft = link.expiresAt ? link.expiresAt - now : null;
+    if (timeLeft !== null && timeLeft < 1800) {
+      setError(
+        'This send link can no longer be claimed in time. The sender will receive a refund on Bitcoin Cash.',
+      );
+      return;
+    }
+
+    if (
+      isCancelled ||
+      link.lockId ||
+      link.status === 'locked' ||
+      link.status === 'claimed' ||
+      link.status === 'expired' ||
+      link.status === 'refunded' ||
+      link.status === 'cancelled'
+    ) {
+      setError(
+        isCancelled || link.status === 'cancelled'
+          ? 'Cannot switch route: this send link has been cancelled'
+          : 'Cannot switch route: the solver has already locked funds on the destination chain',
+      );
+      return;
+    }
+
+    const connectedAddress = wallets?.evm.address?.toLowerCase();
+    if (
+      connectedAddress &&
+      connectedAddress !== link.recipientEvmAddress.toLowerCase()
+    ) {
+      setError(
+        `Only ${link.recipientEvmAddress} can change this route: sign the switch request with that wallet`,
+      );
+      return;
+    }
+
+    setSelectedRoute(target);
+    setError(null);
+  }
 
   async function handleClaim() {
     if (isLive && wallets && !wallets.evm.address) {
@@ -178,16 +342,18 @@ export function SendLinkPage({
           );
         }
 
-        // The library client talks to the solver's real relay endpoint. The page's general solver
-        // client has no relay method, so it is never used here.
         const solverUrl = (
           import.meta.env?.VITE_SOLVER_URLS as string | undefined
         )
           ?.split(',')[0]
           ?.trim();
-        const liveSolver: SendLinkSolverPort | undefined =
+        const liveSolver =
           dependencies?.solver ??
-          (solverUrl ? new SolverClient({ baseUrl: solverUrl }) : undefined);
+          (solverUrl
+            ? new RealSolverClient({ baseUrl: solverUrl })
+            : undefined) ??
+          solverContext ??
+          undefined;
         if (!liveSolver) {
           throw new Error(
             'No solver is configured, so the claim cannot be sent through it.',
@@ -198,19 +364,148 @@ export function SendLinkPage({
           dependencies?.evmSigner ??
           (wallets?.evm ? evmSignerFromWallet(wallets.evm) : undefined);
 
+        const targetRoute = selectedRoute;
+        const facts =
+          targetRoute?.asset && targetRoute.chain
+            ? farTokenFacts(targetRoute.chain, targetRoute.asset)
+            : undefined;
+        const targetChainId =
+          targetRoute?.chainId ?? facts?.chainId ?? link?.chainId;
+        const targetToken = (facts?.address ??
+          link?.evmToken ??
+          '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913') as `0x${string}`;
+
+        let currentLink = link;
+
+        // If held, confirm route (one signature!)
+        if (currentLink?.isHeld) {
+          if (!evmSigner) {
+            throw new Error(
+              'EVM signer not available to authorize route confirmation',
+            );
+          }
+
+          // Switch / ensure wallet is on target chain
+          if (
+            wallets?.evm?.switchChain &&
+            targetChainId &&
+            wallets.evm.chainId !== targetChainId
+          ) {
+            await wallets.evm.switchChain(targetChainId);
+          }
+          if (targetChainId) {
+            await ensureLinkChain(evmSigner, targetChainId);
+          }
+
+          const activeOrderId = (currentLink?.orderId ??
+            currentLink?.id ??
+            id ??
+            '') as string;
+          const orderIdHex = (
+            activeOrderId.startsWith('0x')
+              ? activeOrderId
+              : `0x${activeOrderId}`
+          ) as `0x${string}`;
+
+          const isSwitched =
+            targetRoute !== null &&
+            (targetRoute.chainId !== currentLink?.chainId ||
+              (targetToken &&
+                targetToken.toLowerCase() !==
+                  currentLink?.evmToken?.toLowerCase()));
+
+          if (isSwitched && targetChainId && targetToken) {
+            const typed = switchRouteRequestTypedData({
+              orderId: orderIdHex,
+              targetChainId,
+              token: targetToken,
+            });
+            const signature = await evmSigner.signTypedData(typed);
+            if (!liveSolver?.switchSendLinkRoute) {
+              throw new Error('Solver client does not support route switching');
+            }
+            await liveSolver.switchSendLinkRoute(id ?? '', {
+              chainId: targetChainId,
+              token: targetToken,
+              signature,
+            });
+            showToast(
+              `Switched route to ${targetRoute.chain.toUpperCase()}!`,
+              'success',
+            );
+          } else {
+            const defaultChainId = currentLink?.chainId ?? targetChainId!;
+            const defaultToken = (currentLink?.evmToken ??
+              targetToken) as `0x${string}`;
+            const typed = confirmRouteRequestTypedData({
+              orderId: orderIdHex,
+              targetChainId: defaultChainId,
+              token: defaultToken,
+            });
+            const signature = await evmSigner.signTypedData(typed);
+            if (
+              liveSolver &&
+              'confirmSendLinkRoute' in liveSolver &&
+              typeof liveSolver.confirmSendLinkRoute === 'function'
+            ) {
+              await liveSolver.confirmSendLinkRoute(id ?? '', {
+                chainId: defaultChainId,
+                token: defaultToken,
+                signature,
+              });
+            }
+          }
+
+          // Show waiting for solver lock message
+          const lockAmt =
+            displayAmount !== null ? displayAmount.toFixed(2) : '';
+          setLockingProgress(
+            `The solver is locking ${lockAmt} ${displayToken} on ${displayChain}`,
+          );
+
+          // Poll order until solver lock is ready or timeout
+          const pollStart = Date.now();
+          while (Date.now() - pollStart < 60_000) {
+            const fetchFn =
+              (
+                liveSolver as unknown as {
+                  getSendLink?: (id: string) => Promise<SendLinkView | null>;
+                }
+              )?.getSendLink ?? solverContext?.getSendLink;
+            if (fetchFn && id) {
+              const updated = await fetchFn(id);
+              if (updated) {
+                setLoad({ state: 'ready', link: updated });
+                writeSnapshot(`sendview.${id}`, updated);
+                if (
+                  !updated.isHeld ||
+                  updated.status === 'open' ||
+                  updated.status === 'locked'
+                ) {
+                  currentLink = updated;
+                  break;
+                }
+              }
+            }
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+          setLockingProgress(null);
+        }
+
         await claimSendLinkLive(
           {
             id: id ?? '',
-            recipientEvmAddress: link?.recipientEvmAddress,
+            recipientEvmAddress: currentLink?.recipientEvmAddress,
             secret: activeSecret,
-            // The link says which lock to claim; nothing else in the page knows it.
-            ...(rawLink?.lockId ? { lockId: rawLink.lockId as Hex32 } : {}),
-            ...(rawLink?.chainId ? { chainId: rawLink.chainId } : {}),
+            ...(currentLink?.lockId
+              ? { lockId: currentLink.lockId as Hex32 }
+              : {}),
+            ...(currentLink?.chainId ? { chainId: currentLink.chainId } : {}),
           },
           {
-            solver: liveSolver,
+            solver: liveSolver as unknown as SendLinkSolverPort,
             evmSigner,
-            chainId: dependencies?.chainId,
+            chainId: currentLink?.chainId ?? dependencies?.chainId,
             htlcAddress: dependencies?.htlcAddress,
             solverEvmAddress: dependencies?.solverEvmAddress,
             hashLock: dependencies?.hashLock,
@@ -221,15 +516,15 @@ export function SendLinkPage({
         showToast('Funds claimed successfully!', 'success');
       } catch (cause) {
         const text = cause instanceof Error ? cause.message : String(cause);
-        // Our own sentences pass through; a wallet or library failure is put in plain words.
         setError(
-          /^(Your wallet|The connected wallet|This link|No solver|Only 0x|The solver)/.test(
+          /^(Your wallet|The connected wallet|This link|No solver|Only 0x|The solver|Cannot switch|Cannot confirm|This send link)/.test(
             text,
           )
             ? text
             : plainWalletMessage(cause).replace(/ Nothing was locked\.$/, ''),
         );
       } finally {
+        setLockingProgress(null);
         setClaiming(false);
       }
       return;
@@ -242,9 +537,6 @@ export function SendLinkPage({
   }
 
   // The steps of the swap behind the link, from the solver's record of its transactions.
-  const solverUrl = (import.meta.env?.VITE_SOLVER_URLS as string | undefined)
-    ?.split(',')[0]
-    ?.trim();
   const [snapshot, setSnapshot] = useState<OrderSnapshot | null>(() =>
     id ? readSnapshot<OrderSnapshot>(`send.${id}`) : null,
   );
@@ -362,11 +654,11 @@ export function SendLinkPage({
                     {copy.receiveLabel}
                   </span>
                   <div className="text-xl font-semibold text-text">
-                    {link.amount !== null ? link.amount.toFixed(2) : '—'}{' '}
-                    {link.token}
+                    {displayAmount !== null ? displayAmount.toFixed(2) : '—'}{' '}
+                    {displayToken}
                   </div>
                   <span className="text-[11px] text-text-dim block mt-0.5">
-                    On {link.chain}
+                    On {displayChain}
                   </span>
                 </div>
 
@@ -391,15 +683,120 @@ export function SendLinkPage({
 
                 {link.expiresAt !== null && (
                   <div className="rounded-well border border-hairline bg-surface-2 p-3">
-                    <span className="text-text-dim block mb-1">
-                      Claim before
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-text-dim block mb-1">
+                        Claim before
+                      </span>
+                      {secondsLeft !== null && (
+                        <span
+                          data-testid="send-link-time-left"
+                          className={`text-[11px] font-medium ${isTooLate ? 'text-danger font-semibold' : 'text-text-muted'}`}
+                        >
+                          {formatTimeLeft(secondsLeft)}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-text">
                       {formatDeadline(link.expiresAt)}
                     </span>
+                    <p className="mt-1 text-[11px] text-text-muted">
+                      At zero, this send link can no longer be claimed and the
+                      sender will receive a refund on Bitcoin Cash.
+                    </p>
                   </div>
                 )}
               </div>
+
+              {isTooLate && (
+                <div
+                  data-testid="send-link-too-late-notice"
+                  className="mb-4 rounded-well border border-danger/30 bg-danger/10 p-3 text-danger text-xs"
+                  role="alert"
+                >
+                  This send link can no longer be claimed in time. The sender
+                  will receive a refund on Bitcoin Cash.
+                </div>
+              )}
+
+              {isShortLiquidity && (
+                <div
+                  data-testid="send-link-liquidity-warning"
+                  className="mb-4 rounded-well border border-warn/30 bg-warn/10 p-3 text-warn text-xs"
+                >
+                  <p className="font-semibold">
+                    Not enough liquidity on {displayChain} right now
+                  </p>
+                  {alternativeRoutes.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-[11px] text-text-muted mb-2">
+                        Switch to an alternative chain with available liquidity:
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {alternativeRoutes.map((alt) => (
+                          <button
+                            key={alt.routeKey}
+                            type="button"
+                            data-testid={`switch-route-${alt.chain.toLowerCase()}`}
+                            disabled={claiming || isTooLate}
+                            onClick={() => handleSwitchRoute(alt)}
+                            className={`rounded-pill border px-3 py-1 text-xs font-medium cursor-pointer disabled:opacity-50 transition-colors ${
+                              selectedRoute?.routeKey === alt.routeKey
+                                ? 'bg-olive text-text border-lime'
+                                : 'bg-surface-2 border-hairline text-text hover:bg-surface-3'
+                            }`}
+                          >
+                            {selectedRoute?.routeKey === alt.routeKey
+                              ? '✓ '
+                              : ''}
+                            Switch to {alt.chain.toUpperCase()} ({alt.asset})
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {canSwitchRoute &&
+                !isShortLiquidity &&
+                alternativeRoutes.length > 0 && (
+                  <div
+                    data-testid="send-link-route-selector"
+                    className="mb-4 rounded-well border border-hairline bg-surface-2 p-3 text-xs"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-text-dim">
+                        Receiver route choice
+                      </span>
+                      <span className="text-[11px] text-lime font-medium">
+                        Available
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-text-muted mb-2">
+                      You can switch destination chain before solver locks
+                      funds:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {alternativeRoutes.map((alt) => (
+                        <button
+                          key={alt.routeKey}
+                          type="button"
+                          data-testid={`switch-route-${alt.chain.toLowerCase()}`}
+                          disabled={claiming}
+                          onClick={() => handleSwitchRoute(alt)}
+                          className={`rounded-pill border px-2.5 py-1 text-[11px] font-medium cursor-pointer disabled:opacity-50 transition-colors ${
+                            selectedRoute?.routeKey === alt.routeKey
+                              ? 'bg-olive text-text border-lime'
+                              : 'bg-surface-1 border-hairline text-text hover:bg-surface-3'
+                          }`}
+                        >
+                          {selectedRoute?.routeKey === alt.routeKey ? '✓ ' : ''}
+                          Switch to {alt.chain.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               {error && (
                 <p className="mb-3 text-danger text-xs" role="alert">
@@ -415,21 +812,25 @@ export function SendLinkPage({
                 className="flex h-11 w-full items-center justify-center gap-2 rounded-pill bg-olive text-text font-semibold hover:bg-olive/90 transition-colors cursor-pointer shadow-elev-pill disabled:opacity-40"
               >
                 <span>
-                  {claiming
-                    ? 'Processing claim…'
-                    : isPendingLock
-                      ? "the sender's funds are being locked"
-                      : isCancelled
-                        ? 'Cancelled by the sender'
-                        : isReadyToClaim
-                          ? isLive && wallets && !wallets.evm.address
-                            ? 'Connect and claim'
-                            : 'Claim'
-                          : isClaimed
-                            ? 'Claimed'
-                            : isExpired
-                              ? 'expired: the sender gets their funds back'
-                              : 'This link is no longer open'}
+                  {lockingProgress
+                    ? lockingProgress
+                    : claiming
+                      ? 'Processing claim…'
+                      : isPendingLock && !isHeld
+                        ? "the sender's funds are being locked"
+                        : isCancelled
+                          ? 'Cancelled by the sender'
+                          : isExpired
+                            ? 'expired: the sender gets their funds back'
+                            : isClaimed
+                              ? 'Claimed'
+                              : isTooLate
+                                ? 'Expired: cannot be claimed in time'
+                                : isLive && wallets && !wallets.evm.address
+                                  ? 'Connect and claim'
+                                  : isHeld
+                                    ? 'Connect and claim'
+                                    : 'Claim'}
                 </span>
               </button>
 

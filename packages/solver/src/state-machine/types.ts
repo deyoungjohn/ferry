@@ -14,7 +14,8 @@ export type OrderStatus =
   | 'EXPIRED'
   | 'REJECTED'
   | 'RELEASED'
-  | 'SOLVER_REFUNDED';
+  | 'SOLVER_REFUNDED'
+  | 'SUPERSEDED';
 
 export type ForwardOrderStatus = OrderStatus;
 

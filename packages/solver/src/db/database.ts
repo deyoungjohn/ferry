@@ -175,6 +175,13 @@ export class SolverDatabase {
           created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
         );
         CREATE INDEX IF NOT EXISTS idx_send_link_tags_order_id ON send_link_tags(order_id);
+        CREATE TABLE IF NOT EXISTS send_link_replacements (
+          original_order_id TEXT PRIMARY KEY,
+          replacement_order_id TEXT NOT NULL,
+          switched_at INTEGER NOT NULL CHECK (switched_at < 100000000000)
+        );
+        CREATE INDEX IF NOT EXISTS idx_send_link_replacements_target ON send_link_replacements(replacement_order_id);
+
         CREATE TABLE IF NOT EXISTS send_link_orders (
           order_id TEXT PRIMARY KEY
         );
@@ -195,6 +202,14 @@ export class SolverDatabase {
           created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
         );
         CREATE INDEX IF NOT EXISTS idx_send_link_cancel_hashes_hash ON send_link_cancel_hashes(cancel_hash);
+
+        CREATE TABLE IF NOT EXISTS send_link_holds (
+          order_id TEXT PRIMARY KEY,
+          confirmed INTEGER NOT NULL DEFAULT 0,
+          confirmed_at INTEGER,
+          created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+        );
+        CREATE INDEX IF NOT EXISTS idx_send_link_holds_confirmed ON send_link_holds(confirmed);
       `);
 
       this.db.pragma(`user_version = ${SUPPORTED_SCHEMA_VERSION}`);
@@ -252,9 +267,16 @@ export class SolverDatabase {
         created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
       );
       CREATE INDEX IF NOT EXISTS idx_send_link_tags_order_id ON send_link_tags(order_id);
-        CREATE TABLE IF NOT EXISTS send_link_orders (
-          order_id TEXT PRIMARY KEY
-        );
+      CREATE TABLE IF NOT EXISTS send_link_replacements (
+        original_order_id TEXT PRIMARY KEY,
+        replacement_order_id TEXT NOT NULL,
+        switched_at INTEGER NOT NULL CHECK (switched_at < 100000000000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_send_link_replacements_target ON send_link_replacements(replacement_order_id);
+
+      CREATE TABLE IF NOT EXISTS send_link_orders (
+        order_id TEXT PRIMARY KEY
+      );
 
       CREATE TABLE IF NOT EXISTS send_link_cancellations (
         id TEXT PRIMARY KEY,
@@ -272,6 +294,14 @@ export class SolverDatabase {
         created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
       );
       CREATE INDEX IF NOT EXISTS idx_send_link_cancel_hashes_hash ON send_link_cancel_hashes(cancel_hash);
+
+      CREATE TABLE IF NOT EXISTS send_link_holds (
+        order_id TEXT PRIMARY KEY,
+        confirmed INTEGER NOT NULL DEFAULT 0,
+        confirmed_at INTEGER,
+        created_at INTEGER NOT NULL CHECK (created_at < 100000000000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_send_link_holds_confirmed ON send_link_holds(confirmed);
     `);
 
     try {
@@ -299,11 +329,73 @@ export class SolverDatabase {
       .run(orderId);
   }
 
+  /** Marks a send link order as held pending receiver confirmation. */
+  markSendLinkHeld(orderId: string, createdAt: number): void {
+    assertSecondsTimestamp(createdAt, 'created_at');
+    this.db
+      .prepare(
+        'INSERT OR IGNORE INTO send_link_holds (order_id, confirmed, created_at) VALUES (?, 0, ?)',
+      )
+      .run(orderId, createdAt);
+  }
+
+  /** Confirms a held send link order so the runner can proceed to counter-lock. */
+  confirmSendLinkHold(orderId: string, confirmedAt: number): void {
+    assertSecondsTimestamp(confirmedAt, 'confirmed_at');
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      this.db
+        .prepare(
+          `INSERT INTO send_link_holds (order_id, confirmed, confirmed_at, created_at)
+           VALUES (?, 1, ?, ?)
+           ON CONFLICT(order_id) DO UPDATE SET confirmed = 1, confirmed_at = excluded.confirmed_at`,
+        )
+        .run(id, confirmedAt, confirmedAt);
+    }
+  }
+
+  /** Returns true if the send link order is held pending receiver confirmation. */
+  isSendLinkHeld(orderId: string): boolean {
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      const row = this.db
+        .prepare('SELECT confirmed FROM send_link_holds WHERE order_id = ?')
+        .get(id) as { confirmed: number } | undefined;
+      if (row !== undefined) {
+        return row.confirmed === 0;
+      }
+    }
+    return false;
+  }
+
   getSendLinkNote(orderId: string): string | null {
     const row = this.db
       .prepare('SELECT note FROM send_link_notes WHERE order_id = ?')
       .get(orderId) as { note: string } | undefined;
-    return row ? row.note : null;
+    if (row) return row.note;
+    const orig = this.getOriginalSendLinkOrderId(orderId);
+    if (orig && orig !== orderId) {
+      const origRow = this.db
+        .prepare('SELECT note FROM send_link_notes WHERE order_id = ?')
+        .get(orig) as { note: string } | undefined;
+      if (origRow) return origRow.note;
+    }
+    const active = this.resolveSendLinkOrderId(orderId);
+    if (active && active !== orderId) {
+      const activeRow = this.db
+        .prepare('SELECT note FROM send_link_notes WHERE order_id = ?')
+        .get(active) as { note: string } | undefined;
+      if (activeRow) return activeRow.note;
+    }
+    return null;
   }
 
   /**
@@ -336,6 +428,198 @@ export class SolverDatabase {
   }
 
   /**
+   * Resolves a send link order id through its replacement chain to the active order id.
+   */
+  resolveSendLinkOrderId(orderId: string): string {
+    let current = orderId;
+    for (let i = 0; i < 10; i++) {
+      const row = this.db
+        .prepare(
+          'SELECT replacement_order_id FROM send_link_replacements WHERE original_order_id = ?',
+        )
+        .get(current) as { replacement_order_id: string } | undefined;
+      if (!row) {
+        break;
+      }
+      current = row.replacement_order_id;
+    }
+    return current;
+  }
+
+  /**
+   * Returns the original root order id that was replaced by this order, if any.
+   */
+  getOriginalSendLinkOrderId(replacementOrderId: string): string | null {
+    let current = replacementOrderId;
+    let original: string | null = null;
+    for (let i = 0; i < 10; i++) {
+      const row = this.db
+        .prepare(
+          'SELECT original_order_id FROM send_link_replacements WHERE replacement_order_id = ?',
+        )
+        .get(current) as { original_order_id: string } | undefined;
+      if (!row) {
+        break;
+      }
+      original = row.original_order_id;
+      current = row.original_order_id;
+    }
+    return original;
+  }
+
+  recordSendLinkReplacement(
+    originalOrderId: string,
+    replacementOrderId: string,
+    switchedAt: number,
+  ): void {
+    assertSecondsTimestamp(switchedAt, 'switched_at');
+    this.db
+      .prepare(
+        `INSERT INTO send_link_replacements (original_order_id, replacement_order_id, switched_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(original_order_id) DO UPDATE SET
+           replacement_order_id = excluded.replacement_order_id,
+           switched_at = excluded.switched_at`,
+      )
+      .run(originalOrderId, replacementOrderId, switchedAt);
+  }
+
+  /**
+   * Atomically verifies that no EVM lock has been broadcast or placed, transitions the
+   * existing order to SUPERSEDED, records the replacement order, and links metadata.
+   */
+  switchSendLinkRouteAtomic(params: {
+    readonly currentOrderId: string;
+    readonly newOrder: OrderRecord;
+    readonly switchedAt: number;
+  }): { ok: true; originalOrderId: string; newOrderId: string } {
+    assertSecondsTimestamp(params.switchedAt, 'switched_at');
+    const runInTx = this.db.transaction(() => {
+      // 1. Fetch current order with transaction-level consistency
+      const currentOrder = this.getOrder(params.currentOrderId);
+      if (!currentOrder) {
+        throw new Error(`Order ${params.currentOrderId} not found`);
+      }
+
+      // 2. Refuse if solver has already broadcast an EVM lock or is in a post-lock status
+      if (
+        currentOrder.solverLockTxId ||
+        currentOrder.status === 'SOLVER_LOCK_BROADCAST' ||
+        currentOrder.status === 'SOLVER_LOCK_SEEN' ||
+        currentOrder.status === 'SECRET_KNOWN' ||
+        currentOrder.status === 'USER_CLAIM_SEEN' ||
+        currentOrder.status === 'SOLVER_CLAIM_BROADCAST' ||
+        currentOrder.status === 'SOLVER_CLAIM_FINAL' ||
+        currentOrder.status === 'DONE' ||
+        currentOrder.status === 'RELEASED' ||
+        currentOrder.status === 'REFUNDED' ||
+        currentOrder.status === 'SOLVER_REFUNDED'
+      ) {
+        const error = new Error(
+          'Cannot switch route: EVM lock already broadcast',
+        );
+        (error as Error & { code?: string }).code = 'LOCK_ALREADY_EXISTS';
+        throw error;
+      }
+
+      // 3. Check for in-flight lock action
+      const lockAction = this.getAction(params.currentOrderId, 'lock');
+      if (
+        lockAction &&
+        (lockAction.status === 'PENDING' ||
+          lockAction.status === 'BROADCAST' ||
+          lockAction.status === 'CONFIRMED')
+      ) {
+        const error = new Error(
+          'Cannot switch route: solver lock is currently in-flight',
+        );
+        (error as Error & { code?: string }).code = 'LOCK_ALREADY_EXISTS';
+        throw error;
+      }
+
+      // 4. Refuse if order has been cancelled
+      if (
+        currentOrder.status === 'CANCELLED' ||
+        this.isOrderCancelled(params.currentOrderId)
+      ) {
+        const error = new Error(
+          'Cannot switch route: send link has been cancelled',
+        );
+        (error as Error & { code?: string }).code = 'LINK_CANCELLED';
+        throw error;
+      }
+
+      // 5. Insert new order record
+      this.saveOrder(params.newOrder);
+
+      // 6. Mark old order as SUPERSEDED
+      this.db
+        .prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?')
+        .run('SUPERSEDED', params.switchedAt, params.currentOrderId);
+      this.db
+        .prepare(
+          'INSERT INTO order_events (order_id, status, at) VALUES (?, ?, ?)',
+        )
+        .run(params.currentOrderId, 'SUPERSEDED', params.switchedAt);
+
+      // 7. Record replacement
+      this.recordSendLinkReplacement(
+        params.currentOrderId,
+        params.newOrder.id,
+        params.switchedAt,
+      );
+
+      // Also if currentOrderId was replacing an earlier order, ensure root original order points to newOrder
+      const originalRoot = this.getOriginalSendLinkOrderId(
+        params.currentOrderId,
+      );
+      if (originalRoot && originalRoot !== params.currentOrderId) {
+        this.recordSendLinkReplacement(
+          originalRoot,
+          params.newOrder.id,
+          params.switchedAt,
+        );
+      }
+
+      // 8. Carry over send link tag if one was registered
+      const tag = this.getSendLinkTagByOrderId(params.currentOrderId);
+      if (tag) {
+        this.db
+          .prepare('UPDATE send_link_tags SET order_id = ? WHERE tag = ?')
+          .run(params.newOrder.id, tag.toLowerCase());
+      }
+
+      // 9. Carry over send link note if one was registered
+      const note = this.getSendLinkNote(params.currentOrderId);
+      if (note) {
+        this.saveSendLinkNote(params.newOrder.id, note, params.switchedAt);
+      }
+
+      // 10. Carry over send link cancel hash if one was registered
+      const cancelHashRow = this.getSendLinkCancelHash(params.currentOrderId);
+      if (cancelHashRow) {
+        this.saveSendLinkCancelHash(
+          params.newOrder.id,
+          cancelHashRow.cancelHash,
+          params.switchedAt,
+        );
+      }
+
+      // 11. Confirm hold for the send link route switch
+      this.confirmSendLinkHold(params.currentOrderId, params.switchedAt);
+      this.confirmSendLinkHold(params.newOrder.id, params.switchedAt);
+
+      return {
+        ok: true as const,
+        originalOrderId: originalRoot ?? params.currentOrderId,
+        newOrderId: params.newOrder.id,
+      };
+    });
+
+    return runInTx();
+  }
+
+  /**
    * Save a cancel hash for a send link order.
    * Stored beside the order, never inside its signed terms.
    */
@@ -361,11 +645,21 @@ export class SolverDatabase {
     cancelHash: string;
     spent: boolean;
   } | null {
-    const row = this.db
+    let row = this.db
       .prepare(
         'SELECT cancel_hash as cancelHash, spent FROM send_link_cancel_hashes WHERE order_id = ?',
       )
       .get(orderId) as { cancelHash: string; spent: number } | undefined;
+    if (!row) {
+      const orig = this.getOriginalSendLinkOrderId(orderId);
+      if (orig) {
+        row = this.db
+          .prepare(
+            'SELECT cancel_hash as cancelHash, spent FROM send_link_cancel_hashes WHERE order_id = ?',
+          )
+          .get(orig) as { cancelHash: string; spent: number } | undefined;
+      }
+    }
     if (!row) return null;
     return {
       cancelHash: row.cancelHash,
@@ -374,11 +668,18 @@ export class SolverDatabase {
   }
 
   markSendLinkCancelHashSpent(orderId: string): void {
-    this.db
-      .prepare(
-        'UPDATE send_link_cancel_hashes SET spent = 1 WHERE order_id = ?',
-      )
-      .run(orderId);
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      this.db
+        .prepare(
+          'UPDATE send_link_cancel_hashes SET spent = 1 WHERE order_id = ?',
+        )
+        .run(id);
+    }
   }
 
   getOrdersBySendLinkTags(
@@ -398,10 +699,20 @@ export class SolverDatabase {
     const rows = stmt.all(...normalizedTags) as Array<
       { tag: string } & Record<string, unknown>
     >;
-    return rows.map((r) => ({
-      tag: r.tag,
-      order: this.mapOrderRow(r),
-    }));
+    return rows.map((r) => {
+      const initialOrder = this.mapOrderRow(r);
+      const activeId = this.resolveSendLinkOrderId(initialOrder.id);
+      if (activeId !== initialOrder.id) {
+        const activeOrder = this.getOrder(activeId);
+        if (activeOrder) {
+          return { tag: r.tag, order: activeOrder };
+        }
+      }
+      return {
+        tag: r.tag,
+        order: initialOrder,
+      };
+    });
   }
 
   /**
@@ -413,24 +724,47 @@ export class SolverDatabase {
     cancelledAt: number,
   ): void {
     assertSecondsTimestamp(cancelledAt, 'cancelled_at');
-    const id = `cancel_${orderId}`;
     const normalizedSender = senderIdentity.toLowerCase();
-    this.db
-      .prepare(
-        `INSERT INTO send_link_cancellations (id, order_id, sender_identity, cancelled_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET cancelled_at = excluded.cancelled_at`,
-      )
-      .run(id, orderId, normalizedSender, cancelledAt);
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      const recordId = `cancel_${id}`;
+      this.db
+        .prepare(
+          `INSERT INTO send_link_cancellations (id, order_id, sender_identity, cancelled_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET cancelled_at = excluded.cancelled_at`,
+        )
+        .run(recordId, id, normalizedSender, cancelledAt);
+      const ord = this.getOrder(id);
+      if (ord && ord.status !== 'CANCELLED') {
+        this.db
+          .prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?')
+          .run('CANCELLED', cancelledAt, id);
+      }
+    }
   }
 
   isOrderCancelled(orderId: string): boolean {
-    const row = this.db
-      .prepare(
-        'SELECT 1 FROM send_link_cancellations WHERE order_id = ? OR id = ?',
-      )
-      .get(orderId, `cancel_${orderId}`);
-    return row !== undefined;
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      const row = this.db
+        .prepare(
+          'SELECT 1 FROM send_link_cancellations WHERE order_id = ? OR id = ?',
+        )
+        .get(id, `cancel_${id}`);
+      if (row !== undefined) return true;
+      const order = this.getOrder(id);
+      if (order && order.status === 'CANCELLED') return true;
+    }
+    return false;
   }
 
   getCancellationForOrder(orderId: string): {
@@ -439,19 +773,27 @@ export class SolverDatabase {
     senderIdentity: string;
     cancelledAt: number;
   } | null {
-    const row = this.db
-      .prepare(
-        'SELECT id, order_id as orderId, sender_identity as senderIdentity, cancelled_at as cancelledAt FROM send_link_cancellations WHERE order_id = ? OR id = ?',
-      )
-      .get(orderId, `cancel_${orderId}`) as
-      | {
-          id: string;
-          orderId: string;
-          senderIdentity: string;
-          cancelledAt: number;
-        }
-      | undefined;
-    return row ?? null;
+    const activeId = this.resolveSendLinkOrderId(orderId);
+    const origId = this.getOriginalSendLinkOrderId(orderId);
+    const ids = Array.from(
+      new Set([orderId, activeId, ...(origId ? [origId] : [])]),
+    );
+    for (const id of ids) {
+      const row = this.db
+        .prepare(
+          'SELECT id, order_id as orderId, sender_identity as senderIdentity, cancelled_at as cancelledAt FROM send_link_cancellations WHERE order_id = ? OR id = ?',
+        )
+        .get(id, `cancel_${id}`) as
+        | {
+            id: string;
+            orderId: string;
+            senderIdentity: string;
+            cancelledAt: number;
+          }
+        | undefined;
+      if (row) return row;
+    }
+    return null;
   }
 
   getSendLinkCancellationQuota(
@@ -778,7 +1120,7 @@ export class SolverDatabase {
     const stmt = this.db.prepare(`
       SELECT * FROM orders
       WHERE LOWER(user_counter_address) = LOWER(?)
-        AND status NOT IN ('QUOTED', 'EXPIRED', 'REJECTED')
+        AND status NOT IN ('QUOTED', 'EXPIRED', 'REJECTED', 'SUPERSEDED')
       ORDER BY created_at DESC
       LIMIT ?
     `);
@@ -789,7 +1131,7 @@ export class SolverDatabase {
   listNonTerminalOrders(): OrderRecord[] {
     const stmt = this.db.prepare(`
       SELECT * FROM orders 
-      WHERE status NOT IN ('DONE', 'EXPIRED', 'REJECTED', 'RELEASED', 'REFUNDED', 'SOLVER_REFUNDED')
+      WHERE status NOT IN ('DONE', 'EXPIRED', 'REJECTED', 'RELEASED', 'REFUNDED', 'SOLVER_REFUNDED', 'SUPERSEDED', 'CANCELLED')
       ORDER BY created_at ASC
     `);
     const rows = stmt.all() as Array<Record<string, unknown>>;
@@ -799,7 +1141,7 @@ export class SolverDatabase {
   listOrdersForKeeper(): OrderRecord[] {
     const stmt = this.db.prepare(`
       SELECT * FROM orders
-      WHERE status NOT IN ('DONE', 'RELEASED', 'SOLVER_REFUNDED')
+      WHERE status NOT IN ('DONE', 'RELEASED', 'SOLVER_REFUNDED', 'SUPERSEDED', 'CANCELLED')
       ORDER BY created_at ASC
     `);
     const rows = stmt.all() as Array<Record<string, unknown>>;

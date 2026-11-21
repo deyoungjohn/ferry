@@ -15,6 +15,10 @@ import { loadSendLink } from '../paylink/send-store';
 import { formatPricingEvidence } from './pricing-display';
 import { defaultMockServer } from './mock-fetch';
 import type {
+  SwitchSendLinkRouteRequest,
+  SwitchSendLinkRouteResponse,
+} from '@ferry/core/api';
+import type {
   SendLinkView,
   SolverClient,
   QuoteRequest,
@@ -963,6 +967,24 @@ export class MockSolverClient implements SolverClient {
       recipientEvmAddress: link.recipientEvmAddress,
       expiresAt: link.expiresAt,
       note: link.note,
+    };
+  }
+
+  async switchSendLinkRoute(
+    id: string,
+    request: SwitchSendLinkRouteRequest,
+  ): Promise<SwitchSendLinkRouteResponse> {
+    const link = loadSendLink(id);
+    const now = Math.floor(Date.now() / 1000);
+    return {
+      ok: true,
+      originalOrderId: (id.startsWith('0x') ? id : `0x${id}`) as `0x${string}`,
+      newOrderId: (id.startsWith('0x') ? id : `0x${id}`) as `0x${string}`,
+      chainId: request.chainId,
+      token: request.token,
+      evmAmount: 1_000_000n,
+      expiresAt: link?.expiresAt ?? now + 86400,
+      updatedAt: now,
     };
   }
 

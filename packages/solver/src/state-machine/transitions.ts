@@ -24,7 +24,8 @@ export function isTerminalStatus(status: OrderStatus): boolean {
     status === 'EXPIRED' ||
     status === 'REJECTED' ||
     status === 'RELEASED' ||
-    status === 'SOLVER_REFUNDED'
+    status === 'SOLVER_REFUNDED' ||
+    status === 'SUPERSEDED'
   );
 }
 
