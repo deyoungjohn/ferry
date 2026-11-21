@@ -5,7 +5,6 @@ import { useWizardConnect } from '@wizardconnect/react';
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -324,19 +323,38 @@ function useRealBchWallet(
     readRememberedBchWallet(),
   );
 
-  // Derive address from wizard connect manager
-  const derived = useMemo<BchAddressInfo | null>(() => {
-    if (wizard.state !== 'connected' || !wizard.manager) return null;
-    try {
-      const pubkey = wizard.manager.getPubkey(0, 0n);
-      if (!pubkey) return null;
-      return {
-        ...addressFromPubkey(pubkey),
-        index: 0,
-      };
-    } catch {
-      return null;
+  // Derive the address from the wallet's first public key. The key can arrive a moment after the
+  // wallet reports ready, so it is read again every 200 ms for up to 10 seconds; reading it once
+  // at the event left a paired wallet without an address.
+  const [derived, setDerived] = useState<BchAddressInfo | null>(null);
+  useEffect(() => {
+    if (wizard.state !== 'connected' || !wizard.manager) {
+      setDerived(null);
+      return;
     }
+    const manager = wizard.manager;
+    let stopped = false;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = () => {
+      if (stopped) return;
+      try {
+        const pubkey = manager.getPubkey(0, 0n);
+        if (pubkey) {
+          setDerived({ ...addressFromPubkey(pubkey), index: 0 });
+          return;
+        }
+      } catch {
+        // not there yet
+      }
+      tries += 1;
+      if (tries < 50) timer = setTimeout(attempt, 200);
+    };
+    attempt();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [wizard.state, wizard.manager]);
 
   const address = derived ?? remembered?.address ?? null;
@@ -391,8 +409,13 @@ function useRealBchWallet(
       setDialogOpen(true);
       connectStartedAt.current = Date.now();
       // Normal case: open the QR dialog directly. A stale restored
-      // attempt needs the clear-and-remount path to offer fresh QR.
-      if (wizard.state === 'connecting' || wizard.state === 'reconnecting') {
+      // attempt needs the clear-and-remount path to offer fresh QR, and so does a session the
+      // library calls connected but that never gave an address (connect would be ignored).
+      if (
+        wizard.state === 'connecting' ||
+        wizard.state === 'reconnecting' ||
+        (wizard.state === 'connected' && !address)
+      ) {
         onRestart();
         return;
       }
