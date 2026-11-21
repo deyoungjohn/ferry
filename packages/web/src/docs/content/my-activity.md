@@ -1,20 +1,24 @@
 # My activity
 
-[My activity](/app/my-activity) lists your swaps, pay links and send links. It is rebuilt from the chains, not from a Ferry account.
+[My activity](/app/my-activity) lists your swaps, including pay link payments and send links. You do not need an account: the list is found from your wallets.
 
 ## Where the list comes from
 
-- **EVM side:** `Locked`, `Claimed` and `Refunded` events of `FerryHTLC` for your address, read from public RPCs.
-- **Bitcoin Cash side:** your address history, with each covenant's redeem script parsed back into its terms.
-- **Recovery key:** with your wallet's recovery signature, Ferry can also find swaps whose hash locks came from your key.
+- **EVM wallet:** the swaps whose EVM side is your connected address.
+- **Bitcoin Cash wallet:** Bitcoin Cash wallets use a new address for each payment, so Ferry asks the connected wallet for every address it has used (worked out from its public keys, with no prompt on your phone) and lists the swaps on any of them.
+- **A pasted address:** paste any Bitcoin Cash address and press **Inspect Address** to see the swaps on that address alone.
 
-The solver's own record adds labels (such as which swaps paid a pay link) but is never the only source.
+The list comes from the solver's public record (`GET /v1/orders`, see [Solver API](/docs/api#swaps)). Each row opens the swap's page, which shows every transaction with a link to its explorer, so nothing in the list has to be taken on trust.
+
+## When you need more than the list
+
+[Recover](/docs/recovery) does not depend on the solver: it rebuilds your swaps from your wallet's recovery key and reads the chains directly.
 
 ## Statuses
 
-| Status            | Meaning                                            |
-| ----------------- | -------------------------------------------------- |
-| In progress       | Locks are being made or claimed                    |
-| Needs your action | A claim or refund waits for you; open it to finish |
-| Done              | Both claims are on chain                           |
-| Refunded          | A lock went back to its sender                     |
+| Status         | Meaning                                                |
+| -------------- | ------------------------------------------------------ |
+| In progress    | Locks are being made or claimed                        |
+| Ready to claim | The solver's lock is there; open the swap to finish it |
+| Completed      | Both claims are on chain                               |
+| Refunded       | A lock went back to its sender                         |

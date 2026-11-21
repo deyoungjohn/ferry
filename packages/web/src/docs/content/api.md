@@ -10,13 +10,15 @@ The solver serves a JSON API under `/v1`. On the live site it is at `https://fer
 
 ## Swaps
 
-| Method | Path                              | Purpose                                                |
-| ------ | --------------------------------- | ------------------------------------------------------ |
-| POST   | `/v1/quotes`                      | Signed quote (`dryRun: true` prices without reserving) |
-| GET    | `/v1/orders/:orderId`             | Order state and transaction ids                        |
-| POST   | `/v1/orders/:orderId/relay-lock`  | Relay a gasless lock (permit and intent)               |
-| POST   | `/v1/orders/:orderId/relay-claim` | Relay the user's claim                                 |
-| POST   | `/v1/orders/:orderId/secret`      | Hand the secret to the solver (handoff)                |
+| Method | Path                              | Purpose                                                                             |
+| ------ | --------------------------------- | ----------------------------------------------------------------------------------- |
+| POST   | `/v1/quotes`                      | Signed quote (`dryRun: true` prices without reserving)                              |
+| GET    | `/v1/orders/:orderId`             | Order state and transaction ids                                                     |
+| GET    | `/v1/orders?address=0x…`          | The swaps of one EVM address                                                        |
+| GET    | `/v1/orders?bch=0x…,0x…`          | The swaps of any of up to 200 Bitcoin Cash locking bytecodes (a wallet's addresses) |
+| POST   | `/v1/orders/:orderId/relay-lock`  | Relay a gasless lock (permit and intent)                                            |
+| POST   | `/v1/orders/:orderId/relay-claim` | Relay the user's claim                                                              |
+| POST   | `/v1/orders/:orderId/secret`      | Hand the secret to the solver (handoff)                                             |
 
 ## Pay links and send links
 
