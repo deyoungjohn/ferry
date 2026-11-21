@@ -1,4 +1,5 @@
 import {
+  hexToBin,
   binToHex,
   encodeLockingBytecodeP2pkh,
   hash160,
@@ -22,4 +23,17 @@ export function addressFromPubkey(pubkey: Uint8Array): BchAddressInfo {
     lockingBytecode: `0x${binToHex(locking)}`,
     tokenAware: true,
   };
+}
+
+/** The token-aware cash address of a locking script (for a swap's fixed recipient). */
+export function cashAddressOfLocking(lockingHex: string): string {
+  const encoded = lockingBytecodeToCashAddress({
+    bytecode: hexToBin(lockingHex.replace(/^0x/i, '')),
+    prefix: NETWORK_PROFILE.bch.prefix,
+    tokenSupport: true,
+  });
+  if (typeof encoded === 'string') {
+    throw new Error(`Could not read the receiving address: ${encoded}`);
+  }
+  return encoded.address;
 }

@@ -1,4 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
+import { cashAddressOfLocking } from '../lib/bch/address';
 import { plainWalletMessage } from '@ferry/user-flow';
 import { finishWithWallet } from '../lib/recovery/finish-with-wallet';
 import { isCancelled, markCancelled } from '../lib/live/cancelled';
@@ -140,6 +141,11 @@ export function LiveOrderView({
       ?.trim();
     if (!solverUrl) throw new Error('No solver is configured.');
     const file = parseRecoveryFileJson(json);
+    // A swap into Bitcoin Cash pays the address fixed in its terms: no Bitcoin Cash wallet needed.
+    const fixedRecipient =
+      file.terms.direction === 'EVM_TO_BCH'
+        ? cashAddressOfLocking(file.terms.userBchLockingBytecode)
+        : undefined;
     return createLiveDependencies({
       wallets: {
         evm: latestWallet(() => walletsRef.current?.evm),
@@ -147,6 +153,7 @@ export function LiveOrderView({
       },
       solverUrl,
       chainId: file.terms.evmChainId,
+      bchRecipientAddress: fixedRecipient,
     });
   }
 
@@ -161,7 +168,12 @@ export function LiveOrderView({
           return;
         }
         if (active) setFileJson(json);
-        if (!dependencies && !wallets?.bch.address) return; // waits for the wallets
+        // Wait for the wallet that signs this direction: EVM into Bitcoin Cash, Bitcoin Cash out.
+        if (!dependencies) {
+          const forward =
+            parseRecoveryFileJson(json).terms.direction === 'EVM_TO_BCH';
+          if (forward ? !wallets?.evm.address : !wallets?.bch.address) return;
+        }
         const session = await UserSwapSession.resume(
           depsFor(json),
           orderId as Hex32,
@@ -185,7 +197,7 @@ export function LiveOrderView({
     };
     // The swap is picked up once per order, and again when the wallets arrive.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, wallets?.bch.address?.address]);
+  }, [orderId, wallets?.bch.address?.address, wallets?.evm.address]);
 
   // A clock for the quote's expiry: the page notices it lapse without a reload.
   useEffect(() => {
@@ -613,7 +625,14 @@ export function LiveOrderView({
     serverIdle &&
     !isReleased &&
     !isKeeperRefund;
-  const waitingForWallets = !dependencies && !wallets?.bch.address;
+  // Only the wallet that signs this direction's lock is needed: EVM into Bitcoin Cash, Bitcoin
+  // Cash out of it.
+  const waitingForWallets =
+    !dependencies &&
+    ((state?.direction ?? fileTerms?.direction ?? snap?.direction) ===
+    'EVM_TO_BCH'
+      ? !wallets?.evm.address
+      : !wallets?.bch.address);
   // The wallet that signs the lock must be connected now (a remembered address is not enough).
   const signer =
     state?.direction === 'EVM_TO_BCH' ? wallets?.evm : wallets?.bch;
