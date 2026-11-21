@@ -184,3 +184,52 @@ export function paymentSummary(order: OrderSnapshot | undefined): {
     chainId: s.evmChainId,
   };
 }
+
+interface RecipientPayLink {
+  readonly id: string;
+  readonly kind?: string;
+  readonly status: PayLinkData['status'];
+  readonly token: 'PUSD' | 'MUSD';
+  readonly recipientAddress: string;
+  readonly amountOut?: string;
+  readonly createdAt: number;
+}
+
+/**
+ * The pay links paying any of a wallet's addresses, as the solver lists them, so they show from
+ * any browser. Read-only: no owner secret (deleting needs the browser that made the link).
+ */
+export async function listPayLinksForWallet(
+  solverUrl: string,
+  lockingBytecodes: readonly string[],
+  fetchFn: typeof fetch = fetch,
+): Promise<PayLinkData[]> {
+  const unique = [
+    ...new Set(
+      lockingBytecodes.map((b) => `0x${b.replace(/^0x/i, '').toLowerCase()}`),
+    ),
+  ].filter((b) => b.length > 2);
+  const out: PayLinkData[] = [];
+  for (let i = 0; i < unique.length; i += 200) {
+    const res = await fetchFn(
+      `${solverUrl.replace(/\/+$/, '')}/v1/links/by-recipient?bch=${unique.slice(i, i + 200).join(',')}`,
+    );
+    if (!res.ok) throw new Error(`The solver answered ${res.status}`);
+    const body = (await res.json()) as { links?: RecipientPayLink[] };
+    for (const link of body.links ?? []) {
+      out.push({
+        id: link.id,
+        recipientCashaddr: link.recipientAddress,
+        token: link.token,
+        amountOut:
+          link.amountOut && /^\d+$/.test(link.amountOut)
+            ? Number(link.amountOut) / 100
+            : undefined,
+        verified: false,
+        status: link.status,
+        createdAt: link.createdAt,
+      });
+    }
+  }
+  return out;
+}

@@ -3020,6 +3020,40 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   });
 
   // 15. GET /v1/links
+  // GET /v1/links/by-recipient?bch=0x…,0x…: the pay links paying any of a wallet's addresses, so
+  // the person sees them from any browser. Public fields only (no memo); deleting a link still
+  // needs its owner secret.
+  app.get('/v1/links/by-recipient', async (req, reply) => {
+    const list = String((req.query as { bch?: string } | undefined)?.bch ?? '')
+      .split(',')
+      .map((b) => b.trim())
+      .filter((b) => b.length > 0);
+    if (
+      list.length === 0 ||
+      list.length > 200 ||
+      !list.every((b) => /^0x[0-9a-fA-F]{2,200}$/.test(b))
+    ) {
+      return reply.status(400).send({
+        error:
+          'bch must be 1 to 200 comma-separated 0x-prefixed locking bytecodes',
+      });
+    }
+    const links = db.listPayLinksByRecipientBytecodes(list).map((l) => ({
+      id: l.id,
+      kind: l.kind ?? (l.amountOut !== undefined ? 'invoice' : 'open'),
+      status: l.status,
+      token: l.token,
+      recipientAddress: l.recipientCashaddr,
+      amountOut: l.amountOut !== undefined ? l.amountOut.toString() : undefined,
+      createdAt: l.createdAt,
+      expiresAt: l.expiresAt,
+      orderId: l.orderId,
+    }));
+    return reply
+      .status(200)
+      .send({ links, asOf: Math.floor(Date.now() / 1000) });
+  });
+
   app.get('/v1/links', async (req, reply) => {
     const parseResult = ListPayLinksQuerySchema.safeParse(req.query);
     if (!parseResult.success) {

@@ -22,15 +22,16 @@ The solver serves a JSON API under `/v1`. On the live site it is at `https://fer
 
 ## Pay links and send links
 
-| Method | Path                    | Purpose                        |
-| ------ | ----------------------- | ------------------------------ |
-| POST   | `/v1/links`             | Create a pay link              |
-| GET    | `/v1/links/:id`         | Read a pay link                |
-| POST   | `/v1/links/:id/quotes`  | Quote a payment                |
-| GET    | `/v1/links?owner=&sig=` | The owner's links (signed)     |
-| POST   | `/v1/links/:id/cancel`  | Delete an unpaid link (signed) |
-| POST   | `/v1/send-quotes`       | Quote a send link              |
-| GET    | `/v1/send-links/:id`    | Read a send link               |
+| Method | Path                                 | Purpose                                                               |
+| ------ | ------------------------------------ | --------------------------------------------------------------------- |
+| POST   | `/v1/links`                          | Create a pay link                                                     |
+| GET    | `/v1/links/:id`                      | Read a pay link                                                       |
+| GET    | `/v1/links/by-recipient?bch=0x…,0x…` | Pay links paying any of a wallet's addresses (public fields, no memo) |
+| POST   | `/v1/links/:id/quotes`               | Quote a payment                                                       |
+| GET    | `/v1/links?owner=&sig=`              | The owner's links (signed)                                            |
+| POST   | `/v1/links/:id/cancel`               | Delete an unpaid link (signed)                                        |
+| POST   | `/v1/send-quotes`                    | Quote a send link                                                     |
+| GET    | `/v1/send-links/:id`                 | Read a send link                                                      |
 
 ## Public data
 

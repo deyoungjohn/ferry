@@ -20,6 +20,7 @@ import {
 import {
   createPayLinkOnSolver,
   deletePayLinkOnSolver,
+  listPayLinksForWallet,
   readPayLinkState,
 } from '../lib/paylink/pay-api';
 import { LIVE_EXECUTION_ENABLED } from '../lib/config';
@@ -106,6 +107,60 @@ export function PayLinksPage() {
       cancelled = true;
     };
   }, [live, solverUrl]);
+
+  // Pay links made in another browser: found from the connected Bitcoin Cash wallet's addresses
+  // (every address it has used). Shown read-only; only the browser that made a link can delete it.
+  const [walletLinks, setWalletLinks] = useState<PayLinkData[]>([]);
+  const bchConnected = bch.status === 'connected';
+  const connectedBytecode = bchConnected
+    ? (bch.address?.lockingBytecode ?? null)
+    : null;
+  useEffect(() => {
+    if (!live || !solverUrl || !connectedBytecode) {
+      setWalletLinks([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const list = walletContext?.bch.listFundingAddresses;
+      let addresses: readonly { lockingBytecodeHex?: string }[] = [];
+      try {
+        addresses = list ? await list() : [];
+      } catch {
+        // The connected address alone is still looked up.
+      }
+      const bytecodes = [
+        connectedBytecode,
+        ...addresses
+          .map((a) => a.lockingBytecodeHex ?? '')
+          .filter((hex) => hex.length > 0),
+      ];
+      const found = await listPayLinksForWallet(solverUrl, bytecodes).catch(
+        () => [] as PayLinkData[],
+      );
+      const withState: PayLinkData[] = [];
+      for (const link of found) {
+        if (link.status !== 'paid') {
+          withState.push(link);
+          continue;
+        }
+        const state = await readPayLinkState(solverUrl, link.id);
+        withState.push(state ? { ...link, ...state } : link);
+      }
+      if (!cancelled) setWalletLinks(withState);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // The wallet object changes on every render; its address is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, solverUrl, connectedBytecode]);
+  const allLinks = [
+    ...createdLinks,
+    ...walletLinks.filter(
+      (link) => !createdLinks.some((own) => own.id === link.id),
+    ),
+  ].sort((a, b) => b.createdAt - a.createdAt);
 
   // Only what the person typed or explicitly chose: the wallet's address is never filled in alone.
   const activeRecipient = pastedAddress.trim();
@@ -494,8 +549,9 @@ export function PayLinksPage() {
             title="All pay links"
             completedLabel="Payment date"
             emptyText="Pay links you create appear here."
-            rows={createdLinks.map(toRow)}
+            rows={allLinks.map(toRow)}
             renderAction={(row) => {
+              // Only links made in this browser carry the secret that deletes them.
               const link = createdLinks.find((item) => item.id === row.id);
               if (!link) return null;
               if (link.status === 'paid' || link.status === 'closed')

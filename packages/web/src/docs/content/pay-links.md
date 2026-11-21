@@ -11,7 +11,7 @@ A pay link asks for money. You choose the Bitcoin Cash address that receives it 
 5. Add an optional note for the payer, up to 140 characters.
 6. Press **Generate pay link**. Copy the link or show the QR code.
 
-Your links appear under **All pay links** with their status. You can delete a link that has not been paid.
+Your links appear under **All pay links** with their status. With your Bitcoin Cash wallet connected, links made in another browser for any of its addresses appear too. You can delete a link that has not been paid from the browser that made it.
 
 ## What the payer sees
 

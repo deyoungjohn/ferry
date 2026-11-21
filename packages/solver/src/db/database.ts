@@ -1734,6 +1734,26 @@ export class SolverDatabase {
     return this.mapPayLinkRow(row);
   }
 
+  /** Pay links paying any of these locking bytecodes (a wallet's address set), newest first. */
+  listPayLinksByRecipientBytecodes(
+    bytecodes: readonly string[],
+    limit = 200,
+  ): PayLinkRecord[] {
+    const wanted = [...new Set(bytecodes.map((b) => b.toLowerCase()))].slice(
+      0,
+      200,
+    );
+    if (wanted.length === 0) return [];
+    const marks = wanted.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM pay_links WHERE LOWER(recipient_locking_bytecode) IN (${marks})
+         AND status != 'cancelled' ORDER BY created_at DESC LIMIT ?`,
+      )
+      .all(...wanted, limit) as Record<string, unknown>[];
+    return rows.map((row) => this.mapPayLinkRow(row));
+  }
+
   listPayLinksByRecipient(recipientCashaddr: string): PayLinkRecord[] {
     const stmt = this.db.prepare(
       'SELECT * FROM pay_links WHERE recipient_cashaddr = ? ORDER BY created_at DESC',

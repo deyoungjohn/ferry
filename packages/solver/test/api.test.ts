@@ -739,6 +739,33 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       );
     });
 
+    it('lists pay links by the recipient wallet addresses, without memos', async () => {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/v1/links',
+        payload: {
+          token: 'PUSD',
+          recipientAddress:
+            'bchtest:zqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy6fphnwyk',
+          memo: 'private note',
+        },
+      });
+      const link = created.json();
+      const found = await app.inject({
+        method: 'GET',
+        url: `/v1/links/by-recipient?bch=0x76a914${'ab'.repeat(20)}88ac,${link.recipientLockingBytecode.toUpperCase().replace('0X', '0x')}`,
+      });
+      expect(found.statusCode).toBe(200);
+      const ids = found.json().links.map((l: { id: string }) => l.id);
+      expect(ids).toContain(link.id);
+      expect(JSON.stringify(found.json())).not.toContain('private note');
+      const bad = await app.inject({
+        method: 'GET',
+        url: '/v1/links/by-recipient?bch=nope',
+      });
+      expect(bad.statusCode).toBe(400);
+    });
+
     it('refuses a pay link below one dollar, whatever the setting', async () => {
       const res = await app.inject({
         method: 'POST',
