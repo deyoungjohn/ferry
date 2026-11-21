@@ -125,3 +125,35 @@ describe('ActivityPage (/activity) - BCH-first history (FR-13)', () => {
     expect(writeTextMock).toHaveBeenCalled();
   });
 });
+
+describe('ActivityPage with an offline, remembered Bitcoin Cash wallet', () => {
+  it('does not show the remembered address as the connected wallet', async () => {
+    const { WalletContext } = await import('../lib/wallet/context');
+    const remembered = 'bitcoincash:zplzkjj2qj7u66w3aqggxw4d392elac005qk68ff65';
+    const value = {
+      usingMocks: false,
+      evm: {
+        status: 'connected',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+      bch: {
+        status: 'offline',
+        address: {
+          address: remembered,
+          lockingBytecode: '0x00',
+          tokenAware: true,
+        },
+      },
+    } as unknown as React.ContextType<typeof WalletContext>;
+    render(
+      <MemoryRouter>
+        <WalletContext.Provider value={value}>
+          <ActivityPage />
+        </WalletContext.Provider>
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText(remembered)).toBeNull();
+    expect(screen.queryByText('Connected Wallet')).toBeNull();
+    expect(screen.queryByText(/Active address/)).toBeNull();
+  });
+});

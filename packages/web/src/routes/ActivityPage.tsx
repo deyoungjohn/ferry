@@ -40,9 +40,11 @@ export function ActivityPage() {
   const walletContext = useContext(WalletContext);
   const bch = walletContext?.bch ?? { status: 'disconnected', address: null };
   const [pastedAddress, setPastedAddress] = useState('');
-  const [activeAddress, setActiveAddress] = useState(
-    bch.address?.address ?? '',
-  );
+  // Only a connected wallet's address: an offline wallet remembered in this browser is not shown
+  // as connected.
+  const connectedBchAddress =
+    bch.status === 'connected' ? (bch.address?.address ?? null) : null;
+  const [activeAddress, setActiveAddress] = useState(connectedBchAddress ?? '');
   const [addressError, setAddressError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [range, setRange] = useState<RangeValue>(DEFAULT_RANGE);
@@ -195,8 +197,8 @@ export function ActivityPage() {
     setAddressError(null);
     const trimmed = pastedAddress.trim();
     if (!trimmed) {
-      if (bch.address?.address) {
-        setActiveAddress(bch.address.address);
+      if (connectedBchAddress) {
+        setActiveAddress(connectedBchAddress);
       }
       return;
     }
@@ -304,17 +306,20 @@ export function ActivityPage() {
             {addressError}
           </p>
         )}
-        <div className="mt-2 flex items-center gap-2 text-[11px] text-text-muted">
-          <span>Active address:</span>
-          <span className="font-mono text-text truncate max-w-md">
-            {activeAddress}
-          </span>
-          {bch.address?.address === activeAddress && (
-            <span className="rounded-pill bg-lime/10 px-2 py-0.5 text-[10px] font-semibold text-lime">
-              Connected Wallet
+        {activeAddress && (
+          <div className="mt-2 flex items-center gap-2 text-[11px] text-text-muted">
+            <span>Active address:</span>
+            <span className="font-mono text-text truncate max-w-md">
+              {activeAddress}
             </span>
-          )}
-        </div>
+            {connectedBchAddress !== null &&
+              connectedBchAddress === activeAddress && (
+                <span className="rounded-pill bg-lime/10 px-2 py-0.5 text-[10px] font-semibold text-lime">
+                  Connected Wallet
+                </span>
+              )}
+          </div>
+        )}
       </div>
 
       <RangeFilter
