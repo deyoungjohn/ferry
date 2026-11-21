@@ -12,7 +12,7 @@ import {
   CountUp,
   ScrollReveal,
 } from '../components/marketing/MotionPrimitives';
-import { ChainRow, Eyebrow, TokenMark } from '../components/marketing/visuals';
+import { Eyebrow, TokenMark } from '../components/marketing/visuals';
 
 // The 3D ribbon animation loads asynchronously so the initial route bundle stays lean.
 const HeroCoinRibbon = lazy(() =>
@@ -84,7 +84,7 @@ export function LandingPage() {
       <section className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 lg:pt-8">
         <div className="grid overflow-hidden rounded-card border border-hairline bg-surface-1 shadow-[0_32px_90px_rgba(0,0,0,0.45)] lg:grid-cols-[1.24fr_0.92fr]">
           {/* Left visual stage: full-bleed Three.js stablecoin ribbon on Ferry lime gradient */}
-          <div className="relative min-h-[340px] sm:min-h-[430px] lg:min-h-[548px]">
+          <div className="relative min-h-[380px] sm:min-h-[470px] lg:min-h-[600px]">
             <div
               className="absolute inset-0"
               style={{
@@ -103,14 +103,14 @@ export function LandingPage() {
             </div>
           </div>
 
-          {/* Right hero panel: claim + interactive swap preview + primary CTA */}
-          <div className="flex flex-col justify-between border-t border-hairline bg-surface-1 p-6 sm:p-8 lg:border-l lg:border-t-0 lg:px-10 lg:py-9">
-            <div className="mx-auto flex w-full max-w-[390px] flex-1 flex-col justify-center">
+          {/* Right hero panel: claim + extended interactive swap preview + primary CTA */}
+          <div className="flex flex-col justify-center border-t border-hairline bg-surface-1 px-6 py-9 sm:px-9 sm:py-11 lg:border-l lg:border-t-0 lg:px-11 lg:py-12">
+            <div className="mx-auto flex w-full max-w-[400px] flex-col justify-center">
               <div className="flex justify-center">
                 <Eyebrow>Built for BCH BLAZE 2026</Eyebrow>
               </div>
 
-              <h1 className="mt-4 text-center text-3xl font-semibold leading-[1.06] tracking-[-0.04em] text-text sm:text-[40px]">
+              <h1 className="mt-5 text-center text-3xl font-semibold leading-[1.06] tracking-[-0.04em] text-text sm:text-[42px]">
                 Move stablecoins into Bitcoin Cash
               </h1>
 
@@ -118,14 +118,14 @@ export function LandingPage() {
               <div
                 role="tablist"
                 aria-label="Swap direction"
-                className="mt-6 grid grid-cols-2 rounded-pill border border-hairline bg-surface-2 p-1"
+                className="mt-7 grid grid-cols-2 rounded-pill border border-hairline bg-surface-2 p-1"
               >
                 <button
                   type="button"
                   role="tab"
                   aria-selected={direction === 'to-bch'}
                   onClick={() => setDirection('to-bch')}
-                  className={`h-9 rounded-pill text-xs font-semibold transition-colors ${
+                  className={`h-10 rounded-pill text-xs font-semibold transition-colors ${
                     direction === 'to-bch'
                       ? 'bg-surface-3 text-text shadow-sm'
                       : 'text-text-muted hover:text-text'
@@ -138,7 +138,7 @@ export function LandingPage() {
                   role="tab"
                   aria-selected={direction === 'to-evm'}
                   onClick={() => setDirection('to-evm')}
-                  className={`h-9 rounded-pill text-xs font-semibold transition-colors ${
+                  className={`h-10 rounded-pill text-xs font-semibold transition-colors ${
                     direction === 'to-evm'
                       ? 'bg-surface-3 text-text shadow-sm'
                       : 'text-text-muted hover:text-text'
@@ -148,37 +148,37 @@ export function LandingPage() {
                 </button>
               </div>
 
-              {/* Swap preview rows */}
-              <div className="mt-4">
-                <div className="rounded-well border border-hairline bg-surface-2/70 p-3.5 transition-colors hover:border-lime/25">
-                  <div className="flex items-center justify-between text-[11px] text-text-muted">
+              {/* Extended swap preview rows */}
+              <div className="mt-5">
+                <div className="rounded-well border border-hairline bg-surface-2/70 p-4 sm:p-5 transition-colors hover:border-lime/25">
+                  <div className="flex items-center justify-between text-xs text-text-muted">
                     <span>You send</span>
                     <span>{sendLeg.network}</span>
                   </div>
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
                       <TokenMark
                         token={sendLeg.token}
                         chain={sendLeg.chain}
-                        size={34}
+                        size={38}
                       />
                       <div>
-                        <div className="text-sm font-semibold text-text">
+                        <div className="text-base font-semibold text-text">
                           {sendLeg.token}
                         </div>
-                        <div className="text-[11px] text-text-muted">
+                        <div className="text-xs text-text-muted">
                           <CountUp value={sendLeg.min} decimals={2} /> –{' '}
                           <CountUp value={sendLeg.max} /> {sendLeg.token}
                         </div>
                       </div>
                     </div>
-                    <span className="text-2xl font-semibold tabular-nums tracking-[-0.03em] text-text">
+                    <span className="text-3xl font-semibold tabular-nums tracking-[-0.03em] text-text">
                       <CountUp value={sendLeg.amount} decimals={2} />
                     </span>
                   </div>
                 </div>
 
-                <div className="relative z-10 -my-3 flex justify-center">
+                <div className="relative z-10 -my-3.5 flex justify-center">
                   <button
                     type="button"
                     aria-label="Flip swap direction"
@@ -187,47 +187,47 @@ export function LandingPage() {
                         d === 'to-bch' ? 'to-evm' : 'to-bch',
                       )
                     }
-                    className="inline-flex size-8 items-center justify-center rounded-full border border-hairline bg-surface-1 text-text-muted transition-all hover:rotate-180 hover:border-lime/50 hover:text-lime"
+                    className="inline-flex size-9 items-center justify-center rounded-full border border-hairline bg-surface-1 text-text-muted transition-all hover:rotate-180 hover:border-lime/50 hover:text-lime"
                   >
-                    <ArrowUpDown className="size-3.5" />
+                    <ArrowUpDown className="size-4" />
                   </button>
                 </div>
 
-                <div className="rounded-well border border-hairline bg-surface-2/70 p-3.5 transition-colors hover:border-lime/25">
-                  <div className="flex items-center justify-between text-[11px] text-text-muted">
+                <div className="rounded-well border border-hairline bg-surface-2/70 p-4 sm:p-5 transition-colors hover:border-lime/25">
+                  <div className="flex items-center justify-between text-xs text-text-muted">
                     <span>You get</span>
                     <span>{getLeg.network}</span>
                   </div>
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
                       <TokenMark
                         token={getLeg.token}
                         chain={getLeg.chain}
-                        size={34}
+                        size={38}
                       />
                       <div>
-                        <div className="text-sm font-semibold text-text">
+                        <div className="text-base font-semibold text-text">
                           {getLeg.token}
                         </div>
-                        <div className="text-[11px] text-text-muted">
+                        <div className="text-xs text-text-muted">
                           {getLeg.network}
                         </div>
                       </div>
                     </div>
-                    <span className="text-2xl font-semibold tabular-nums tracking-[-0.03em] text-text">
+                    <span className="text-3xl font-semibold tabular-nums tracking-[-0.03em] text-text">
                       <CountUp value={getLeg.amount} decimals={2} />
                     </span>
                   </div>
                 </div>
               </div>
 
-              <p className="mt-3.5 text-center text-xs tabular-nums text-text-muted">
+              <p className="mt-4 text-center text-xs tabular-nums text-text-muted">
                 <CountUp value={1} /> {sendLeg.token} ≈{' '}
                 <CountUp value={0.9985} decimals={4} /> {getLeg.token} · settles
                 in <CountUp value={36} prefix="~" suffix=" s" />
               </p>
 
-              <div className="mt-4 flex flex-col gap-2">
+              <div className="mt-5 flex flex-col gap-2.5">
                 <Link
                   to={ROUTES.swap}
                   className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-pill bg-lime px-7 text-sm font-semibold text-lime-ink transition-all hover:opacity-90 active:scale-[0.99]"
@@ -237,15 +237,11 @@ export function LandingPage() {
                 </Link>
                 <Link
                   to="/how-it-works"
-                  className="inline-flex h-9 w-full items-center justify-center rounded-pill text-xs font-medium text-text-muted transition-colors hover:text-text"
+                  className="inline-flex h-10 w-full items-center justify-center rounded-pill text-xs font-medium text-text-muted transition-colors hover:text-text"
                 >
                   How atomic swaps work
                 </Link>
               </div>
-            </div>
-
-            <div className="mt-5 flex justify-center border-t border-hairline pt-4">
-              <ChainRow />
             </div>
           </div>
         </div>

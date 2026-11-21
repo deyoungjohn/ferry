@@ -140,55 +140,43 @@ export function LandingShowcase() {
               contract at one address across every EVM chain Ferry supports.
             </p>
 
-            {/* Two overlapping iridescent Ferry settlement cards rising from bottom */}
+            {/* Two overlapping flat Ferry settlement cards rising from bottom */}
             <div className="relative mt-auto flex h-56 items-end justify-center pt-10">
-              {/* Back left card: emerald-teal-lime holographic */}
-              <div
-                className="relative -mr-8 h-48 w-52 -rotate-3 overflow-hidden rounded-2xl border border-white/15 p-4 shadow-[0_24px_60px_rgba(0,0,0,0.55)] transition-transform duration-500 ease-out group-hover:-translate-x-2 group-hover:-rotate-6"
-                style={{
-                  background:
-                    'linear-gradient(150deg, #0ac18e 0%, #2674cb 52%, #0c1724 100%)',
-                }}
-              >
+              {/* Back left card: flat dark surface */}
+              <div className="relative -mr-8 h-48 w-52 -rotate-3 overflow-hidden rounded-2xl border border-hairline bg-surface-2 p-4 shadow-[0_24px_60px_rgba(0,0,0,0.55)] transition-transform duration-500 ease-out group-hover:-translate-x-2 group-hover:-rotate-6">
                 <div className="flex items-center gap-2">
                   <img
                     src="/brand/ferry.svg"
                     alt=""
                     className="size-6 brightness-0 invert"
                   />
-                  <span className="rounded-pill bg-black/35 px-2 py-0.5 font-mono text-[10px] text-white/95">
+                  <span className="rounded-pill border border-hairline bg-surface-3 px-2 py-0.5 font-mono text-[10px] text-text-muted">
                     CREATE2
                   </span>
                 </div>
-                <p className="mt-14 font-mono text-[11px] tracking-wider text-white/85">
+                <p className="mt-14 font-mono text-[11px] tracking-wider text-text-muted">
                   {SHORT_HTLC}
                 </p>
-                <p className="mt-1 text-xs font-semibold text-white">
+                <p className="mt-1 text-xs font-semibold text-text">
                   <CountUp value={6} /> EVM Chains
                 </p>
               </div>
 
-              {/* Front right card: luminous Ferry lime + obsidian iridescent */}
-              <div
-                className="relative z-10 h-52 w-56 translate-y-4 rotate-2 overflow-hidden rounded-2xl border border-lime/40 p-4 shadow-[0_28px_70px_rgba(0,0,0,0.65)] transition-transform duration-500 ease-out group-hover:translate-x-2 group-hover:translate-y-1 group-hover:rotate-4"
-                style={{
-                  background:
-                    'linear-gradient(155deg, #c6f219 0%, #8de44d 28%, #18230c 58%, #090b08 100%)',
-                }}
-              >
+              {/* Front right card: flat Ferry lime surface */}
+              <div className="relative z-10 h-52 w-56 translate-y-4 rotate-2 overflow-hidden rounded-2xl border border-lime/40 bg-lime p-4 text-lime-ink shadow-[0_28px_70px_rgba(0,0,0,0.65)] transition-transform duration-500 ease-out group-hover:translate-x-2 group-hover:translate-y-1 group-hover:rotate-4">
                 <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1.5 rounded-pill bg-lime-ink/90 px-2.5 py-1 text-[10px] font-semibold text-lime">
+                  <span className="inline-flex items-center gap-1.5 rounded-pill bg-lime-ink px-2.5 py-1 text-[10px] font-semibold text-lime">
                     <ShieldCheck className="size-3" />
                     HTLC v1
                   </span>
-                  <span className="font-mono text-[10px] font-semibold text-lime-ink/85">
+                  <span className="font-mono text-[10px] font-semibold text-lime-ink/80">
                     0% custody
                   </span>
                 </div>
-                <p className="mt-16 font-mono text-[11px] tracking-wider text-white/90">
+                <p className="mt-16 font-mono text-[11px] tracking-wider text-lime-ink/75">
                   SHA-256 · Atomic Lock
                 </p>
-                <p className="mt-1 text-xs font-semibold text-lime">
+                <p className="mt-1 text-xs font-semibold text-lime-ink">
                   <CountUp value={35} /> / <CountUp value={38} /> mutations
                   caught
                 </p>

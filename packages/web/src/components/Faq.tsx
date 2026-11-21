@@ -10,11 +10,8 @@ export function Faq() {
       className="mx-auto mt-20 max-w-3xl scroll-mt-24 px-4 sm:px-6"
     >
       <div className="mb-8 text-center">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-lime">
-          Transparency
-        </p>
-        <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-text sm:text-3xl">
-          Frequently asked questions and honest risks
+        <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text sm:text-3xl">
+          Frequently Asked Questions
         </h2>
       </div>
       <BouncyAccordion
