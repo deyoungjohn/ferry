@@ -245,14 +245,13 @@ export function SendLinkPage({
     link?.amount ?? 0,
   );
 
+  // The receiver may choose while the link is held (the solver has not locked on any chain yet).
+  // The lock id is always present (it is computed from the terms), so it says nothing here.
   const canSwitchRoute =
     link !== null &&
     !isCancelled &&
     link.status !== 'cancelled' &&
-    !link.lockId &&
-    (link.status === 'pending_lock' ||
-      (link.status === 'open' && !link.lockId) ||
-      isHeld) &&
+    (isHeld || link.status === 'pending_lock') &&
     !claimedLocally &&
     !isTooLate;
 
@@ -288,9 +287,10 @@ export function SendLinkPage({
       return;
     }
 
+    // The lock id is always present (computed from the terms); a held link has no solver lock yet.
     if (
       isCancelled ||
-      link.lockId ||
+      (!isHeld && link.status !== 'pending_lock') ||
       link.status === 'locked' ||
       link.status === 'claimed' ||
       link.status === 'expired' ||

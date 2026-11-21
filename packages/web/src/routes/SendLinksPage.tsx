@@ -823,7 +823,7 @@ export function SendLinksPage({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-text-muted mb-1">
-                    Destination Chain
+                    Receiver&apos;s default chain
                   </label>
                   <Select
                     label="Destination Chain"
@@ -849,7 +849,9 @@ export function SendLinksPage({
                   />
                 </div>
                 <div>
-                  <label className="block text-text-muted mb-1">Token</label>
+                  <label className="block text-text-muted mb-1">
+                    Default token
+                  </label>
                   <Select
                     label="Token"
                     value={destToken}
@@ -865,6 +867,10 @@ export function SendLinksPage({
                   />
                 </div>
               </div>
+              <p className="-mt-1 text-[11px] text-text-dim">
+                The receiver can choose another chain or token when they claim,
+                wherever Ferry has the funds.
+              </p>
 
               <div>
                 <label

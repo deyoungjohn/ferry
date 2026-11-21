@@ -128,10 +128,13 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
   });
 
   it('allows receiver to switch route before solver lock with EIP-712 signature', async () => {
+    // As the solver answers: the link is open, held, and already carries its lock id (computed
+    // from the terms before any lock exists).
     const view: SendLinkView = {
       id: orderId,
       orderId,
-      status: 'pending_lock',
+      status: 'open',
+      lockId: ('0x' + '33'.repeat(32)) as Hex32,
       isHeld: true,
       amount: 20,
       token: 'USDC',
@@ -190,7 +193,8 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
     fireEvent.click(claimBtn);
 
     await waitFor(() => {
-      expect(signTypedDataMock).toHaveBeenCalledTimes(1);
+      // One signature switches the route; claiming the open link then signs the claim request.
+      expect(signTypedDataMock).toHaveBeenCalled();
       expect(solver.switchSendLinkRoute).toHaveBeenCalledWith(
         orderId,
         expect.objectContaining({
