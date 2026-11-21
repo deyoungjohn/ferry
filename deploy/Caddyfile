@@ -108,3 +108,6 @@ relay.{$FERRY_DOMAIN:example.org} {
 	}
 }
 
+
+# Extra sites kept outside this repository, one file per site (none is fine).
+import /etc/caddy/sites/*.caddy
