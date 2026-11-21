@@ -463,31 +463,49 @@ export function SendLinkPage({
             `The solver is locking ${lockAmt} ${displayToken} on ${displayChain}`,
           );
 
-          // Poll order until solver lock is ready or timeout
+          // Wait for the solver's lock itself (its EVM transaction), not for a status: the solver
+          // locks only once the sender's Bitcoin Cash lock has a confirmation (about 10 minutes).
+          const activeId = (currentLink?.orderId ?? id ?? '') as string;
           const pollStart = Date.now();
-          while (Date.now() - pollStart < 60_000) {
-            const fetchFn =
-              (
-                liveSolver as unknown as {
-                  getSendLink?: (id: string) => Promise<SendLinkView | null>;
-                }
-              )?.getSendLink ?? solverContext?.getSendLink;
-            if (fetchFn && id) {
-              const updated = await fetchFn(id);
-              if (updated) {
-                setLoad({ state: 'ready', link: updated });
-                writeSnapshot(`sendview.${id}`, updated);
-                if (
-                  !updated.isHeld ||
-                  updated.status === 'open' ||
-                  updated.status === 'locked'
-                ) {
-                  currentLink = updated;
-                  break;
-                }
-              }
+          // Without a configured solver address (tests, previews) the lock cannot be watched.
+          let solverLocked = !solverUrl;
+          while (!solverLocked && Date.now() - pollStart < 40 * 60_000) {
+            const snapshotNow = solverUrl
+              ? await readOrderTxids(solverUrl, activeId)
+              : null;
+            if (snapshotNow?.txids?.evmLock) {
+              solverLocked = true;
+              break;
             }
-            await new Promise((r) => setTimeout(r, 1000));
+            setLockingProgress(
+              snapshotNow?.txids?.bchLock &&
+                !['USER_LOCK_FINAL', 'SOLVER_LOCK_BROADCAST'].includes(
+                  snapshotNow.state,
+                )
+                ? `Waiting for the sender's Bitcoin Cash lock to confirm (about 10 minutes). Ferry then locks ${lockAmt} ${displayToken} on ${displayChain} and your claim goes through. Keep this page open.`
+                : `The solver is locking ${lockAmt} ${displayToken} on ${displayChain}…`,
+            );
+            await new Promise((r) => setTimeout(r, 5_000));
+          }
+          const fetchView =
+            (
+              liveSolver as unknown as {
+                getSendLink?: (id: string) => Promise<SendLinkView | null>;
+              }
+            )?.getSendLink ?? solverContext?.getSendLink;
+          if (fetchView && id) {
+            const updated = await fetchView(id);
+            if (updated) {
+              setLoad({ state: 'ready', link: updated });
+              writeSnapshot(`sendview.${id}`, updated);
+              currentLink = updated;
+            }
+          }
+          if (!solverLocked) {
+            setLockingProgress(null);
+            throw new Error(
+              'This send link was confirmed, but the solver has not locked the funds yet. Leave this page open or come back later and press the button again.',
+            );
           }
           setLockingProgress(null);
         }

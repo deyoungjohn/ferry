@@ -444,8 +444,13 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
     fireEvent.click(claimBtn);
 
     await waitFor(() => {
-      // Signed once for route confirmation
-      expect(signTypedDataMock).toHaveBeenCalledTimes(1);
+      // The route is confirmed first (one signature); the claim then signs its own request, and
+      // only after the solver has locked.
+      const kinds = (signTypedDataMock.mock.calls as unknown[][]).map(
+        (call) =>
+          (call[0] as { primaryType?: string } | undefined)?.primaryType,
+      );
+      expect(kinds[0]).toBe('ConfirmRouteRequest');
       expect(solver.confirmSendLinkRoute).toHaveBeenCalledWith(
         orderId,
         expect.objectContaining({
