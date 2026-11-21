@@ -129,11 +129,13 @@ export class SolverClient {
 
   constructor(options: SolverClientOptions) {
     this.baseUrl = normalizeBaseUrl(options.baseUrl);
-    const resolvedFetch = options.fetch ?? globalThis.fetch;
-    if (typeof resolvedFetch !== 'function') {
+    if (!options.fetch && typeof globalThis.fetch !== 'function') {
       throw new TypeError('A fetch implementation is required');
     }
-    this.fetchFn = resolvedFetch;
+    // The global fetch must be called on the global object: stored as a field and called as
+    // this.fetchFn(...) browsers throw "Illegal invocation". Wrapped so it is called unbound.
+    this.fetchFn =
+      options.fetch ?? ((input, init) => globalThis.fetch(input, init));
     this.defaultTimeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.defaultBearerToken = options.bearerToken;
   }

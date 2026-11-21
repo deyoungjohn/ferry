@@ -367,3 +367,31 @@ describe('relay calls wait for the chain', () => {
     expect(seen).toContain(90_000);
   });
 });
+
+describe('default fetch', () => {
+  it('calls the global fetch unbound, so browsers do not throw "Illegal invocation"', async () => {
+    const original = globalThis.fetch;
+    // A fetch that, like the browser's, refuses any receiver other than the global object.
+    globalThis.fetch = function (this: unknown) {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError(
+          "Failed to execute 'fetch' on 'Window': Illegal invocation",
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ ok: true, quotingEnabled: true, timestamp: 1 }),
+          {
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      );
+    } as typeof fetch;
+    try {
+      const client = new SolverClient({ baseUrl: 'https://solver.example' });
+      await expect(client.health()).resolves.toBeDefined();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
