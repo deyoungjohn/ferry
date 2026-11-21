@@ -768,6 +768,13 @@ export function SendLinksPage({
       </GlassModal>
 
       <MorphWorkspace
+        // The visitor's own links, once a wallet is connected (always when the page runs
+        // without a wallet system, as in a preview).
+        showTable={
+          !wallets ||
+          wallets.evm.status === 'connected' ||
+          wallets.bch.status === 'connected'
+        }
         form={
           <div className="h-full rounded-card border border-hairline bg-surface-1 p-5 shadow-elev-card sm:p-7">
             <h2 className="mb-5 text-base font-semibold text-text">

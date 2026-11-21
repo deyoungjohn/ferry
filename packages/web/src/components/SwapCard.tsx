@@ -100,6 +100,8 @@ export function SwapCard({
   const walletContext = useContext(WalletContext);
   const evm = walletContext?.evm ?? { status: 'disconnected', address: null };
   const bchAddress = walletContext?.bch.address?.address ?? null;
+  // A wallet the swap needs is not connected yet (the button then asks for it).
+  const walletsMissing = !evm.address || !bchAddress;
   const quoteSecretRef = useRef<string | null>(null);
   const copy = getModeCopy('swap');
   const priceReader = useMemo(() => new RealPriceReader(), []);
@@ -637,7 +639,16 @@ export function SwapCard({
   const liveSwap = livePanelOpen ? liveSwapInput() : null;
 
   async function handleSwap() {
-    if (isReadOnly || !isValidRecipient) return;
+    if (isReadOnly) return;
+    // No wallet yet: pressing the button asks for the one that is missing.
+    if (walletsMissing && solver.isLive() && LIVE_EXECUTION_ENABLED) {
+      const prepared = liveSwapInput();
+      if ('problem' in prepared && prepared.connect) {
+        prepared.connect();
+        return;
+      }
+    }
+    if (!isValidRecipient) return;
     if (solver.isLive() && LIVE_EXECUTION_ENABLED) {
       const prepared = liveSwapInput();
       if ('problem' in prepared) {
@@ -788,7 +799,8 @@ export function SwapCard({
     isSubmitting ||
     !hasAnyEnabledRoute ||
     isChainDisabled ||
-    isAddressEmpty ||
+    // Without a wallet the button stays pressable: it asks for the wallet.
+    (isAddressEmpty && !walletsMissing) ||
     hasAddressError ||
     isReadOnly ||
     failureState === 'all_solvers_refused' ||

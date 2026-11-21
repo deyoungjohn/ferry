@@ -1,6 +1,5 @@
 import { lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router';
-import { RequireWallet } from '../components/RequireWallet';
 
 const PayLinksPage = lazy(async () => {
   const m = await import('./PayLinksPage');
@@ -16,7 +15,7 @@ export function PayLinkHubPage() {
   const tab = params.get('type') === 'send' ? 'send' : 'pay';
 
   return (
-    <RequireWallet feature="links">
+    <>
       <div className="mx-auto max-w-3xl px-4 pt-8">
         <div
           role="tablist"
@@ -49,6 +48,6 @@ export function PayLinkHubPage() {
       <Suspense fallback={null}>
         {tab === 'send' ? <SendLinksPage /> : <PayLinksPage />}
       </Suspense>
-    </RequireWallet>
+    </>
   );
 }

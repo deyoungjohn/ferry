@@ -54,7 +54,7 @@ export function getRouteFixedFeeUsdMicros(
   return DEFAULT_ROUTE_FIXED_FEES_USD_MICROS[chain.toLowerCase()] ?? 10_000n;
 }
 
-export function routeMinSwapUsdMicros(_fixedFeeUsdMicros: bigint): bigint {
+export function routeMinSwapUsdMicros(): bigint {
   // Every route takes $1 and up, Ethereum included: the operator funds the solver's ETH gas through
   // the event. (Before, the minimum was fifteen times the fixed fee, which made Ethereum $5.)
   return 1_000_000n;

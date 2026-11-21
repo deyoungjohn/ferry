@@ -805,7 +805,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       evmChainName,
       config.fixedFeeUsdMicros > 0n ? config.fixedFeeUsdMicros : undefined,
     );
-    const minSwapUsdMicros = routeMinSwapUsdMicros(fixedFeeUsdMicros);
+    const minSwapUsdMicros = routeMinSwapUsdMicros();
 
     const now = Math.floor(Date.now() / 1000);
     const quoteId = `quote-${now}-${Math.random().toString(36).slice(2, 9)}`;

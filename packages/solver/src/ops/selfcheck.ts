@@ -15,7 +15,6 @@ import type { SolverRoutesContext } from './routes-config.js';
 import { loadConfigFromEnv, type SolverConfig } from '../config.js';
 import {
   buildActiveRoutes,
-  getRouteFixedFeeUsdMicros,
   getViemChain,
   routeMinSwapUsdMicros,
 } from './routes-config.js';
@@ -551,14 +550,8 @@ export async function runSelfCheck(
     const requestedToken = tokenFact?.address ?? config.baseUsdcAddress;
     const evmDecimals = tokenFact?.decimals ?? 6;
 
-    // The test swap is the route's own minimum ($1, or $5 on Ethereum), in whole dollars.
-    const testDollars =
-      routeMinSwapUsdMicros(
-        getRouteFixedFeeUsdMicros(
-          enabledRoute.chain,
-          config.fixedFeeUsdMicros > 0n ? config.fixedFeeUsdMicros : undefined,
-        ),
-      ) / 1_000_000n;
+    // The test swap is the route's minimum ($1 on every route), in whole dollars.
+    const testDollars = routeMinSwapUsdMicros() / 1_000_000n;
 
     // Test A: EVM_TO_BCH (the minimum in the token's base units, e.g. 5_000_000 for 6 dec)
     const evmAmountIn = (testDollars * 10n ** BigInt(evmDecimals)).toString();

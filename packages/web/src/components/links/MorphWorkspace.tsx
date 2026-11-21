@@ -8,6 +8,8 @@ export interface MorphWorkspaceProps {
   readonly result: ReactNode | null;
   /** The table of links, below both blocks and as wide as them together. */
   readonly table: ReactNode;
+  /** The table is the visitor's own links: shown only once a wallet is connected. */
+  readonly showTable?: boolean;
 }
 
 const SPRING = {
@@ -21,7 +23,12 @@ const SPRING = {
  * First the form stands alone, centered and larger. When something is created, the form moves to
  * the left and the result slides in from the right; the table sits below, across both.
  */
-export function MorphWorkspace({ form, result, table }: MorphWorkspaceProps) {
+export function MorphWorkspace({
+  form,
+  result,
+  table,
+  showTable = true,
+}: MorphWorkspaceProps) {
   const reduce = useReducedMotion();
   const hasResult = result !== null;
   const transition = reduce ? { duration: 0 } : SPRING;
@@ -61,9 +68,11 @@ export function MorphWorkspace({ form, result, table }: MorphWorkspaceProps) {
           )}
         </AnimatePresence>
       </div>
-      <motion.div layout="position" transition={transition}>
-        {table}
-      </motion.div>
+      {showTable && (
+        <motion.div layout="position" transition={transition}>
+          {table}
+        </motion.div>
+      )}
     </div>
   );
 }

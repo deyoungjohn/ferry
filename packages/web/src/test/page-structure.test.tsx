@@ -77,34 +77,49 @@ describe('page structure', { timeout: 45_000 }, () => {
     expect(screen.queryByTestId('wallet-gate')).toBeNull();
   });
 
-  it.each(['/app/pay-link', '/app/my-activity'])(
-    'asks for a wallet on %s',
-    async (path) => {
-      renderAt(path);
-      expect(
-        await screen.findByTestId('wallet-gate', {}, { timeout: 30_000 }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole('button', { name: 'Connect wallet' }),
-      ).toBeInTheDocument();
-    },
-  );
+  it('shows the pay link creation form without a wallet, and no table of links', async () => {
+    renderAt('/app/pay-link');
+    expect(
+      await screen.findByRole(
+        'heading',
+        { level: 1, name: /Pay Links/ },
+        { timeout: 30_000 },
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('wallet-gate')).toBeNull();
+    expect(screen.queryByTestId('links-table')).toBeNull();
+  });
 
-  it('swap shows either the wallet gate or the not-configured notice', async () => {
+  it.each(['/app/my-activity'])('asks for a wallet on %s', async (path) => {
+    renderAt(path);
+    expect(
+      await screen.findByTestId('wallet-gate', {}, { timeout: 30_000 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Connect wallet' }),
+    ).toBeInTheDocument();
+  });
+
+  it('swap shows the card without a wallet, or the not-configured notice', async () => {
     renderAt('/app/swap');
     expect(
       await screen.findByText(
-        /Configuration Incomplete|Connect a wallet to use Swap/,
+        /Configuration Incomplete|Recent Swaps/,
         {},
         { timeout: 30_000 },
       ),
     ).toBeInTheDocument();
+    expect(screen.queryByTestId('wallet-gate')).toBeNull();
   });
 
   it('redirects the earlier top-level app paths', async () => {
     renderAt('/pay-link');
     expect(
-      await screen.findByTestId('wallet-gate', {}, { timeout: 30_000 }),
+      await screen.findByRole(
+        'heading',
+        { level: 1, name: /Pay Links/ },
+        { timeout: 30_000 },
+      ),
     ).toBeInTheDocument();
   });
 
