@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useContext, useRef } from 'react';
+import { checkPayRecipient } from '../lib/paylink/recipient';
 import { isAddress, parseUnits } from 'viem';
 import {
   formatQuoteRefusalMessage,
@@ -100,14 +101,15 @@ export function SwapCard({
   const walletContext = useContext(WalletContext);
   const evm = walletContext?.evm ?? { status: 'disconnected', address: null };
   const bchAddress = walletContext?.bch.address?.address ?? null;
-  // A wallet the swap needs is not connected yet (the button then asks for it).
-  const walletsMissing = !evm.address || !bchAddress;
+  // A wallet the swap needs is not connected yet (the button then asks for it): the EVM wallet
+  // always; the Bitcoin Cash wallet only for swaps out of Bitcoin Cash.
   const quoteSecretRef = useRef<string | null>(null);
   const copy = getModeCopy('swap');
   const priceReader = useMemo(() => new RealPriceReader(), []);
 
   // Direction: false = Far Chain -> BCH (forward), true = BCH -> Far Chain (reverse, PUSD -> USDC)
   const [isReverse, setIsReverse] = useState(initialReverse);
+  const walletsMissing = !evm.address || (isReverse && !bchAddress);
 
   // Selected far chain and tokens
   const farChains = NETWORK_PROFILE.farChains;
@@ -431,21 +433,19 @@ export function SwapCard({
 
   // Address validation logic
   const isAddressEmpty = recipientAddress.trim().length === 0;
+  const bchRecipientCheck = checkPayRecipient(
+    recipientAddress.trim(),
+    NETWORK_PROFILE.bch.prefix,
+  );
   const isValidRecipient = useMemo(() => {
     if (isAddressEmpty) return false;
     if (isReverse) {
-      // Must be valid EVM address format (0x + 40 hex chars)
-      return isAddress(recipientAddress.trim());
-    } else {
-      // Must be valid CashAddr format with prefix
-      const trimmed = recipientAddress.trim();
-      return (
-        trimmed.startsWith('bchtest:') ||
-        trimmed.startsWith('bitcoincash:') ||
-        trimmed.startsWith('bchreg:')
-      );
+      // A real EVM address: 0x and 40 hex characters, with a correct checksum when mixed case.
+      return isAddress(recipientAddress.trim(), { strict: true });
     }
-  }, [isAddressEmpty, isReverse, recipientAddress]);
+    // A real Bitcoin Cash address for this network that can hold tokens (PUSD and MUSD are tokens).
+    return bchRecipientCheck.ok;
+  }, [isAddressEmpty, isReverse, recipientAddress, bchRecipientCheck.ok]);
 
   const hasAddressError = !isAddressEmpty && !isValidRecipient;
 
@@ -591,10 +591,17 @@ export function SwapCard({
         problem: 'Connect your EVM wallet first.',
         connect: () => walletContext?.evm.connect(),
       };
-    if (!bchAddress)
+    // Into Bitcoin Cash only an address is needed (typed or from a wallet); out of Bitcoin Cash
+    // the Bitcoin Cash wallet signs the lock, so it must be connected.
+    if (isReverse && !bchAddress)
       return {
         problem: 'Connect your Bitcoin Cash wallet first.',
         connect: () => walletContext?.bch.connect(),
+      };
+    if (!isReverse && !(isValidRecipient || bchAddress))
+      return {
+        problem:
+          'Enter the Bitcoin Cash address that receives the swap, or connect a Bitcoin Cash wallet.',
       };
     // The wallet that signs the lock must be connected now: a remembered address is not enough.
     if (isReverse && walletContext?.bch.status !== 'connected')
@@ -1041,8 +1048,8 @@ export function SwapCard({
               <AlertIcon className="size-3.5 shrink-0" />
               <span>
                 {isReverse
-                  ? `Invalid EVM address format for ${selectedChain.name}. Must start with 0x followed by 40 hex characters.`
-                  : 'Invalid Bitcoin Cash address format. Paste a CashAddr address (bitcoincash:...).'}
+                  ? `That is not a valid EVM address for ${selectedChain.name}. It starts with 0x followed by 40 hex characters; check it was copied in full.`
+                  : bchRecipientCheck.message}
               </span>
             </p>
           )}
@@ -1423,6 +1430,11 @@ export function SwapCard({
             input={liveSwap.input}
             wallets={{ evm: walletContext.evm, bch: walletContext.bch }}
             solverUrl={solverUrls[0] ?? ''}
+            bchRecipientAddress={
+              !isReverse && isValidRecipient
+                ? recipientAddress.trim()
+                : undefined
+            }
             describe={{
               pay: `${sendAmount} ${sendTokenSymbol}`,
               receive: `${displayedReceiveAmount} ${receiveTokenSymbol}`,

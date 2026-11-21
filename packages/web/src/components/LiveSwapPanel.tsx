@@ -61,6 +61,8 @@ export interface LiveSwapPanelProps {
    * running it inside this dialog: the page shows the steps and survives a reload.
    */
   readonly onStart?: ((orderId: string) => void) | undefined;
+  /** A swap into Bitcoin Cash: the receiving address typed on the card, if any. */
+  readonly bchRecipientAddress?: string | undefined;
 }
 
 function downloadJson(filename: string, json: string): boolean {
@@ -98,6 +100,7 @@ export function LiveSwapPanel({
   solverUrl,
   describe,
   onStart,
+  bchRecipientAddress,
   services = REAL_SERVICES,
 }: LiveSwapPanelProps) {
   const [phase, setPhase] = useState<Phase>('previewing');
@@ -133,8 +136,9 @@ export function LiveSwapPanel({
         wallets,
         solverUrl,
         chainId: input.chainId,
+        bchRecipientAddress,
       }),
-    [services, wallets, solverUrl, input.chainId],
+    [services, wallets, solverUrl, input.chainId, bchRecipientAddress],
   );
 
   useEffect(() => {

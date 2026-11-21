@@ -74,10 +74,17 @@ export function createLiveDependencies(options: {
   readonly wallets: LiveSwapWallets;
   readonly solverUrl: string;
   readonly chainId: number;
+  /**
+   * Where the PUSD or MUSD goes in a swap into Bitcoin Cash, when typed instead of taken from a
+   * connected wallet (a swap into Bitcoin Cash needs no Bitcoin Cash signature).
+   */
+  readonly bchRecipientAddress?: string | undefined;
 }): UserSwapDependencies {
   const { wallets, solverUrl, chainId } = options;
-  const address = wallets.bch.address?.address;
-  if (!address) throw new Error('Connect a Bitcoin Cash wallet first.');
+  const address =
+    options.bchRecipientAddress?.trim() || wallets.bch.address?.address;
+  if (!address)
+    throw new Error('Enter the Bitcoin Cash address that receives the swap.');
   const evmChain = createBrowserEvmChain(chainId);
 
   let secretGenerator: SecretGenerator | undefined;
