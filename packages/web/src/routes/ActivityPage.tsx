@@ -6,10 +6,10 @@ import {
   type FormEvent,
 } from 'react';
 import { Link } from 'react-router';
-import { decodeCashAddress } from '@ferry/core';
+import { cashAddressToLockingBytecode, decodeCashAddress } from '@ferry/core';
 import { WalletContext } from '../lib/wallet/context';
 import { getMockActivity } from '../lib/activity/mock';
-import { loadLiveActivity } from '../lib/activity/live';
+import { loadLiveActivity, loadLiveActivityByBch } from '../lib/activity/live';
 import { LIVE_EXECUTION_ENABLED } from '../lib/config';
 import { ROUTES } from '../lib/routes';
 import type { ActivityEntry } from '../lib/activity/types';
@@ -77,10 +77,99 @@ export function ActivityPage() {
     };
   }, [live, solverUrl, evmAddress]);
 
+  // Live, Bitcoin Cash side: the swaps of the connected wallet's addresses (it rotates them, so
+  // the connected address is asked for first, then every address the wallet has used), or of an
+  // address pasted above.
+  const bchWallet = walletContext?.bch ?? null;
+  const bchConnected = bchWallet?.status === 'connected';
+  const connectedBch = bchWallet?.address?.lockingBytecode ?? null;
+  const [walletBytecodes, setWalletBytecodes] = useState<readonly string[]>([]);
+  const [bchEntries, setBchEntries] = useState<readonly ActivityEntry[]>([]);
+  const [bchScanning, setBchScanning] = useState(false);
+  useEffect(() => {
+    if (!live || !bchConnected || !connectedBch) {
+      setWalletBytecodes([]);
+      return;
+    }
+    let cancelled = false;
+    setWalletBytecodes([connectedBch]);
+    const list = bchWallet?.listFundingAddresses;
+    if (list) {
+      setBchScanning(true);
+      list()
+        .then((addresses) => {
+          if (cancelled) return;
+          setWalletBytecodes([
+            connectedBch,
+            ...addresses
+              .map((a) => a.lockingBytecodeHex ?? '')
+              .filter((hex) => hex.length > 0),
+          ]);
+        })
+        .catch(() => {
+          // The connected address alone is still looked up.
+        })
+        .finally(() => {
+          if (!cancelled) setBchScanning(false);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+    // The wallet object changes on every render; its address is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, bchConnected, connectedBch]);
+
+  const inspectedBytecode = useMemo(() => {
+    if (!activeAddress || activeAddress === bchWallet?.address?.address) {
+      return null;
+    }
+    try {
+      return cashAddressToLockingBytecode(activeAddress);
+    } catch {
+      return null;
+    }
+  }, [activeAddress, bchWallet?.address?.address]);
+
+  useEffect(() => {
+    if (!live || !solverUrl) return;
+    const bytecodes = inspectedBytecode ? [inspectedBytecode] : walletBytecodes;
+    if (bytecodes.length === 0) {
+      setBchEntries([]);
+      return;
+    }
+    let cancelled = false;
+    loadLiveActivityByBch(solverUrl, bytecodes)
+      .then((rows) => {
+        if (!cancelled) {
+          setBchEntries(rows);
+          setLiveError(null);
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled)
+          setLiveError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [live, solverUrl, walletBytecodes, inspectedBytecode]);
+
   const loadedEntries = useMemo<ActivityEntry[]>(() => {
-    if (live) return [...liveEntries];
+    if (live) {
+      // An inspected address shows only its own swaps; otherwise both wallets' swaps, once each.
+      const rows = inspectedBytecode
+        ? bchEntries
+        : [...liveEntries, ...bchEntries];
+      const seen = new Set<string>();
+      return rows
+        .filter((row) =>
+          seen.has(row.key) ? false : (seen.add(row.key), true),
+        )
+        .sort((a, b) => b.createdAt - a.createdAt);
+    }
     return getMockActivity(activeAddress);
-  }, [live, liveEntries, activeAddress]);
+  }, [live, liveEntries, bchEntries, inspectedBytecode, activeAddress]);
   // The window is counted from when the list was loaded.
   const loadedAt = useMemo(
     () => Math.floor(Date.now() / 1000),
@@ -145,7 +234,7 @@ export function ActivityPage() {
           </h1>
           <p className="text-xs text-text-muted">
             {live
-              ? 'Swaps made with your connected EVM wallet address.'
+              ? 'Swaps made with your connected wallets: your EVM address, and every address your Bitcoin Cash wallet has used.'
               : 'Rebuilt from Bitcoin Cash covenant history and EVM counter-locks.'}
           </p>
         </div>
@@ -157,13 +246,22 @@ export function ActivityPage() {
         </Link>
       </div>
 
-      {live && !evmAddress && (
+      {live && !evmAddress && !bchConnected && (
         <p
           data-testid="activity-needs-evm"
           className="mb-4 rounded-lg border border-warn/30 bg-warn/10 p-3 text-xs text-warn"
         >
-          Connect your EVM wallet (the pill at the top right) to see the swaps
-          made with it.
+          Connect a wallet (the pill at the top right) to see your swaps: your
+          EVM wallet, your Bitcoin Cash wallet, or both.
+        </p>
+      )}
+      {live && bchScanning && (
+        <p
+          data-testid="activity-bch-scanning"
+          role="status"
+          className="mb-4 text-xs text-text-muted"
+        >
+          Checking every address your Bitcoin Cash wallet has used…
         </p>
       )}
       {live && liveError && (
@@ -255,10 +353,12 @@ export function ActivityPage() {
               No swap activity found
             </p>
             <p className="mt-2 max-w-md mx-auto text-text-muted leading-relaxed">
-              No swap history found for this Bitcoin Cash address. Activity is
-              reconstructed directly from on-chain CashTokens covenants on the
-              Bitcoin Cash blockchain, ensuring complete privacy with zero
-              server-side tracking.
+              {live
+                ? 'No swaps were found for the connected wallets or this address.'
+                : 'No swap history found for this Bitcoin Cash address.'}{' '}
+              Activity is reconstructed directly from on-chain CashTokens
+              covenants on the Bitcoin Cash blockchain, ensuring complete
+              privacy with zero server-side tracking.
             </p>
           </div>
         ) : (

@@ -38,13 +38,52 @@ function decimal(raw: string, decimals: number): string {
 }
 
 /** Your swaps as the solver lists them for an EVM address, shaped as activity rows. */
-export async function loadLiveActivity(
+export function loadLiveActivity(
   solverUrl: string,
   evmAddress: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<readonly ActivityEntry[]> {
+  return loadOrders(
+    solverUrl,
+    `address=${encodeURIComponent(evmAddress)}`,
+    fetchFn,
+  );
+}
+
+/**
+ * Your swaps whose Bitcoin Cash side is one of these locking bytecodes (a wallet's addresses:
+ * it rotates them, so the whole set is asked for, 200 at a time).
+ */
+export async function loadLiveActivityByBch(
+  solverUrl: string,
+  lockingBytecodes: readonly string[],
+  fetchFn: typeof fetch = fetch,
+): Promise<readonly ActivityEntry[]> {
+  const unique = [
+    ...new Set(
+      lockingBytecodes.map((b) => `0x${b.replace(/^0x/i, '').toLowerCase()}`),
+    ),
+  ].filter((b) => b.length > 2);
+  const rows: ActivityEntry[] = [];
+  for (let i = 0; i < unique.length; i += 200) {
+    rows.push(
+      ...(await loadOrders(
+        solverUrl,
+        `bch=${unique.slice(i, i + 200).join(',')}`,
+        fetchFn,
+      )),
+    );
+  }
+  return rows;
+}
+
+async function loadOrders(
+  solverUrl: string,
+  query: string,
+  fetchFn: typeof fetch,
+): Promise<readonly ActivityEntry[]> {
   const res = await fetchFn(
-    `${solverUrl.replace(/\/+$/, '')}/v1/orders?address=${encodeURIComponent(evmAddress)}`,
+    `${solverUrl.replace(/\/+$/, '')}/v1/orders?${query}`,
   );
   if (!res.ok) throw new Error(`The solver answered ${res.status}`);
   const body = (await res.json()) as { orders?: ListedOrder[] };
