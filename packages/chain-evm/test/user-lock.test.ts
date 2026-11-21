@@ -120,7 +120,10 @@ describe('buildUserLock builds the same typed data the browser entry does', () =
       config,
       client: stubClient({ separator: domainSeparator('2') }),
     });
-    const unsigned = await adapter.buildUserLock(makeTerms(USDC));
+    // One set of terms for both sides: makeTerms reads the clock, and two calls a second apart
+    // give different deadlines.
+    const terms = makeTerms(USDC);
+    const unsigned = await adapter.buildUserLock(terms);
     const payload = unsigned.payload as {
       mode: string;
       permitTypedData: {
@@ -133,7 +136,7 @@ describe('buildUserLock builds the same typed data the browser entry does', () =
     expect(payload.permitTypedData.domain.version).toBe('2');
     expect(payload.permitTypedData.message.nonce).toBe(7n);
     expect(payload.lockIntentTypedData).toEqual(
-      buildLockIntentTypedData(makeTerms(USDC)),
+      buildLockIntentTypedData(terms),
     );
   });
 

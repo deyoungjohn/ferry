@@ -32,6 +32,11 @@ export function toSeconds(ts: number | null | undefined): number {
 
 /** 2026-11-19 04:00 UTC: the first swaps after this moment count towards the median time. */
 const MEDIAN_COUNTS_FROM = 1795060800;
+/**
+ * Chains whose own finality makes a swap into Bitcoin Cash take many minutes (Robinhood Chain:
+ * about 15 minutes for its finalized tag). Left out of the median, never out of the table.
+ */
+const MEDIAN_SLOW_FINALITY_CHAINS: ReadonlySet<number> = new Set([4663]);
 
 /** Amounts are stored in the terms as decimal strings, with a trailing "n" for a bigint ("1000000n"). */
 function termsBigInt(value: unknown): bigint {
@@ -1378,9 +1383,16 @@ export class SolverDatabase {
     const fastDurations: number[] = [];
 
     for (const row of rows) {
+      let slowFinalityOutlier = false;
       try {
         const terms = JSON.parse(row.terms_json);
         totalVolumeMicros += termsBigInt(terms.bchTokenAmount) * 10_000n;
+        // Into Bitcoin Cash from a chain whose finality alone takes many minutes: its real time
+        // shows in the table, but it is left out of the median as a known outlier.
+        slowFinalityOutlier =
+          (row.direction === 'EVM_TO_BCH' ||
+            row.direction === 'COUNTER_TO_BCH') &&
+          MEDIAN_SLOW_FINALITY_CHAINS.has(Number(terms.evmChainId));
       } catch {
         // ignore
       }
@@ -1390,7 +1402,11 @@ export class SolverDatabase {
       // median (they still count as completed swaps and in the volume).
       // A link's order waits for a person to pay or claim it, so its time is not the swap's speed.
       const isLink = Boolean(row.is_link) || legacyLinkOrders.has(row.id);
-      if (!isLink && toSeconds(row.created_at) >= MEDIAN_COUNTS_FROM) {
+      if (
+        !isLink &&
+        !slowFinalityOutlier &&
+        toSeconds(row.created_at) >= MEDIAN_COUNTS_FROM
+      ) {
         fastDurations.push(
           Math.max(0, toSeconds(row.updated_at) - toSeconds(row.created_at)),
         );
