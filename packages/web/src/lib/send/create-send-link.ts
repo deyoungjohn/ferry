@@ -53,23 +53,6 @@ export async function createSendLinkLive(
     );
   }
 
-  // 1. Generate or derive 32-byte secret and hash it
-  const secret = deps.secretGenerator
-    ? await deps.secretGenerator()
-    : generateSecret();
-  const hashLock = hashSecret(secret);
-
-  const rawTag =
-    input.viewTag ??
-    (deps.secretGenerator as { lastTag?: `0x${string}` })?.lastTag;
-  const viewTag = rawTag ? sendLinkViewTag(rawTag) : undefined;
-
-  const cancelHash = (
-    deps.secretGenerator as { lastCancelHash?: `0x${string}` }
-  )?.lastCancelHash;
-  const cancelKey = (deps.secretGenerator as { lastCancelKey?: `0x${string}` })
-    ?.lastCancelKey;
-
   // Derive sender's BCH locking bytecode
   const userBchLockingBytecode = cashAddressToLockingBytecode(
     deps.bchCashAddress,
@@ -79,48 +62,73 @@ export async function createSendLinkLive(
   const wantedUnits =
     BigInt(Math.round(input.amount * 100)) *
     10n ** BigInt(Math.max(0, tokenFacts.decimals - 2));
-
-  // 2. Call quoteSendLink from @ferry/solver-client (carries note, window, hashLock; NEVER secret).
-  // The sender pays the spread and fees: when the quote would deliver less than the amount the
-  // sender entered, the lock is raised by the shortfall and the quote is asked again (the spread
-  // is a share of the amount, so a second or third round settles it).
-  const quoteFor = (amountIn: bigint): SendQuoteRequest => ({
-    token: 'PUSD',
-    chainId: tokenFacts.chainId,
-    evmToken: tokenFacts.address,
-    amountIn,
-    recipientEvmAddress: input.recipientEvmAddress as Hex,
-    userEvmAddress: input.recipientEvmAddress as Hex,
-    userBchLockingBytecode,
-    hashLock,
-    windowSeconds: input.windowSeconds,
-    ...(input.note ? { note: cleanNote(input.note) } : {}),
-    ...(viewTag ? { viewTag } : {}),
-    ...(cancelHash ? { cancelHash } : {}),
-    lane: 'safe',
-  });
-
-  // The raised amount is found with previews (dryRun: nothing is saved, so the same hash lock can
-  // be priced again); only the final quote is real. Re-quoting for real with one hash lock is
-  // refused by the solver, which is how every send link once failed.
-  let amountIn = BigInt(Math.round(input.amount * 100));
   const unitsPerCent = 10n ** BigInt(Math.max(0, tokenFacts.decimals - 2));
-  for (let round = 0; round < 4; round += 1) {
-    const preview = await deps.solver.quoteSendLink({
-      ...quoteFor(amountIn),
-      dryRun: true,
+
+  // 1-2. A secret, then the quote. A wallet-derived secret may already belong to an order on the
+  // solver (an earlier attempt that was quoted but never locked): the solver refuses its hash
+  // lock, and the next secret is tried, as the swap does.
+  let secret!: Hex32;
+  let hashLock!: Hex32;
+  let rawTag: `0x${string}` | undefined;
+  let cancelKey: `0x${string}` | undefined;
+  let sendQuoteRequest!: SendQuoteRequest;
+  let rawQuote!: Awaited<ReturnType<typeof deps.solver.quoteSendLink>>;
+  for (let attempt = 0; ; attempt += 1) {
+    secret = deps.secretGenerator
+      ? await deps.secretGenerator()
+      : generateSecret();
+    hashLock = hashSecret(secret);
+    rawTag =
+      input.viewTag ??
+      (deps.secretGenerator as { lastTag?: `0x${string}` })?.lastTag;
+    const viewTag = rawTag ? sendLinkViewTag(rawTag) : undefined;
+    const cancelHash = (
+      deps.secretGenerator as { lastCancelHash?: `0x${string}` }
+    )?.lastCancelHash;
+    cancelKey = (deps.secretGenerator as { lastCancelKey?: `0x${string}` })
+      ?.lastCancelKey;
+
+    // The sender pays the spread and fees: previews (dryRun, nothing saved) find the lock that
+    // delivers the amount entered; only the final quote is real.
+    const quoteFor = (amountIn: bigint): SendQuoteRequest => ({
+      token: 'PUSD',
+      chainId: tokenFacts.chainId,
+      evmToken: tokenFacts.address,
+      amountIn,
+      recipientEvmAddress: input.recipientEvmAddress as Hex,
+      userEvmAddress: input.recipientEvmAddress as Hex,
+      userBchLockingBytecode,
+      hashLock,
+      windowSeconds: input.windowSeconds,
+      ...(input.note ? { note: cleanNote(input.note) } : {}),
+      ...(viewTag ? { viewTag } : {}),
+      ...(cancelHash ? { cancelHash } : {}),
+      lane: 'safe',
     });
-    const delivered = BigInt(
-      (preview.terms as { evmAmount: string | bigint }).evmAmount,
-    );
-    if (delivered >= wantedUnits) break;
-    // Cents to add: the shortfall scaled to cents, plus one cent for rounding.
-    const shortCents =
-      (wantedUnits - delivered + unitsPerCent - 1n) / unitsPerCent;
-    amountIn += shortCents + 1n;
+    let amountIn = BigInt(Math.round(input.amount * 100));
+    for (let round = 0; round < 4; round += 1) {
+      const preview = await deps.solver.quoteSendLink({
+        ...quoteFor(amountIn),
+        dryRun: true,
+      });
+      const delivered = BigInt(
+        (preview.terms as { evmAmount: string | bigint }).evmAmount,
+      );
+      if (delivered >= wantedUnits) break;
+      const shortCents =
+        (wantedUnits - delivered + unitsPerCent - 1n) / unitsPerCent;
+      amountIn += shortCents + 1n;
+    }
+    sendQuoteRequest = quoteFor(amountIn);
+    try {
+      rawQuote = await deps.solver.quoteSendLink(sendQuoteRequest);
+      break;
+    } catch (error) {
+      const text = String((error as { message?: unknown })?.message ?? error);
+      if (/already been used/i.test(text) && attempt < 5) continue;
+      throw error;
+    }
   }
-  const sendQuoteRequest = quoteFor(amountIn);
-  const rawQuote = await deps.solver.quoteSendLink(sendQuoteRequest);
 
   // 3. Verify the quote
   const verified = await verifySendLinkQuote(rawQuote, sendQuoteRequest);
@@ -234,6 +242,6 @@ export async function createSendLinkLive(
     bchLockTxId,
     expiresAt: verified.terms.evmDeadline,
     verifiedQuote: verified,
-    amountLockedCents: Number(amountIn),
+    amountLockedCents: Number(sendQuoteRequest.amountIn),
   };
 }

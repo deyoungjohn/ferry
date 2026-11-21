@@ -58,4 +58,58 @@ describe('send link quotes the fee on the sender', () => {
     const delivered = last - (last * 15n) / 10000n - 1n;
     expect(delivered).toBeGreaterThanOrEqual(2000n);
   });
+
+  it('moves to the next secret when the solver already holds an order with this one', async () => {
+    const taken = new Set<string>();
+    let index = 0;
+    const generator = Object.assign(
+      async () =>
+        ('0x' + (++index).toString(16).padStart(64, '0')) as `0x${string}`,
+      {},
+    );
+    const real: string[] = [];
+    let firstRealHash: string | null = null;
+    const solver = {
+      quoteSendLink: (request: {
+        hashLock: string;
+        amountIn: bigint;
+        dryRun?: boolean;
+      }) => {
+        if (!request.dryRun) {
+          // The first secret was used by an earlier attempt that was never locked.
+          if (firstRealHash === null) {
+            firstRealHash = request.hashLock;
+            taken.add(request.hashLock);
+          }
+          if (taken.has(request.hashLock) && real.length === 0 && index === 1) {
+            return Promise.reject(
+              new Error('hashLock has already been used by another order'),
+            );
+          }
+          real.push(request.hashLock);
+        }
+        return Promise.resolve({
+          orderId: '0x' + '11'.repeat(32),
+          terms: { evmAmount: (request.amountIn * 10000n).toString() },
+        });
+      },
+    };
+    try {
+      await createSendLinkLive(
+        {
+          recipientEvmAddress: '0x' + '22'.repeat(20),
+          destChain: 'Base',
+          destToken: 'USDC',
+          amount: 5,
+          windowSeconds: 3600,
+        } as never,
+        { solver, bchCashAddress: BCH, secretGenerator: generator } as never,
+      );
+    } catch {
+      // the fake quote does not verify; only the quoting is under test
+    }
+    expect(index).toBe(2);
+    expect(real).toHaveLength(1);
+    expect(real[0]).not.toBe(firstRealHash);
+  });
 });

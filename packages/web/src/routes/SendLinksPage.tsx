@@ -5,7 +5,7 @@ import {
   type Hex32,
 } from '@ferry/core';
 import { LinkHowItWorks } from '../components/links/LinkHowItWorks';
-import { useState, useContext, useEffect, type FormEvent } from 'react';
+import { useState, useContext, useEffect, useRef, type FormEvent } from 'react';
 import {
   SEND_LINK_NOTE_MAX_LENGTH,
   type CancelSendLinkQuota,
@@ -366,7 +366,12 @@ export function SendLinksPage({
       store: createLocalRecoveryStore(),
       bchCashAddress: bchAddress,
       bchNetwork: NETWORK_PROFILE.bch.network,
-      downloadFile: askToSaveRecoveryFile,
+      // With an EVM wallet that is not a contract, the link's secret comes from the wallet's
+      // recovery key, so the file is optional and the dialog is skipped; it stays required for
+      // the browser rescue key or a contract wallet.
+      ...(wallets?.evm.address && !isContractWallet
+        ? {}
+        : { downloadFile: askToSaveRecoveryFile }),
       secretGenerator,
     };
   }
@@ -472,8 +477,19 @@ export function SendLinksPage({
     propDependencies,
   ]);
 
-  async function handleCreate(e: FormEvent) {
-    e.preventDefault();
+  // A press that had to open the Bitcoin Cash wallet first carries on by itself once it connects.
+  const resumeAfterConnect = useRef(false);
+  useEffect(() => {
+    if (resumeAfterConnect.current && wallets?.bch.status === 'connected') {
+      resumeAfterConnect.current = false;
+      void handleCreate();
+    }
+    // handleCreate reads the current form; it runs once when the wallet connects.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallets?.bch.status]);
+
+  async function handleCreate(e?: FormEvent) {
+    e?.preventDefault();
     setError(null);
 
     const trimmed = recipientEvm.trim();
@@ -507,6 +523,7 @@ export function SendLinksPage({
         wallets?.bch.status !== undefined &&
         wallets.bch.status !== 'connected'
       ) {
+        resumeAfterConnect.current = true;
         wallets?.bch.connect();
         return;
       }
