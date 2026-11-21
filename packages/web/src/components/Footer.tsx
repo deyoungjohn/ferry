@@ -22,7 +22,7 @@ export function Footer() {
   const internal = isInternalPath(useLocation().pathname);
   return (
     <footer className="mt-24 border-t border-hairline">
-      <div className="mx-auto grid max-w-[1240px] gap-10 px-4 py-14 sm:px-6 md:grid-cols-[1.3fr_repeat(3,1fr)_1.7fr]">
+      <div className="mx-auto grid max-w-[1240px] gap-10 px-4 py-14 sm:px-6 md:grid-cols-[1.3fr_repeat(3,1fr)_1.1fr]">
         <div>
           <Brand />
           <p className="mt-4 max-w-[30ch] text-[14px] leading-6 text-text-muted">
@@ -61,29 +61,22 @@ export function Footer() {
         ))}
         <div data-testid="footer-mainnet">
           <p className="text-[14px] font-medium text-text-muted">Mainnet</p>
-          <div className="mt-3 grid grid-cols-2 gap-x-6">
-            {[
-              ['Contracts', mainnet.contracts],
-              ['Solver wallets', mainnet.wallets],
-            ].map(([heading, links]) => (
-              <div key={heading as string}>
-                <p className="text-[12px] text-text-dim">{heading as string}</p>
-                <ul className="mt-2 space-y-2">
-                  {(links as typeof mainnet.contracts).map((link) => (
-                    <li key={link.label}>
-                      <a
-                        href={link.href}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="text-[14px] text-text hover:text-lime"
-                      >
-                        {link.label}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+          <div className="mt-3">
+            <p className="text-[12px] text-text-dim">Contracts</p>
+            <ul className="mt-2 space-y-2">
+              {mainnet.contracts.map((link) => (
+                <li key={link.label}>
+                  <a
+                    href={link.href}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-[14px] text-text hover:text-lime"
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </div>

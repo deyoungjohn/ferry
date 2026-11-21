@@ -82,22 +82,16 @@ export function LandingBannerCta() {
               </span>
             </div>
 
-            {/* Center two overlapping obsidian & holographic settlement cards */}
+            {/* Center two overlapping flat settlement cards */}
             <div className="relative flex items-end justify-center sm:mt-14">
-              <div
-                className="relative -mr-8 h-44 w-48 -rotate-3 rounded-2xl border border-white/20 p-4 text-white shadow-[0_24px_60px_rgba(11,13,5,0.35)] transition-transform duration-500 ease-out group-hover:-translate-x-2 group-hover:-rotate-6"
-                style={{
-                  background:
-                    'linear-gradient(155deg, #101828 0%, #1d3a5c 52%, #0ac18e 100%)',
-                }}
-              >
-                <span className="font-mono text-[10px] text-white/75">
+              <div className="relative -mr-8 h-44 w-48 -rotate-3 rounded-2xl border border-white/15 bg-surface-2 p-4 text-text shadow-[0_24px_60px_rgba(11,13,5,0.35)] transition-transform duration-500 ease-out group-hover:-translate-x-2 group-hover:-rotate-6">
+                <span className="font-mono text-[10px] text-text-muted">
                   EVM LOCK
                 </span>
-                <p className="mt-14 font-mono text-[11px] font-semibold">
+                <p className="mt-14 font-mono text-[11px] font-semibold text-text">
                   USDC · USDT · USDG
                 </p>
-                <p className="mt-1 text-[11px] text-white/75">
+                <p className="mt-1 text-[11px] text-text-muted">
                   <CountUp value={6} /> EVM chains
                 </p>
               </div>
