@@ -409,6 +409,8 @@ export const OrderStatusResponseSchema = z.strictObject({
   updatedAt: unixTimestampSeconds,
   createdAt: unixTimestampSeconds.optional(),
   timeline: OrderTimelineSchema.optional(),
+  /** The swap's hash lock (public on both chains): a wallet that made the swap finds its secret. */
+  hashLock: hex32Schema.optional(),
   /** What the swap is for (public: the recent swaps list shows the same): token, amounts, chain. */
   summary: z
     .strictObject({

@@ -1,4 +1,6 @@
 import { useContext, useEffect, useRef, useState } from 'react';
+import { plainWalletMessage } from '@ferry/user-flow';
+import { finishWithWallet } from '../lib/recovery/finish-with-wallet';
 import { isCancelled, markCancelled } from '../lib/live/cancelled';
 import { Link, useLocation } from 'react-router';
 import {
@@ -197,6 +199,10 @@ export function LiveOrderView({
   // What the server holds for this order (state, transactions, times, amounts). The last copy is
   // kept in this browser and paints at once; the live answer corrects it every few seconds.
   const [cancelled, setCancelled] = useState(() => isCancelled(orderId));
+  const [finishState, setFinishState] = useState<'idle' | 'working' | 'sent'>(
+    'idle',
+  );
+  const [finishError, setFinishError] = useState<string | null>(null);
   const [snap, setSnap] = useState<OrderSnapshot | null>(() =>
     readSnapshot<OrderSnapshot>(`order.${orderId}`),
   );
@@ -320,6 +326,52 @@ export function LiveOrderView({
     URL.revokeObjectURL(url);
   }
 
+  // A forward swap still waiting for its payout can be finished from here with the wallet that
+  // made it (its secret is derived from that wallet).
+  const canFinishHere =
+    snap?.direction === 'EVM_TO_BCH' &&
+    Boolean(snap.hashLock) &&
+    Boolean(snap.txids?.evmLock) &&
+    ![
+      'DONE',
+      'REFUNDED',
+      'SOLVER_REFUNDED',
+      'RELEASED',
+      'EXPIRED',
+      'REJECTED',
+      'CANCELLED',
+      'SECRET_KNOWN',
+      'USER_CLAIM_SEEN',
+      'SOLVER_CLAIM_BROADCAST',
+      'SOLVER_CLAIM_FINAL',
+    ].includes(snap.state);
+
+  async function handleFinishWithWallet() {
+    setFinishError(null);
+    const evm = wallets?.evm;
+    if (!evm?.address) {
+      evm?.connect();
+      return;
+    }
+    if (!solverBase || !snap?.hashLock) return;
+    setFinishState('working');
+    try {
+      await finishWithWallet({
+        solverUrl: solverBase,
+        orderId,
+        hashLock: snap.hashLock,
+        signTypedData: (params) =>
+          evm.signTypedData(params as Parameters<typeof evm.signTypedData>[0]),
+      });
+      setFinishState('sent');
+    } catch (cause) {
+      setFinishError(
+        plainWalletMessage(cause).replace(/ Nothing was locked\.$/, ''),
+      );
+      setFinishState('idle');
+    }
+  }
+
   if (missing && snap?.direction) {
     return (
       <div
@@ -338,10 +390,48 @@ export function LiveOrderView({
             steps={swapSteps(snap, snap.direction, snap.summary?.evmChainId)}
           />
         </div>
-        <p className="mt-4 text-xs text-text-dim">
-          This swap was started in another browser, so this page only shows its
-          progress.
-        </p>
+        {canFinishHere ? (
+          <div
+            className="mt-5 rounded-well border border-lime/30 bg-lime/5 p-4 text-xs"
+            data-testid="finish-with-wallet"
+          >
+            <p className="text-text">
+              This swap was started in another browser. Finish it here with the
+              wallet that started it: sign one message and Ferry pays the{' '}
+              {snap.summary?.bchToken ?? 'PUSD'}
+              to the address set when the swap began, then takes your locked
+              stablecoin. Nothing else can be changed.
+            </p>
+            {finishState === 'sent' ? (
+              <p className="mt-3 text-ok" role="status">
+                Sent. Ferry is paying out now; this page updates by itself.
+              </p>
+            ) : (
+              <button
+                type="button"
+                disabled={finishState === 'working'}
+                onClick={() => void handleFinishWithWallet()}
+                className="mt-3 inline-flex h-10 items-center rounded-pill bg-lime px-5 font-semibold text-lime-ink disabled:opacity-50"
+              >
+                {finishState === 'working'
+                  ? 'Waiting for your wallet…'
+                  : wallets?.evm.address
+                    ? 'Finish with your wallet'
+                    : 'Connect wallet to finish'}
+              </button>
+            )}
+            {finishError && (
+              <p className="mt-2 text-danger" role="alert">
+                {finishError}
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="mt-4 text-xs text-text-dim">
+            This swap was started in another browser, so this page only shows
+            its progress.
+          </p>
+        )}
       </div>
     );
   }

@@ -16,6 +16,8 @@ export interface OrderSnapshot {
   readonly timeline?:
     ReadonlyArray<{ readonly status: string; readonly at: number }> | undefined;
   readonly direction?: 'EVM_TO_BCH' | 'BCH_TO_EVM' | undefined;
+  /** The swap's public hash lock. */
+  readonly hashLock?: string | undefined;
   readonly summary?:
     | {
         readonly bchToken: string;
@@ -62,6 +64,7 @@ export async function readOrderTxids(
       timeline?: OrderSnapshot['timeline'];
       direction?: OrderSnapshot['direction'];
       summary?: OrderSnapshot['summary'];
+      hashLock?: string;
     };
     return {
       state: body.state ?? '',
@@ -71,6 +74,7 @@ export async function readOrderTxids(
       timeline: body.timeline,
       direction: body.direction,
       summary: body.summary,
+      hashLock: body.hashLock,
     };
   } catch {
     return null;

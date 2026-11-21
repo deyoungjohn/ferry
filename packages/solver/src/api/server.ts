@@ -1172,6 +1172,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       updatedAt: order.updatedAt,
       createdAt: order.createdAt,
       timeline: db.listOrderEvents(order.id),
+      hashLock: terms.hashLock as Hex32,
       summary: {
         bchToken: String(terms.bchToken),
         bchTokenAmount: terms.bchTokenAmount.toString(),
