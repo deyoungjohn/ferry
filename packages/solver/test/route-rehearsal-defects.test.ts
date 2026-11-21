@@ -50,7 +50,7 @@ describe('B4-06 Rehearsal Defects (Decimals & Route Fixed Fees)', () => {
       expect(getRouteFixedFeeUsdMicros('base')).toBe(10_000n); // $0.01
       expect(getRouteFixedFeeUsdMicros('arbitrum')).toBe(20_000n); // $0.02
       expect(getRouteFixedFeeUsdMicros('bnb')).toBe(10_000n); // $0.01
-      expect(getRouteFixedFeeUsdMicros('ethereum')).toBe(340_000n); // $0.34
+      expect(getRouteFixedFeeUsdMicros('ethereum')).toBe(50_000n); // $0.05
     });
 
     it('keeps the fixed fee under 7% of the minimum swap for every route', () => {
@@ -60,10 +60,10 @@ describe('B4-06 Rehearsal Defects (Decimals & Route Fixed Fees)', () => {
       }
     });
 
-    it('sets the Ethereum minimum swap to $5', () => {
+    it('sets the Ethereum minimum swap to $1, like every route', () => {
       const ethFee = getRouteFixedFeeUsdMicros('ethereum');
-      expect(ethFee).toBe(340_000n);
-      expect(routeMinSwapUsdMicros(ethFee)).toBe(5_000_000n);
+      expect(ethFee).toBe(50_000n);
+      expect(routeMinSwapUsdMicros(ethFee)).toBe(1_000_000n);
     });
 
     it('keeps Base, Arbitrum and BNB minimum swap at standard $1.00', () => {

@@ -31,13 +31,15 @@ import {
  * Base: 10,000 ($0.01)
  * Arbitrum: 20,000 ($0.02)
  * BNB: 10,000 ($0.01)
- * Ethereum: 340,000 ($0.34)
+ * Ethereum: 50,000 ($0.05; operator funds ETH gas during the event)
  */
 export const DEFAULT_ROUTE_FIXED_FEES_USD_MICROS: Record<string, bigint> = {
   base: 10_000n,
   arbitrum: 20_000n,
   bnb: 10_000n,
-  ethereum: 340_000n,
+  // The fallback fee when live costs are unreadable; kept under 7% of the $1 minimum (the operator
+  // funds the solver's ETH gas through the event).
+  ethereum: 50_000n,
   arc: 10_000n,
   robinhood: 10_000n,
 };
@@ -52,10 +54,10 @@ export function getRouteFixedFeeUsdMicros(
   return DEFAULT_ROUTE_FIXED_FEES_USD_MICROS[chain.toLowerCase()] ?? 10_000n;
 }
 
-export function routeMinSwapUsdMicros(fixedFeeUsdMicros: bigint): bigint {
-  // About fifteen times the fixed fee, in whole dollars, never below $1: Ethereum ($0.34) is $5.
-  const wholeDollars = ((fixedFeeUsdMicros * 15n) / 1_000_000n) * 1_000_000n;
-  return wholeDollars > 1_000_000n ? wholeDollars : 1_000_000n;
+export function routeMinSwapUsdMicros(_fixedFeeUsdMicros: bigint): bigint {
+  // Every route takes $1 and up, Ethereum included: the operator funds the solver's ETH gas through
+  // the event. (Before, the minimum was fifteen times the fixed fee, which made Ethereum $5.)
+  return 1_000_000n;
 }
 
 export function getViemChain(

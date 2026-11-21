@@ -111,7 +111,7 @@ export function LandingPage() {
               </div>
 
               <h1 className="mt-5 text-center text-3xl font-semibold leading-[1.06] tracking-[-0.04em] text-text sm:text-[42px]">
-                Move stablecoins into Bitcoin Cash
+                Move stablecoins in and out of Bitcoin Cash
               </h1>
 
               {/* Direction toggle pill */}

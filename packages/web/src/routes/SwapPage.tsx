@@ -10,16 +10,18 @@ export function SwapPage() {
   if (IS_MAINNET && !NETWORK_PROFILE.isConfigured) {
     return <NetworkBlockedPage />;
   }
+  // Only the swap card needs a wallet; the stats and the recent swaps are public, so they show
+  // before anyone connects.
   return (
-    <RequireWallet feature="Swap">
-      <div className="pb-20">
-        <h1 className="sr-only">Swap</h1>
+    <div className="pb-20">
+      <h1 className="sr-only">Swap</h1>
+      <RequireWallet feature="Swap">
         <div className="pt-4 sm:pt-6">
           <SwapCard />
         </div>
-        <StatsRow />
-        <RecentSwapsTable />
-      </div>
-    </RequireWallet>
+      </RequireWallet>
+      <StatsRow />
+      <RecentSwapsTable />
+    </div>
   );
 }
