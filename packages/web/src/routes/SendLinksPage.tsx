@@ -956,6 +956,16 @@ export function SendLinksPage({
               >
                 {isSubmitting ? 'Creating Send Link…' : 'Generate Send Link'}
               </button>
+              {isSubmitting && (
+                <p
+                  className="text-center text-xs text-warn"
+                  role="status"
+                  data-testid="send-link-open-wallet"
+                >
+                  Open your Bitcoin Cash wallet and approve the request to lock
+                  your PUSD.
+                </p>
+              )}
             </form>
           </div>
         }

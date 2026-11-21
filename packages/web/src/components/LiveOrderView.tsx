@@ -410,9 +410,9 @@ export function LiveOrderView({
             <p className="text-text">
               This swap was started in another browser. Finish it here with the
               wallet that started it: sign one message and Ferry pays the{' '}
-              {snap.summary?.bchToken ?? 'PUSD'}
-              to the address set when the swap began, then takes your locked
-              stablecoin. Nothing else can be changed.
+              {snap.summary?.bchToken ?? 'PUSD'} to the address set when the
+              swap began, then takes your locked stablecoin. Nothing else can be
+              changed.
             </p>
             {finishState === 'sent' ? (
               <p className="mt-3 text-ok" role="status">
