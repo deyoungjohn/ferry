@@ -1,0 +1,26 @@
+# Testnet and mainnet
+
+Ferry was first built on testnets before BCH BLAZE 2026, as [ferry-testnet](https://github.com/deyoungjohn/ferry-testnet). This repository was started fresh on 15 November 2026 and is not a fork of it: the testnet build was the reference for what to keep, what to change and what to drop.
+
+## What changed
+
+|                      | Testnet build                                                                                                                          | Mainnet build (this one)                                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Networks             | Bitcoin Cash chipnet; Base Sepolia, Ethereum Sepolia, Arbitrum Sepolia, BNB testnet, Arc testnet; Solana devnet and TRON Nile adapters | Bitcoin Cash mainnet; Base, Ethereum, Arbitrum One, BNB Chain, Arc, Robinhood Chain                                           |
+| Bitcoin Cash tokens  | Self-minted test tokens (tPUSD, tMUSD)                                                                                                 | Real PUSD (ParyonUSD) and MUSD (Moria v1)                                                                                     |
+| EVM stablecoins      | Test USDC                                                                                                                              | USDC, USDT and USDG                                                                                                           |
+| EVM contract         | `FerryHTLC` on testnets                                                                                                                | `FerryHTLC` at `0xfC28…DAdF` on six mainnets, source verified                                                                 |
+| Swaps                | Test swaps, many scripted                                                                                                              | 55 real swaps and $475 settled by 21 Nov, every route both ways ([record](/docs/mainnet-record))                              |
+| Gas for the user     | User paid gas on most steps                                                                                                            | Gasless locks and claims relayed by the solver                                                                                |
+| Recovery             | A recovery file per swap                                                                                                               | Wallet-derived recovery key: one signature finds every swap on any device; files and `recover.html` still work                |
+| Pay links            | Fixed amount                                                                                                                           | Fixed or open amount, payer picks any chain and token, delete unpaid links                                                    |
+| Send links           | Planned                                                                                                                                | Live: receiver chooses the route, signs one free message, unclaimed links refund                                              |
+| Finishing a swap     | Keep the page open                                                                                                                     | Finish with your wallet from any device, or the optional handoff                                                              |
+| Bitcoin Cash wallets | Manual signing in testing                                                                                                              | WizardConnect, with Ferry's own relay and fallback to public relays                                                           |
+| Pricing              | Fixed test prices                                                                                                                      | Live Chainlink, Cauldron and Paryon prices with a peg guard                                                                   |
+| Operations           | Local daemon                                                                                                                           | Hosted solver with write-ahead state, RPC fallbacks, health checks, backups                                                   |
+| Testing              | Unit, e2e and chaos tests                                                                                                              | Plus fork rehearsals on every chain, 30,000 fuzz runs, 2,700 covenant attacks, a 200-swap load run ([details](/docs/testing)) |
+
+## What stayed
+
+The core idea and its safety rules: two HTLCs and one secret, the first lock outliving the second (invariants F and R), keyless Bitcoin Cash claims and refunds, contracts without owners, and recovery without the website.

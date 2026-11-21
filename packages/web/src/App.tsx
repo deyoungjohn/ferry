@@ -55,6 +55,7 @@ const RouteStatusPage = lazyPage(
   () => import('./routes/RouteStatusPage'),
   'RouteStatusPage',
 );
+const DocsPage = lazyPage(() => import('./routes/DocsPage'), 'DocsPage');
 const NotFoundPage = lazyPage(
   () => import('./routes/NotFoundPage'),
   'NotFoundPage',
@@ -102,6 +103,7 @@ export function titleFor(pathname: string, search: string): string {
       : 'Pay | Ferry';
   }
   if (path.startsWith('/app/swap') || path === '/swap') return 'Swap | Ferry';
+  if (path === '/docs' || path.startsWith('/docs/')) return 'Docs | Ferry';
   if (path === '/features') return 'Features | Ferry';
   if (path === '/how-it-works') return 'How it works | Ferry';
   if (path === '/stats') return 'Stats | Ferry';
@@ -127,6 +129,15 @@ export function App() {
     <ErrorBoundary>
       <PageTitle />
       <Routes>
+        {/* The docs have their own layout (sidebar, search, page outline). */}
+        <Route
+          path="/docs/:slug?"
+          element={
+            <Page>
+              <DocsPage />
+            </Page>
+          }
+        />
         <Route element={<AppShell />}>
           {/* Public: no wallet needed */}
           <Route index element={<LandingPage />} />
