@@ -100,22 +100,27 @@ export async function createSendLinkLive(
     lane: 'safe',
   });
 
+  // The raised amount is found with previews (dryRun: nothing is saved, so the same hash lock can
+  // be priced again); only the final quote is real. Re-quoting for real with one hash lock is
+  // refused by the solver, which is how every send link once failed.
   let amountIn = BigInt(Math.round(input.amount * 100));
-  let sendQuoteRequest = quoteFor(amountIn);
-  let rawQuote = await deps.solver.quoteSendLink(sendQuoteRequest);
-  for (let round = 0; round < 3; round += 1) {
+  const unitsPerCent = 10n ** BigInt(Math.max(0, tokenFacts.decimals - 2));
+  for (let round = 0; round < 4; round += 1) {
+    const preview = await deps.solver.quoteSendLink({
+      ...quoteFor(amountIn),
+      dryRun: true,
+    });
     const delivered = BigInt(
-      (rawQuote.terms as { evmAmount: string | bigint }).evmAmount,
+      (preview.terms as { evmAmount: string | bigint }).evmAmount,
     );
     if (delivered >= wantedUnits) break;
     // Cents to add: the shortfall scaled to cents, plus one cent for rounding.
-    const unitsPerCent = 10n ** BigInt(Math.max(0, tokenFacts.decimals - 2));
     const shortCents =
       (wantedUnits - delivered + unitsPerCent - 1n) / unitsPerCent;
     amountIn += shortCents + 1n;
-    sendQuoteRequest = quoteFor(amountIn);
-    rawQuote = await deps.solver.quoteSendLink(sendQuoteRequest);
   }
+  const sendQuoteRequest = quoteFor(amountIn);
+  const rawQuote = await deps.solver.quoteSendLink(sendQuoteRequest);
 
   // 3. Verify the quote
   const verified = await verifySendLinkQuote(rawQuote, sendQuoteRequest);

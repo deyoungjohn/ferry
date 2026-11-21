@@ -3582,6 +3582,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       ...(raw.note !== undefined ? { note: raw.note } : {}),
       ...(viewTag !== undefined ? { viewTag } : {}),
       ...(cancelHash !== undefined ? { cancelHash } : {}),
+      ...(raw.dryRun === true ? { dryRun: true } : {}),
       lane,
     };
 
@@ -3606,7 +3607,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       });
     }
 
-    if (db.getOrderByHashLock(request.hashLock)) {
+    // A preview prices only: it saves nothing, so it may repeat the same hash lock and tag.
+    const isSendDryRun = request.dryRun === true;
+    if (!isSendDryRun && db.getOrderByHashLock(request.hashLock)) {
       return sendApiError(
         reply,
         'CONFLICT',
@@ -3614,7 +3617,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       );
     }
 
-    if (request.viewTag !== undefined && db.hasSendLinkTag(request.viewTag)) {
+    if (
+      !isSendDryRun &&
+      request.viewTag !== undefined &&
+      db.hasSendLinkTag(request.viewTag)
+    ) {
       return sendApiError(
         reply,
         'CONFLICT',
@@ -3764,37 +3771,39 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const signature = await signOrderId(orderIdHex, solverAccount);
     const lockId = evmLockId(terms.solverEvmAddress, terms.hashLock);
 
-    db.saveOrder({
-      id: orderIdHex,
-      direction: 'BCH_TO_EVM',
-      status: 'QUOTED',
-      userCounterAddress: terms.userEvmAddress,
-      lockId,
-      termsJson: JSON.stringify(terms, (_, v) =>
-        typeof v === 'bigint' ? v.toString() + 'n' : v,
-      ),
-      hashLock: terms.hashLock,
-      lane: request.lane,
-      fastOptIn: false,
-      firstSeenAtMs: Date.now(),
-      needsAttention: false,
-      createdAt: now,
-      updatedAt: now,
-    });
-    db.markSendLinkOrder(orderIdHex);
-    // The hold marker is kept beside the order, never inside signed terms.
-    db.markSendLinkHeld(orderIdHex, now);
-    // The note is kept beside the order, not inside its signed terms.
-    if (request.note !== undefined) {
-      db.saveSendLinkNote(orderIdHex, request.note, now);
-    }
-    // The viewTag is kept beside the order, not inside its signed terms.
-    if (request.viewTag !== undefined) {
-      db.saveSendLinkTag(request.viewTag, orderIdHex, now);
-    }
-    // The cancelHash is kept beside the order, not inside its signed terms.
-    if (request.cancelHash !== undefined) {
-      db.saveSendLinkCancelHash(orderIdHex, request.cancelHash, now);
+    if (!isSendDryRun) {
+      db.saveOrder({
+        id: orderIdHex,
+        direction: 'BCH_TO_EVM',
+        status: 'QUOTED',
+        userCounterAddress: terms.userEvmAddress,
+        lockId,
+        termsJson: JSON.stringify(terms, (_, v) =>
+          typeof v === 'bigint' ? v.toString() + 'n' : v,
+        ),
+        hashLock: terms.hashLock,
+        lane: request.lane,
+        fastOptIn: false,
+        firstSeenAtMs: Date.now(),
+        needsAttention: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      db.markSendLinkOrder(orderIdHex);
+      // The hold marker is kept beside the order, never inside signed terms.
+      db.markSendLinkHeld(orderIdHex, now);
+      // The note is kept beside the order, not inside its signed terms.
+      if (request.note !== undefined) {
+        db.saveSendLinkNote(orderIdHex, request.note, now);
+      }
+      // The viewTag is kept beside the order, not inside its signed terms.
+      if (request.viewTag !== undefined) {
+        db.saveSendLinkTag(request.viewTag, orderIdHex, now);
+      }
+      // The cancelHash is kept beside the order, not inside its signed terms.
+      if (request.cancelHash !== undefined) {
+        db.saveSendLinkCancelHash(orderIdHex, request.cancelHash, now);
+      }
     }
 
     const response = {

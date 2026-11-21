@@ -814,6 +814,8 @@ export const SendQuoteRequestSchema = z.strictObject({
   /** Optional cancel hash (sha256 of cancel key) so the sender can cancel without leaking wallet root. */
   cancelHash: hex32Schema.optional(),
   lane: z.enum(['fast', 'safe']),
+  /** A price only: no order, note, tag, hold or cancel hash is saved, and nothing is checked for reuse. */
+  dryRun: z.boolean().optional(),
 });
 
 export type SendQuoteRequest = z.infer<typeof SendQuoteRequestSchema>;

@@ -933,6 +933,38 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
   });
 
   describe('7. Send link endpoints (blueprint §23.3, item 5)', () => {
+    it('a preview send quote saves nothing and may repeat a hash lock; a second real quote with it is refused', async () => {
+      const payload = {
+        amount: '10000000',
+        recipientAddress: '0x87Ea46fe296C1810eF234A8e8D782A2122deFaDd',
+        windowSeconds: 86400,
+        bchToken: 'PUSD',
+        hashLock: `0x${'cd'.repeat(32)}`,
+      };
+      for (let i = 0; i < 2; i += 1) {
+        const preview = await app.inject({
+          method: 'POST',
+          url: '/v1/send-quotes',
+          payload: { ...payload, dryRun: true },
+        });
+        expect(preview.statusCode).toBe(200);
+        expect(db.getOrder(preview.json().orderId)).toBeNull();
+      }
+      const real = await app.inject({
+        method: 'POST',
+        url: '/v1/send-quotes',
+        payload,
+      });
+      expect(real.statusCode).toBe(200);
+      expect(db.getOrder(real.json().orderId)).not.toBeNull();
+      const again = await app.inject({
+        method: 'POST',
+        url: '/v1/send-quotes',
+        payload,
+      });
+      expect(again.statusCode).toBe(409);
+    });
+
     it('refuses a send quote for a chain or token that is not an enabled route', async () => {
       const base = {
         amount: '10000000',
