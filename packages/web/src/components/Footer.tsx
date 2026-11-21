@@ -60,7 +60,9 @@ export function Footer() {
           </div>
         ))}
         <div data-testid="footer-mainnet">
-          <p className="text-[14px] font-medium text-text-muted">Mainnet</p>
+          <p className="text-[14px] font-medium text-text-muted">
+            Mainnet contracts
+          </p>
           <div className="mt-3">
             <p className="text-[12px] text-text-dim">Contracts</p>
             <ul className="mt-2 space-y-2">

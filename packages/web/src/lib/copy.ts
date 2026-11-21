@@ -115,7 +115,7 @@ export const FAQ_ITEMS: readonly FaqItem[] = [
   {
     question: 'What is the security and testing status of Ferry?',
     answer:
-      'Ferry was built as an experimental hackathon project for BCH BLAZE 2026. While the smart contracts and solver state machines are backed by formal timing invariants and automated crash simulation tests, they are experimental code. Never transact with funds you cannot afford to risk.',
+      'Ferry was built as an experimental hackathon project for BCH BLAZE 2026. While the smart contracts and solver state machines are backed by formal timing invariants and automated crash simulation tests, they are experimental code.',
   },
 ] as const;
 

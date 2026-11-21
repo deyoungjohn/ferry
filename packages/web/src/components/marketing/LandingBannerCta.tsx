@@ -40,12 +40,12 @@ export function LandingBannerCta() {
               id="banner-cta-heading"
               className="text-3xl font-semibold uppercase leading-[1.03] tracking-[-0.04em] text-lime-ink sm:text-5xl"
             >
-              Simplifying stablecoins for Bitcoin Cash
+              Seamless Stablecoin Swaps on BCH
             </h2>
             <p className="mx-auto mt-4 max-w-lg text-sm font-medium leading-relaxed text-lime-ink/80 sm:text-base">
-              Bridge across <CountUp value={6} /> EVM chains and{' '}
-              <CountUp value={5} /> stablecoins with zero custody — start your
-              first atomic swap from <CountUp value={1} prefix="$" />.
+              Move stablecoins across BCH and <CountUp value={6} /> EVM chains
+              with zero custody. Start your first atomic swap from{' '}
+              <CountUp value={1} prefix="$" />.
             </p>
           </div>
 
