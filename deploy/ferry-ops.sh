@@ -215,7 +215,7 @@ cmd_caddy() {
   need_dir
   local candidate
   candidate="$(mktemp)"
-  trap 'rm -f "$candidate"' RETURN
+  trap 'rm -f "${candidate:-}"; trap - RETURN' RETURN
   sed "s/example\\.org/$DOMAIN/g" "$FERRY_DIR/deploy/Caddyfile" > "$candidate"
   # Caddy's own user checks it (it opens the log file, which only that user may), so it must be
   # able to read the candidate.
