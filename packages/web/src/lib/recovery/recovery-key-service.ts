@@ -144,7 +144,11 @@ export async function isContractWallet(
     const fn = client.getBytecode ?? client.getCode;
     if (!fn) return false;
     const code = await fn({ address });
-    return Boolean(code && code !== '0x' && code !== '0x0');
+    if (!code || code === '0x' || code === '0x0') return false;
+    // EIP-7702: an ordinary account that delegates to code holds the designator 0xef0100 plus an
+    // address. It still has its own key and signs the recovery message, so it is not a contract.
+    if (/^0xef0100[0-9a-f]{40}$/i.test(code)) return false;
+    return true;
   } catch {
     return false;
   }
@@ -176,10 +180,15 @@ export async function getOrDeriveRecoveryRoot(
     throw new Error('EVM wallet is not connected.');
   }
 
-  // 1. Check if previously marked as contract wallet
+  // 1. A stored "contract wallet" mark is rechecked against the chain when it can be: it may be
+  // stale (an account upgraded with EIP-7702 was once marked as a contract).
   const contractFlag = await store.get(`ferry.recovery.contract.${address}`);
   if (contractFlag === 'true') {
-    return { root: null, isContract: true };
+    const stillContract = options?.chainClient
+      ? await isContractWallet(options.chainClient, address)
+      : true;
+    if (stillContract) return { root: null, isContract: true };
+    await store.set(`ferry.recovery.contract.${address}`, 'false');
   }
 
   // 2. Check if root already stored in browser

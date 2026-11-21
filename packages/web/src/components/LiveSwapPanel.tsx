@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createBrowserEvmChain } from '../lib/live/evm-chain';
 import type { QuoteInput, SwapState, UserSwapSession } from '@ferry/user-flow';
 import { UserFlowError } from '@ferry/user-flow';
 import type { VerifiedQuote } from '@ferry/solver-client';
@@ -8,7 +9,10 @@ import {
   type LiveSwapWallets,
 } from '../lib/live/ports';
 import { executeSwap, prepareSwap, previewSwap } from '../lib/live/run';
-import { browserRecoveryStorage } from '../lib/recovery/recovery-key-service';
+import {
+  browserRecoveryStorage,
+  isContractWallet,
+} from '../lib/recovery/recovery-key-service';
 
 type Phase =
   | 'previewing'
@@ -123,12 +127,32 @@ export function LiveSwapPanel({
       setIsContract(false);
       return;
     }
-    void browserRecoveryStorage
-      .get(`ferry.recovery.contract.${evmAddress}`)
-      .then((flag) => {
-        setIsContract(flag === 'true');
-      });
-  }, [evmAddress]);
+    let active = true;
+    // Ask the swap's own chain whether this is a contract wallet (an EIP-7702 account is not);
+    // the stored mark is only a fallback when the chain cannot be read.
+    void (async () => {
+      let contract: boolean;
+      try {
+        contract = await isContractWallet(
+          createBrowserEvmChain(input.chainId).client as never,
+          evmAddress as `0x${string}`,
+        );
+        await browserRecoveryStorage.set(
+          `ferry.recovery.contract.${evmAddress}`,
+          contract ? 'true' : 'false',
+        );
+      } catch {
+        contract =
+          (await browserRecoveryStorage.get(
+            `ferry.recovery.contract.${evmAddress}`,
+          )) === 'true';
+      }
+      if (active) setIsContract(contract);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [evmAddress, input.chainId]);
 
   const deps = useCallback(
     () =>
