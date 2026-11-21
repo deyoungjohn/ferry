@@ -460,4 +460,84 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
       );
     });
   });
+
+  it('reads the link view through its client after the lock (a detached method lost `this`)', async () => {
+    const view: SendLinkView = {
+      id: orderId,
+      orderId,
+      lockId: ('0x' + '22'.repeat(32)) as Hex32,
+      chainId: 8453,
+      status: 'pending_lock',
+      isHeld: true,
+      amount: 20,
+      token: 'USDC',
+      chain: 'Base',
+      recipientEvmAddress: recipientAddress,
+      expiresAt: Math.floor(Date.now() / 1000) + 7200,
+    };
+    const base = createMockSolver(view);
+    // Like the real client: getSendLink needs its object.
+    class BoundSolver {
+      calls = 0;
+      readonly view = view;
+      async getSendLink(): Promise<SendLinkView | null> {
+        this.calls += 1;
+        return this.view;
+      }
+    }
+    const bound = new BoundSolver();
+    const solver = Object.assign(Object.create(BoundSolver.prototype), base, {
+      calls: 0,
+      view,
+    }) as BoundSolver & SolverClient;
+    const signTypedDataMock = vi.fn(
+      async () => ('0x' + '99'.repeat(65)) as Hex,
+    );
+    const mockWallets = {
+      evm: {
+        status: 'connected' as const,
+        address: recipientAddress,
+        chainId: 8453,
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+        switchChain: vi.fn(),
+        signTypedData: signTypedDataMock,
+      },
+      bch: null,
+    };
+    void bound;
+    // getSendLink from the prototype (uses this), not the vi.fn from createMockSolver.
+    delete (solver as { getSendLink?: unknown }).getSendLink;
+    render(
+      <WalletContext.Provider value={mockWallets as never}>
+        <SolverProvider client={solver}>
+          <MemoryRouter
+            initialEntries={[`/s/${orderId}#${dummySecret.slice(2)}`]}
+          >
+            <Routes>
+              <Route
+                path="/s/:id"
+                element={
+                  <SendLinkPage
+                    isLive={true}
+                    initialSecret={dummySecret}
+                    dependencies={{
+                      solver: solver as unknown as SendLinkSolverPort,
+                    }}
+                  />
+                }
+              />
+            </Routes>
+          </MemoryRouter>
+        </SolverProvider>
+      </WalletContext.Provider>,
+    );
+    const claimBtn = await screen.findByTestId('send-link-submit-button');
+    fireEvent.click(claimBtn);
+    await waitFor(() => {
+      expect(solver.confirmSendLinkRoute).toHaveBeenCalled();
+      expect(solver.calls).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText(/Cannot read properties/)).toBeNull();
+  });
 });

@@ -377,8 +377,36 @@ export function SendLinkPage({
 
         let currentLink = link;
 
+        // The link view is read through its client (a method taken off the client loses `this`).
+        const refreshView = async () => {
+          const holder = liveSolver as unknown as {
+            getSendLink?: (id: string) => Promise<SendLinkView | null>;
+          };
+          const updated = holder?.getSendLink
+            ? await holder.getSendLink(id ?? '')
+            : solverContext?.getSendLink
+              ? await solverContext.getSendLink(id ?? '')
+              : null;
+          if (updated && id) {
+            setLoad({ state: 'ready', link: updated });
+            writeSnapshot(`sendview.${id}`, updated);
+            currentLink = updated;
+          }
+        };
+
+        // A route confirmed earlier (a previous press) whose solver lock is already there needs no
+        // second confirmation: the solver refuses it. Go straight to the claim.
+        const orderKey = (currentLink?.orderId ?? id ?? '') as string;
+        const lockedBefore =
+          solverUrl && orderKey
+            ? Boolean(
+                (await readOrderTxids(solverUrl, orderKey))?.txids?.evmLock,
+              )
+            : false;
+        if (lockedBefore) await refreshView();
+
         // If held, confirm route (one signature!)
-        if (currentLink?.isHeld) {
+        if (currentLink?.isHeld && !lockedBefore) {
           if (!evmSigner) {
             throw new Error(
               'EVM signer not available to authorize route confirmation',
@@ -487,20 +515,7 @@ export function SendLinkPage({
             );
             await new Promise((r) => setTimeout(r, 5_000));
           }
-          const fetchView =
-            (
-              liveSolver as unknown as {
-                getSendLink?: (id: string) => Promise<SendLinkView | null>;
-              }
-            )?.getSendLink ?? solverContext?.getSendLink;
-          if (fetchView && id) {
-            const updated = await fetchView(id);
-            if (updated) {
-              setLoad({ state: 'ready', link: updated });
-              writeSnapshot(`sendview.${id}`, updated);
-              currentLink = updated;
-            }
-          }
+          if (id) await refreshView();
           if (!solverLocked) {
             setLockingProgress(null);
             throw new Error(
