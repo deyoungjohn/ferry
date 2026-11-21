@@ -84,6 +84,25 @@ function makeTestOrder(overrides: Partial<SolverOrderRecord> = {}): {
   return { terms, record };
 }
 
+/** A claim of the covenant as the chain returns it: one output paying the recipient the token. */
+function claimTxFor(terms: OrderTerms) {
+  return {
+    inputs: [],
+    outputs: [
+      {
+        lockingBytecode: terms.userBchLockingBytecode,
+        valueSatoshis: 1000n,
+        token: {
+          category: terms.bchTokenCategory,
+          amount: terms.bchTokenAmount,
+        },
+      },
+    ],
+    version: 2,
+    locktime: 0,
+  };
+}
+
 describe('Forward swap finish-for-me delegation & ordering invariant', () => {
   it('1. handoff then the payee is paid on BCH and EVM lock is claimed after', async () => {
     const db = new SolverDatabase(':memory:');
@@ -328,6 +347,8 @@ describe('Forward swap finish-for-me delegation & ordering invariant', () => {
         throw new Error('txn-mempool-conflict: txn already in mempool');
       },
       isOnChain: async (txid) => txid === pageClaimTxId,
+      getTransaction: async (txid) =>
+        txid === pageClaimTxId ? claimTxFor(terms) : null,
       // First call: page claim not yet seen in script history so solver attempts broadcast;
       // Second call after conflict: page claim is found in history.
       getScriptHashHistory: async () => {
@@ -410,6 +431,8 @@ describe('Forward swap finish-for-me delegation & ordering invariant', () => {
         return 'new_tx';
       },
       isOnChain: async (txid) => txid === bchClaimTxId,
+      getTransaction: async (txid) =>
+        txid === bchClaimTxId ? claimTxFor(terms) : null,
       getScriptHashHistory: async () => [],
     };
 
@@ -905,5 +928,55 @@ describe('classifyCovenantSpend exact validation', () => {
     expect(classifyCovenantSpend('not_valid_hex', terms)).toBe('unrelated');
     expect(classifyCovenantSpend('bch_claim_txid', terms)).toBe('claim');
     expect(classifyCovenantSpend('bch_refund_txid', terms)).toBe('refund');
+  });
+  it('fails closed: a payout transaction that cannot be read never lets the solver claim the EVM lock', async () => {
+    const db = new SolverDatabase(':memory:');
+    const { terms, record } = makeTestOrder({ secret: defaultSecret });
+    db.saveOrder({
+      id: record.id,
+      direction: 'EVM_TO_BCH',
+      status: 'SECRET_KNOWN',
+      userCounterAddress: terms.userEvmAddress!,
+      lockId: terms.hashLock,
+      termsJson: stringifyTerms(terms),
+      hashLock: terms.hashLock,
+      secret: defaultSecret,
+      secretSource: 'cooperative',
+      solverLockTxId: record.solverLockTxId,
+      userLockTxId: record.userLockTxId,
+      userClaimTxId: 'unreadable_claim_txid',
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    });
+    const evmBroadcasts: string[] = [];
+    const engine = newTestEngine(
+      db,
+      {
+        getTip: async () => ({ height: 330000, hash: '0x00tip' }),
+        isQuorumHealthy: () => true,
+        isQuotingEnabled: () => true,
+        broadcast: async () => 'never',
+        isOnChain: async () => true,
+        getScriptHashHistory: async () => [
+          { tx_hash: record.solverLockTxId!, height: 330000 },
+          { tx_hash: 'unreadable_claim_txid', height: 330001 },
+        ],
+        getTransaction: async () => null,
+      },
+      {
+        getTip: async () => ({ height: 1000, finalized: true }),
+        getLock: async () => ({ status: 'locked' }),
+        isFinal: async () => true,
+        broadcast: async (hex) => {
+          evmBroadcasts.push(hex);
+          return '0xevm';
+        },
+        isOnChain: async () => false,
+        claim: async (lockId) => ({ txid: `0x${lockId}`, txHex: '0x00' }),
+      },
+    );
+    await engine.stepOrder(db.getOrder(record.id)!).catch(() => undefined);
+    expect(evmBroadcasts).toHaveLength(0);
+    expect(db.getOrder(record.id)?.solverClaimTxId).toBeUndefined();
   });
 });

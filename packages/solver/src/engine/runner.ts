@@ -215,14 +215,11 @@ export class SolverEngine {
       const onChain = await this.bchPort.isOnChain(solverOrder.userClaimTxId);
       if (onChain) {
         const tx = await this.fetchBchTx(solverOrder.userClaimTxId);
-        if (tx) {
-          const kind = classifyCovenantSpend(tx, solverOrder.terms);
-          return kind === 'claim';
-        }
-        return (
-          !solverOrder.userClaimTxId.toLowerCase().includes('refund') &&
-          !solverOrder.userClaimTxId.toLowerCase().includes('unrelated')
-        );
+        // Fails closed: a transaction that cannot be read is not proof of the payout; the next
+        // pass asks again.
+        return tx
+          ? classifyCovenantSpend(tx, solverOrder.terms) === 'claim'
+          : false;
       }
     }
     const shHex = getHtlcScriptHash(solverOrder.terms, this.bchNetwork);
@@ -893,9 +890,8 @@ export class SolverEngine {
           for (const e of historyNow) {
             if (e.tx_hash !== order.solverLockTxId) {
               const tx = await this.fetchBchTx(e.tx_hash);
-              const kind = tx
-                ? classifyCovenantSpend(tx, order.terms)
-                : 'claim';
+              // Fails closed: an unreadable spend is not adopted as the payout.
+              const kind = tx ? classifyCovenantSpend(tx, order.terms) : null;
               if (kind === 'claim') {
                 spendTxId = e.tx_hash;
                 break;
