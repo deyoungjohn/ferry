@@ -32,6 +32,8 @@ import {
   type WalletEvmSwap,
 } from '@ferry/recover-cli/wallet-scan';
 import { scanBchWalletHistory } from '../lib/live/wallet-bch-history';
+import { loadLiveActivityByBch } from '../lib/activity/live';
+import type { ActivityEntry } from '../lib/activity/types';
 import {
   getOrCreateRescueRoot,
   getOrDeriveRecoveryRoot,
@@ -120,6 +122,9 @@ export function RecoverPage() {
   } | null>(null);
   const [walletError, setWalletError] = useState<string | null>(null);
   const [bchSwaps, setBchSwaps] = useState<readonly BchWalletSwap[]>([]);
+  // Unfinished swaps the solver has for any of the wallet's addresses: found without a recovery
+  // key, so this works when the EVM wallet used for the swaps is not connected.
+  const [bchOrders, setBchOrders] = useState<readonly ActivityEntry[]>([]);
   const [bchBusy, setBchBusy] = useState(false);
   const [bchError, setBchError] = useState<string | null>(null);
   const [bchProgress, setBchProgress] = useState<string | null>(null);
@@ -442,6 +447,7 @@ export function RecoverPage() {
   async function recoverWithBchWallet() {
     setBchError(null);
     setBchSwaps([]);
+    setBchOrders([]);
     const wallet = walletContext;
     if (!wallet) {
       setBchError('The wallet context is not ready.');
@@ -476,9 +482,35 @@ export function RecoverPage() {
         onProgress: ({ message }) => setBchProgress(message),
       });
       setBchSwaps(swaps);
-      if (swaps.length === 0) {
+      const solverUrl = (
+        import.meta.env?.VITE_SOLVER_URLS as string | undefined
+      )
+        ?.split(',')[0]
+        ?.trim();
+      let unfinished: readonly ActivityEntry[] = [];
+      if (solverUrl) {
+        const bytecodes = [
+          ...(wallet.bch.address?.lockingBytecode
+            ? [wallet.bch.address.lockingBytecode]
+            : []),
+          ...addresses
+            .map((a) => a.lockingBytecodeHex ?? '')
+            .filter((hex) => hex.length > 0),
+        ];
+        try {
+          unfinished = (
+            await loadLiveActivityByBch(solverUrl, bytecodes)
+          ).filter((row) => row.tone === 'neutral');
+        } catch {
+          // The chain scan above still stands on its own.
+        }
+      }
+      setBchOrders(unfinished);
+      if (swaps.length === 0 && unfinished.length === 0) {
         setBchError(
-          'No Ferry terms output was found in the scanned Bitcoin Cash addresses.',
+          wallet.evm.status === 'connected'
+            ? 'No unfinished swap was found for the addresses of this Bitcoin Cash wallet.'
+            : 'No unfinished swap was found for the addresses of this Bitcoin Cash wallet. If you swapped with an EVM wallet connected, connect it too: its key finds swaps this scan cannot.',
         );
       }
     } catch (err) {
@@ -835,9 +867,10 @@ export function RecoverPage() {
             Recover from your Bitcoin Cash wallet
           </h3>
           <p className="mt-1 text-xs text-text-muted leading-relaxed">
-            Uses the wallet&apos;s rotating address history and the FRY1 terms
-            output to find reverse swaps. The root comes from the EVM signature
-            when connected, or the browser rescue key otherwise.
+            Checks every address your wallet has used for unfinished swaps, and
+            reads its history for Ferry locks made with your recovery key (from
+            your EVM wallet when it is connected, or this browser&apos;s rescue
+            key).
           </p>
           {walletContext?.evm.address === null && <RescueKeyPrompt />}
           <button
@@ -857,6 +890,32 @@ export function RecoverPage() {
             <p className="mt-3 text-xs text-warn" role="status">
               {bchError}
             </p>
+          )}
+          {bchOrders.length > 0 && (
+            <ul
+              className="mt-4 divide-y divide-hairline/60"
+              data-testid="bch-unfinished-orders"
+            >
+              {bchOrders.map((row) => (
+                <li
+                  key={row.key}
+                  className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"
+                >
+                  <span className="font-medium text-text">
+                    {row.amountDisplay}
+                  </span>
+                  <span className="text-text-muted">{row.statusLabel}</span>
+                  {row.orderId && (
+                    <Link
+                      to={ROUTES.swapOrder(row.orderId)}
+                      className="font-semibold text-lime underline-offset-4 hover:underline"
+                    >
+                      Continue this swap
+                    </Link>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
           {bchSwaps.length > 0 && (
             <ul className="mt-4 divide-y divide-hairline/60">
