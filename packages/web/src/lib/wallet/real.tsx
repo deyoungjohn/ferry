@@ -5,6 +5,7 @@ import { useWizardConnect } from '@wizardconnect/react';
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -46,6 +47,14 @@ import {
   saveRememberedBchWallet,
   type RememberedBchWallet,
 } from './remembered';
+import {
+  PUBLIC_RELAY_URLS,
+  chooseRelayUrls,
+  clearPairedRelays,
+  hasStoredWizardSession,
+  relaysForStoredSession,
+  savePairedRelays,
+} from './relay-choice';
 import type { WizardConnectSignRequest } from '@ferry/htlc-bch';
 import type {
   BchAddressInfo,
@@ -212,12 +221,12 @@ function txidOf(txHex: string): string {
 function useRealBchWallet(
   onRestart: () => void,
   startFresh: boolean,
+  relayUrls: readonly string[],
 ): { wallet: BchWallet; dialog: ReactNode } {
+  const wizardRelays = useMemo(() => [...relayUrls], [relayUrls]);
   const wizard = useWizardConnect({
     dappName: 'Ferry',
-    ...(WIZARD_RELAY_URLS.length > 0
-      ? { relayUrls: [...WIZARD_RELAY_URLS] }
-      : {}),
+    relayUrls: wizardRelays,
   });
   const connectRef = useRef(wizard.connect);
   const connectStartedAt = useRef(0);
@@ -248,16 +257,21 @@ function useRealBchWallet(
   // reconnect) and back to "connecting" while its QR is on screen.
   useEffect(() => {
     if (wizard.state === 'connected') {
+      // A restored session must reconnect on the relays it was paired on.
+      savePairedRelays(wizardRelays);
       setUserStarted(false);
       setDialogOpen(false);
       setPairingFailed(false);
       setFailureReason(null);
     }
-  }, [wizard.state]);
+  }, [wizard.state, wizardRelays]);
 
+  // A restored session that gets no answer within 8 s shows as offline, but the pairing is kept:
+  // the relay holds the session's messages, and the wallet reconnects when its app is opened
+  // again, with no new QR. A new pairing (Connect) still replaces it.
   const reconnectTimedOut = useBchReconnectTimeout(
     wizard.state,
-    () => wizard.disconnect(),
+    () => undefined,
     8000,
     // Never while a pairing link (the QR) exists: it waits for the scan.
     !userStarted && !wizard.uri,
@@ -644,14 +658,20 @@ function BchWalletSession({
   evm,
   startFresh,
   onRestart,
+  relayUrls,
   children,
 }: {
   readonly evm: EvmWallet;
   readonly startFresh: boolean;
   readonly onRestart: () => void;
+  readonly relayUrls: readonly string[];
   readonly children: ReactNode;
 }) {
-  const { wallet: bch, dialog } = useRealBchWallet(onRestart, startFresh);
+  const { wallet: bch, dialog } = useRealBchWallet(
+    onRestart,
+    startFresh,
+    relayUrls,
+  );
 
   return (
     <WalletContext.Provider value={{ evm, bch, usingMocks: false }}>
@@ -670,13 +690,37 @@ export function BchWalletHost({
 }) {
   const [nonce, setNonce] = useState(0);
   const [startFresh, setStartFresh] = useState(false);
+  // A saved session reconnects on the relays it was paired on; a new pairing uses Ferry's own
+  // relay when it answers a probe, otherwise the public relays.
+  const [relayUrls, setRelayUrls] = useState<readonly string[]>(() =>
+    hasStoredWizardSession() ? relaysForStoredSession() : PUBLIC_RELAY_URLS,
+  );
+  useEffect(() => {
+    if (hasStoredWizardSession() || WIZARD_RELAY_URLS.length === 0) return;
+    let live = true;
+    void chooseRelayUrls().then((urls) => {
+      if (live) setRelayUrls(urls);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const restart = () => {
     clearSession();
+    clearPairedRelays();
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem('wizardconnect-session');
     }
-    setStartFresh(true);
-    setNonce((current) => current + 1);
+    const remount = (urls: readonly string[]) => {
+      setRelayUrls(urls);
+      setStartFresh(true);
+      setNonce((current) => current + 1);
+    };
+    if (WIZARD_RELAY_URLS.length === 0) {
+      remount(PUBLIC_RELAY_URLS);
+      return;
+    }
+    void chooseRelayUrls().then(remount);
   };
 
   return (
@@ -685,6 +729,7 @@ export function BchWalletHost({
       evm={evm}
       startFresh={startFresh}
       onRestart={restart}
+      relayUrls={relayUrls}
     >
       {children}
     </BchWalletSession>

@@ -33,7 +33,7 @@ describe('Caddy configuration', () => {
     for (const host of [
       'wss://relay.riften.net',
       'wss://relay.cauldron.quest',
-      'wss://relay.example.org',
+      'wss://relay.{$FERRY_DOMAIN:example.org}',
     ]) {
       expect(csp).toContain(host);
     }
