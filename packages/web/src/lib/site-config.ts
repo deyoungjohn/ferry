@@ -6,7 +6,7 @@ import chainsData from '../../../chain-config/src/data/chains.json';
 export const SITE = {
   name: 'Ferry',
   tagline:
-    'Move stablecoins into Bitcoin Cash seamlessly. Atomic, non-custodial and recoverable',
+    'Move stablecoins in and out of Bitcoin Cash seamlessly. It’s atomic, non-custodial and recoverable.',
   bigWord: 'ferry',
   copyright: `© ${new Date().getFullYear()} Ferry`,
   finePrintLeft: 'Built for BCH BLAZE 2026. Trust-minimised swaps.',

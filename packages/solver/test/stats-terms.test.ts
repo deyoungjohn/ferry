@@ -64,6 +64,34 @@ describe('amounts in stored terms', () => {
     });
     expect(db.getStatsSummary(40, 0n).medianFastSeconds).toBe(120);
     expect(db.getStatsSummary(40, 0n).completedSwaps).toBe(2);
+
+    // A swap into Bitcoin Cash from Robinhood Chain waits about 15 minutes for that chain's
+    // finality: it counts as a completed swap and in the volume, but not in the median.
+    const robinhood = (id: string, direction: 'EVM_TO_BCH' | 'BCH_TO_EVM') =>
+      db.saveOrder({
+        ...base,
+        direction,
+        termsJson: JSON.stringify({
+          evmAmount: '1000000n',
+          bchTokenAmount: '99n',
+          bchToken: 'PUSD',
+          evmChainId: 4663,
+          quoteExpiry: now + 300,
+        }),
+        id: '0x' + id.repeat(32),
+        status: 'DONE',
+        lockId: '0x' + id.repeat(32),
+        hashLock: '0x' + id.repeat(32),
+        lane: 'safe',
+        createdAt: 4_000_000_000 - 900,
+        updatedAt: 4_000_000_000,
+      });
+    robinhood('e1', 'EVM_TO_BCH');
+    expect(db.getStatsSummary(40, 0n).medianFastSeconds).toBe(120);
+    expect(db.getStatsSummary(40, 0n).completedSwaps).toBe(3);
+    // Out of Bitcoin Cash to Robinhood Chain is quick and still counts.
+    robinhood('e2', 'BCH_TO_EVM');
+    expect(db.getStatsSummary(40, 0n).medianFastSeconds).toBe(510);
   });
 });
 

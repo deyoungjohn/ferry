@@ -115,6 +115,14 @@ export function StatsRow() {
                   <MedianTime seconds={stats.medianSecondsFast} />
                 </p>
                 <p className="mt-1 text-xs text-text-muted">Median time</p>
+                <p
+                  className="mt-1 text-[10px] text-text-dim"
+                  data-testid="median-note"
+                >
+                  Excludes swaps from Robinhood Chain, which waits about 15
+                  minutes for that chain&apos;s finality. Their real times are
+                  in the table.
+                </p>
               </div>
             </div>
           )}
