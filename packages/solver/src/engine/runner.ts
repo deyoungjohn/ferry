@@ -1273,6 +1273,12 @@ export class SolverEngine {
   ): Promise<boolean> {
     const expiry = order.terms.quoteExpiry;
     if (!expiry) return false;
+    // When the lock was first seen is when it was made, at the latest: a lock seen in time is
+    // never late, however long it took to confirm (a held send link confirms long after).
+    const seenAt = this.db
+      .listOrderEvents(order.id)
+      .find((event) => event.status === 'USER_LOCK_SEEN')?.at;
+    if (seenAt !== undefined && seenAt <= expiry) return false;
     if (this.bchPort.getLockEvidence) {
       const evidence = await this.bchPort.getLockEvidence(txid);
       if (evidence) {

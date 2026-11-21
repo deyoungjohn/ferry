@@ -289,6 +289,41 @@ describe('Send link hold solver EVM lock until receiver chooses', () => {
     return { orderId, terms, secret, hashLock };
   }
 
+  it('a lock seen before the quote expired is not released when the hold makes it confirm late', async () => {
+    const recipient = privateKeyToAccount(generatePrivateKey());
+    const { orderId, terms } = createTestOrder({
+      recipientAccount: recipient,
+      isHeld: true,
+    });
+    // The sender locked in time (seen before the quote expired); the receiver came back later.
+    const now = Math.floor(Date.now() / 1000);
+    const expiry = terms.quoteExpiry;
+    const record = db.getOrder(orderId)!;
+    db.saveOrder({
+      ...record,
+      status: 'USER_LOCK_SEEN',
+      updatedAt: expiry - 200,
+    });
+    db.saveOrder({ ...record, status: 'USER_LOCK_FINAL', updatedAt: now });
+    // The chain says the lock was mined just now: after the quote expired.
+    (bchPort as { getLockEvidence?: unknown }).getLockEvidence = async () => ({
+      exists: true,
+      confirmations: 1,
+      ageSeconds: 5,
+    });
+    const realNow = Date.now;
+    Date.now = () => (expiry + 600) * 1000;
+    try {
+      db.confirmSendLinkHold(orderId, expiry + 590);
+      await engine.stepOrder(db.getOrder(orderId)!);
+    } finally {
+      Date.now = realNow;
+      delete (bchPort as { getLockEvidence?: unknown }).getLockEvidence;
+    }
+    expect(db.getOrder(orderId)!.status).not.toBe('RELEASED');
+    expect(evmBroadcastSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('criterion 1: a held order does not lock before confirmation', async () => {
     const recipient = privateKeyToAccount(generatePrivateKey());
     const { orderId } = createTestOrder({
