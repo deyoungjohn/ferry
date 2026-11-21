@@ -644,6 +644,52 @@ describe('Solver HTTP API Endpoints (blueprint §5.3, §23.3, FR-17, FR-18)', ()
       expect(bad.statusCode).toBe(400);
     });
 
+    it("GET /v1/orders?bch lists the swaps of any of a wallet's Bitcoin Cash addresses", async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const mine = '0x76a914' + 'ab'.repeat(20) + '88ac';
+      const rotated = '0xaa20' + 'cd'.repeat(32) + '87';
+      const other = '0x76a914' + 'ef'.repeat(20) + '88ac';
+      const make = (
+        id: string,
+        bchBytecode: string,
+        status: 'DONE' | 'QUOTED',
+      ) =>
+        db.saveOrder({
+          id: ('0x' + id.repeat(32)) as `0x${string}`,
+          direction: 'BCH_TO_EVM',
+          status,
+          userCounterAddress: '0x2222222222222222222222222222222222222222',
+          lockId: ('0x' + id.repeat(32)) as `0x${string}`,
+          termsJson: JSON.stringify({
+            evmAmount: '1000000n',
+            bchTokenAmount: '100n',
+            bchToken: 'PUSD',
+            userBchLockingBytecode: bchBytecode,
+          }),
+          hashLock: ('0x' + id.repeat(32)) as `0x${string}`,
+          createdAt: now,
+          updatedAt: now,
+        });
+      make('d1', mine, 'DONE');
+      make('d2', rotated, 'DONE');
+      make('d3', other, 'DONE');
+      make('d4', mine, 'QUOTED');
+      const ok = await app.inject({
+        method: 'GET',
+        url: `/v1/orders?bch=${mine.toUpperCase().replace('0X', '0x')},${rotated}`,
+      });
+      expect(ok.statusCode).toBe(200);
+      const ids = ok.json().orders.map((o: { orderId: string }) => o.orderId);
+      expect(ids.sort()).toEqual(
+        ['0x' + 'd1'.repeat(32), '0x' + 'd2'.repeat(32)].sort(),
+      );
+      const bad = await app.inject({
+        method: 'GET',
+        url: '/v1/orders?bch=nope',
+      });
+      expect(bad.statusCode).toBe(400);
+    });
+
     it('relay-claim refuses a claim signed by anyone but the recipient fixed in the order', async () => {
       const { privateKeyToAccount, generatePrivateKey } =
         await import('viem/accounts');

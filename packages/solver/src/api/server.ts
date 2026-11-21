@@ -2056,16 +2056,36 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   // 10. GET /v1/orders/recent
   // GET /v1/orders?address=0x...: the swaps of one EVM address (the address does not rotate,
   // unlike a Bitcoin Cash one). Public data only: ids, direction, state, time, amounts.
+  // GET /v1/orders?bch=0x76a9…,0xaa20…: the swaps whose Bitcoin Cash side is one of these
+  // locking bytecodes (a wallet's address set, up to 200). Same public fields.
   app.get('/v1/orders', async (req, reply) => {
-    const address = String(
-      (req.query as { address?: string } | undefined)?.address ?? '',
-    );
-    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
-      return reply
-        .status(400)
-        .send({ error: 'address must be a 0x-prefixed EVM address' });
+    const query = (req.query ?? {}) as { address?: string; bch?: string };
+    const address = String(query.address ?? '');
+    const bchList = String(query.bch ?? '')
+      .split(',')
+      .map((b) => b.trim())
+      .filter((b) => b.length > 0);
+    let records;
+    if (bchList.length > 0 && !query.address) {
+      if (
+        bchList.length > 200 ||
+        !bchList.every((b) => /^0x[0-9a-fA-F]{2,200}$/.test(b))
+      ) {
+        return reply.status(400).send({
+          error:
+            'bch must be up to 200 comma-separated 0x-prefixed locking bytecodes',
+        });
+      }
+      records = db.listOrdersByBchLockingBytecodes(bchList);
+    } else {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+        return reply
+          .status(400)
+          .send({ error: 'address must be a 0x-prefixed EVM address' });
+      }
+      records = db.listOrdersByAddress(address);
     }
-    const orders = db.listOrdersByAddress(address).map((o) => {
+    const orders = records.map((o) => {
       let evmAmount = '';
       let bchTokenAmount = '';
       let bchToken = '';

@@ -1133,6 +1133,31 @@ export class SolverDatabase {
     return rows.map((row) => this.mapOrderRow(row));
   }
 
+  /**
+   * The swaps whose Bitcoin Cash side is one of these locking bytecodes (0x hex), newest first.
+   * A Bitcoin Cash wallet rotates addresses, so it is looked up by its whole address set.
+   */
+  listOrdersByBchLockingBytecodes(
+    bytecodes: readonly string[],
+    limit = 100,
+  ): OrderRecord[] {
+    const wanted = [...new Set(bytecodes.map((b) => b.toLowerCase()))].slice(
+      0,
+      200,
+    );
+    if (wanted.length === 0) return [];
+    const marks = wanted.map(() => '?').join(', ');
+    const stmt = this.db.prepare(`
+      SELECT * FROM orders
+      WHERE LOWER(json_extract(terms_json, '$.userBchLockingBytecode')) IN (${marks})
+        AND status NOT IN ('QUOTED', 'EXPIRED', 'REJECTED', 'SUPERSEDED')
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+    const rows = stmt.all(...wanted, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.mapOrderRow(row));
+  }
+
   listNonTerminalOrders(): OrderRecord[] {
     const stmt = this.db.prepare(`
       SELECT * FROM orders 
