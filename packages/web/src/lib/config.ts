@@ -24,15 +24,19 @@ export interface BannerConfig {
  * NEVER invent an address.
  */
 export const BANNER_CONFIG: BannerConfig = {
-  deckUrl: (import.meta.env?.VITE_DECK_URL as string | undefined) ?? '',
+  deckUrl:
+    (import.meta.env?.VITE_DECK_URL as string | undefined) ||
+    'https://docs.google.com/presentation/d/1-em8pmYnA6xlYXG2xfLIS0Mf6SMBZfAPY4efuB0gxWM/edit?usp=sharing',
   repoUrl:
     (import.meta.env?.VITE_REPO_URL as string | undefined) ??
     'https://github.com/deyoungjohn/ferry',
   licenseUrl:
     (import.meta.env?.VITE_LICENSE_URL as string | undefined) ??
     'https://github.com/deyoungjohn/ferry/blob/main/LICENSE',
+  // The team's token-aware address for EMBER2026 donations (Community Choice voting).
   emberAddress:
-    (import.meta.env?.VITE_EMBER_ADDRESS as string | undefined) ?? '', // Empty until an official EMBER2026 address is designated
+    (import.meta.env?.VITE_EMBER_ADDRESS as string | undefined) ||
+    'bitcoincash:zplzkjj2qj7u66w3aqggxw4d392elac005qk68ff65',
   priorRepoUrl:
     (import.meta.env?.VITE_PRIOR_REPO_URL as string | undefined) ?? '',
   priorDemoUrl:
@@ -46,7 +50,7 @@ export function getBannerWarnings(
   if (!config.deckUrl.trim()) warnings.push('Deck URL is unset');
   if (!config.repoUrl.trim()) warnings.push('Repo URL is unset');
   if (!config.emberAddress.trim()) warnings.push('EMBER2026 address is unset');
-  if (!config.priorRepoUrl.trim()) warnings.push('Prior repo URL is unset');
+  // Prior work is shown only when set; Ferry's repository was created for this event.
   return warnings;
 }
 

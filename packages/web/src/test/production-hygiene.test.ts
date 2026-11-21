@@ -22,7 +22,7 @@ describe('Production Profile Hygiene & Security Headers (Task B3-08)', () => {
     const warnings = getBannerWarnings(emptyConfig);
     expect(warnings).toContain('Deck URL is unset');
     expect(warnings).toContain('EMBER2026 address is unset');
-    expect(warnings).toContain('Prior repo URL is unset');
+    expect(warnings).not.toContain('Prior repo URL is unset');
     expect(warnings).not.toContain('Prior demo URL is unset');
   });
 

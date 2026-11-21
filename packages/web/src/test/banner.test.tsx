@@ -4,14 +4,10 @@ import { BannerBar } from '../components/BannerBar';
 import { getBannerWarnings, type BannerConfig } from '../lib/config';
 
 describe('BannerBar and build warnings', () => {
-  it('displays a visible build warning when configuration values are unset', () => {
+  it('shows the deck and the EMBER2026 address and no build warning once they are set', () => {
     render(<BannerBar />);
-    const alert = screen.getByRole('alert');
-    expect(alert).toBeInTheDocument();
-    expect(alert).toHaveTextContent(
-      /Build warning: Banner configuration incomplete/i,
-    );
-    expect(screen.getByText('not set')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText(/ff65/)).toBeInTheDocument();
   });
 
   it('detects all required unset properties in getBannerWarnings (priorDemoUrl is optional)', () => {
@@ -23,11 +19,12 @@ describe('BannerBar and build warnings', () => {
       priorDemoUrl: '',
     };
     const warnings = getBannerWarnings(emptyConfig);
-    expect(warnings).toHaveLength(4);
+    expect(warnings).toHaveLength(3);
     expect(warnings).toContain('Deck URL is unset');
     expect(warnings).toContain('Repo URL is unset');
     expect(warnings).toContain('EMBER2026 address is unset');
-    expect(warnings).toContain('Prior repo URL is unset');
+    // Prior work is optional: shown only when set.
+    expect(warnings).not.toContain('Prior repo URL is unset');
     expect(warnings).not.toContain('Prior demo URL is unset');
   });
 

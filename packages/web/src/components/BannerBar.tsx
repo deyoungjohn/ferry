@@ -51,7 +51,7 @@ export function BannerBar() {
                     rel="noreferrer noopener"
                     className="text-text underline-offset-2 hover:underline hover:text-lime"
                   >
-                    prior repo
+                    Ferry Testnet
                   </a>
                 )}
                 {BANNER_CONFIG.priorDemoUrl ? (
