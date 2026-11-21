@@ -527,12 +527,12 @@ Measured on a local run during full pairing, messages both ways and a relay rest
 1. DNS: an A record `relay.ferry.incepture.dev` pointing at the server.
 2. Apply the Caddy config: `deploy/ferry-ops.sh caddy`.
 3. Start the relay: `deploy/ferry-ops.sh relay install`, then `deploy/ferry-ops.sh relay probe`.
-4. In `/opt/ferry/packages/web/.env.production` set `VITE_WIZARD_RELAY_URLS=wss://relay.ferry.incepture.dev`.
+4. Test the relay with a phone wallet first. Then in `/opt/ferry/packages/web/.env.production` set `VITE_WIZARD_RELAY_URLS=wss://relay.ferry.incepture.dev` and `VITE_WIZARD_RELAY=on`. Without `VITE_WIZARD_RELAY=on` the app ignores the relay entirely and pairs exactly as before.
 5. Rebuild and publish: `deploy/ferry-ops.sh update -y`.
 
 #### Switch off
 
-Clear `VITE_WIZARD_RELAY_URLS` and run `deploy/ferry-ops.sh update -y`; optionally `deploy/ferry-ops.sh relay remove`. Stopping the relay alone is also safe: new pairings fall back to the public relays after the probe.
+Set `VITE_WIZARD_RELAY=off` (or remove it) and run `deploy/ferry-ops.sh update -y`; optionally `deploy/ferry-ops.sh relay remove`. Stopping the relay alone is also safe: new pairings fall back to the public relays after the probe.
 
 #### What to watch
 

@@ -29,6 +29,7 @@ import {
 import {
   NETWORK_PROFILE,
   REOWN_PROJECT_ID,
+  WIZARD_RELAY_ENABLED,
   WIZARD_RELAY_URLS,
 } from '../config';
 import { plainWalletMessage } from '@ferry/user-flow';
@@ -226,7 +227,8 @@ function useRealBchWallet(
   const wizardRelays = useMemo(() => [...relayUrls], [relayUrls]);
   const wizard = useWizardConnect({
     dappName: 'Ferry',
-    relayUrls: wizardRelays,
+    // Off: no list, so the library uses its own relays exactly as before the relay work.
+    ...(WIZARD_RELAY_ENABLED ? { relayUrls: wizardRelays } : {}),
   });
   const connectRef = useRef(wizard.connect);
   const connectStartedAt = useRef(0);
@@ -258,7 +260,7 @@ function useRealBchWallet(
   useEffect(() => {
     if (wizard.state === 'connected') {
       // A restored session must reconnect on the relays it was paired on.
-      savePairedRelays(wizardRelays);
+      if (WIZARD_RELAY_ENABLED) savePairedRelays(wizardRelays);
       setUserStarted(false);
       setDialogOpen(false);
       setPairingFailed(false);
@@ -271,7 +273,8 @@ function useRealBchWallet(
   // again, with no new QR. A new pairing (Connect) still replaces it.
   const reconnectTimedOut = useBchReconnectTimeout(
     wizard.state,
-    () => undefined,
+    // Switch off: the earlier behaviour, the stale session is cleared.
+    WIZARD_RELAY_ENABLED ? () => undefined : () => wizard.disconnect(),
     8000,
     // Never while a pairing link (the QR) exists: it waits for the scan.
     !userStarted && !wizard.uri,
@@ -696,7 +699,12 @@ export function BchWalletHost({
     hasStoredWizardSession() ? relaysForStoredSession() : PUBLIC_RELAY_URLS,
   );
   useEffect(() => {
-    if (hasStoredWizardSession() || WIZARD_RELAY_URLS.length === 0) return;
+    if (
+      !WIZARD_RELAY_ENABLED ||
+      hasStoredWizardSession() ||
+      WIZARD_RELAY_URLS.length === 0
+    )
+      return;
     let live = true;
     void chooseRelayUrls().then((urls) => {
       if (live) setRelayUrls(urls);
@@ -716,7 +724,7 @@ export function BchWalletHost({
       setStartFresh(true);
       setNonce((current) => current + 1);
     };
-    if (WIZARD_RELAY_URLS.length === 0) {
+    if (!WIZARD_RELAY_ENABLED || WIZARD_RELAY_URLS.length === 0) {
       remount(PUBLIC_RELAY_URLS);
       return;
     }

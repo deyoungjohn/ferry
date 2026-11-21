@@ -16,8 +16,6 @@ You need a Bitcoin Cash wallet only to swap **out of** Bitcoin Cash, or to creat
 
 ## Pairing relay
 
-WizardConnect messages go through a Nostr relay. Ferry runs its own relay and uses it first: before each new pairing the app checks that Ferry's relay answers, and if it does not, the pairing uses the public relays (`relay.riften.net`, `relay.cauldron.quest`). A relay that is down costs at most a couple of seconds, never a failed pairing.
+WizardConnect messages go through a Nostr relay. Today Ferry uses WizardConnect's public relays (`relay.riften.net`, `relay.cauldron.quest`).
 
-## Staying paired
-
-A pairing is remembered. When you come back, Ferry reconnects on the relays it was paired on. If your phone wallet is asleep, the wallet shows as offline but the pairing is kept; Ferry's relay holds the messages, and the wallet picks them up when you open its app, with no new QR. A phone still has to be awake to sign.
+Ferry also has its own relay ready (`deploy/ferry-ops.sh relay install`), switched off until it has been tested with phone wallets. When it is switched on (`VITE_WIZARD_RELAY=on`), the app checks before each pairing that Ferry's relay answers and otherwise uses the public relays; a pairing is kept while the phone wallet is asleep, and the wallet picks up its messages when its app is opened. A phone still has to be awake to sign.

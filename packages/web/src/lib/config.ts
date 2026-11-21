@@ -101,6 +101,16 @@ export const LIVE_EXECUTION_ENABLED =
  * ["wss://relay.riften.net:443", "wss://relay.cauldron.quest:443"].
  * Format: comma-separated list of WebSocket URLs (e.g. "wss://relay.example.com:443").
  */
+/**
+ * Switch for Ferry's own pairing relay (`VITE_WIZARD_RELAY=on`). Off by default: WizardConnect then
+ * runs exactly as before the relay work (its built-in public relays, no relay list passed, and a
+ * restored session that does not answer within 8 s is cleared). On: Ferry's relay in
+ * `VITE_WIZARD_RELAY_URLS` is probed before each pairing, the relays a session used are saved,
+ * and a restored session is kept while the wallet is asleep. Turn it on only once the relay runs.
+ */
+export const WIZARD_RELAY_ENABLED =
+  (import.meta.env?.VITE_WIZARD_RELAY as string | undefined) === 'on';
+
 export const WIZARD_RELAY_URLS: readonly string[] = (
   (import.meta.env?.VITE_WIZARD_RELAY_URLS as string | undefined) ?? ''
 )
