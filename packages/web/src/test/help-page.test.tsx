@@ -66,7 +66,7 @@ describe('User Guide Page (/help) (Task B3-09)', () => {
     });
     fireEvent.click(costButton);
 
-    expect(screen.getByText(/40 basis points/i)).toBeInTheDocument();
+    expect(screen.getByText(/5 basis points/i)).toBeInTheDocument();
     expect(screen.getByText(/Zero \(\$0\.00\)/i)).toBeInTheDocument();
     expect(screen.getByText(/Worked Example:/i)).toBeInTheDocument();
   });

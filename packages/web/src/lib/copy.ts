@@ -239,7 +239,7 @@ export const HELP_COPY = {
       summary:
         'Ferry is designed with deterministic refund timeouts and independent offline recovery tools so your funds are never trapped.',
       details: [
-        'Refund Deadlines: Every contract deposit has an explicit on-chain deadline (e.g., 2 hours for safe swaps, 4 hours for links). If the counterparty or solver fails to act before the deadline, your deposit unlocks automatically for a 100% refund.',
+        'Refund Deadlines: Every contract deposit has an explicit on-chain deadline (for example 24 hours for your EVM lock on a swap into Bitcoin Cash, about 24 hours for your Bitcoin Cash lock on a swap out, and the window you choose for a send link). If the counterparty or solver fails to act before the deadline, your deposit unlocks automatically for a 100% refund.',
         'Standalone Recovery File: When initiating a swap, download the recovery JSON file. It contains the complete contract terms, lock IDs, and the secret preimage.',
         'In-Page Recovery (/recover): If this website loses connection or a browser tab closes, open the /recover page and drop in your recovery file. You can monitor the state machine and trigger a refund or claim directly through public RPCs without any solver interaction.',
         'Terminal CLI (@ferry/recover-cli): Even if this website is completely offline or unreachable, run "pnpm -w recover" in the terminal with your recovery file to sign and broadcast refund transactions directly to the blockchain nodes.',
@@ -251,10 +251,10 @@ export const HELP_COPY = {
       summary:
         'Transparent market pricing with zero hidden protocol fees or custody deductions.',
       details: [
-        'Market Spread: Quotes include a transparent market spread (typically 40 basis points, or 0.40%) relative to real-time oracle reference prices from DEX pools (Cauldron and Paryon).',
+        'Market Spread: Quotes include a transparent market spread (5 basis points, or 0.05%, today; every quote shows it) relative to live reference prices: Chainlink for EVM stablecoins, and Cauldron and Paryon for PUSD and MUSD.',
         'Fixed Platform Fee: Zero ($0.00). Ferry charges no protocol take rate.',
         'Network Gas: You pay standard native transaction gas on the chain where you make your initial deposit (e.g., EVM gas for USDC lock, or Bitcoin Cash mining fee for CashTokens lock). The solver covers gas on their counter-lock and claim.',
-        'Worked Example: If you swap 100.00 USDC at 1:1 parity with a 40 bps spread ($0.40), the quote guarantees 99.60 PUSD delivered to your Bitcoin Cash address. All numbers and reference sources are displayed before you confirm.',
+        'Worked Example: If you swap 20.00 USDC at 1:1 parity with a 5 bps spread ($0.01), the quote guarantees 19.99 PUSD delivered to your Bitcoin Cash address. All numbers and reference sources are displayed before you confirm.',
       ],
     },
     {
