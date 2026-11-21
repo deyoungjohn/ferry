@@ -1,4 +1,5 @@
 import { formatUsdMicrosToDecimal } from '../pricing/price-source.js';
+import { rpcTransport } from '@ferry/chain-evm';
 import Fastify, {
   type FastifyInstance,
   type FastifyRequest,
@@ -10,7 +11,6 @@ import type pino from 'pino';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
   createPublicClient,
-  http,
   type Address,
   type PublicClient,
   verifyTypedData,
@@ -422,7 +422,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         baseClients.push(
           createPublicClient({
             chain: viemChain,
-            transport: http(url),
+            transport: rpcTransport([url]),
           }) as unknown as PublicClient,
         );
       } catch {
@@ -2376,7 +2376,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
     const key = `${chainId}:${token.toLowerCase()}:${owner.toLowerCase()}`;
     const cached = evmBalanceCache.get(key);
-    if (cached && Date.now() - cached.at < 5_000) {
+    if (cached && Date.now() - cached.at < 15_000) {
       return reply.status(200).send({ balance: cached.value });
     }
     try {

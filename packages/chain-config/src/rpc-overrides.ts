@@ -70,9 +70,23 @@ export function parseRpcOverrides(
   const overrides: RpcOverrides = {};
   for (const chain of CHAIN_IDS) {
     const variable = RPC_OVERRIDE_ENV_NAMES[chain];
-    const raw = env[variable];
-    if (raw === undefined || raw.trim() === '') continue;
-    overrides[chain] = parseUrlList(variable, raw);
+    // The main endpoint first (RPC_URL_<CHAIN>, which may itself be a list), then the fallbacks
+    // RPC_URL_<CHAIN>_1 to _3 in that order. A rate-limited endpoint hands over to the next.
+    const urls: string[] = [];
+    for (const name of [
+      variable,
+      `${variable}_1`,
+      `${variable}_2`,
+      `${variable}_3`,
+    ]) {
+      const raw = env[name];
+      if (raw === undefined || raw.trim() === '') continue;
+      for (const url of parseUrlList(name, raw)) {
+        if (!urls.includes(url)) urls.push(url);
+      }
+    }
+    if (urls.length === 0) continue;
+    overrides[chain] = urls;
   }
   return overrides;
 }

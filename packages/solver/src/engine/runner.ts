@@ -110,6 +110,9 @@ function withTimeout<T>(
   return Promise.race([work, limit]).finally(() => clearTimeout(timer));
 }
 
+/** How often a quoted order (no lock yet) is read on chain, in milliseconds. */
+export const QUOTED_POLL_MS = 10_000;
+
 export class SolverEngine {
   private running = false;
   private pollTimer: NodeJS.Timeout | null = null;
@@ -525,6 +528,32 @@ export class SolverEngine {
     return res.nextStatus;
   }
 
+  private readonly quotedPolledAt = new Map<string, number>();
+
+  /** Whether a quoted order is due for its next chain read, and records the read when it is. */
+  private quotedPollDue(record: OrderRecord): boolean {
+    const nowMs = Date.now();
+    let expiry: number | undefined;
+    try {
+      const terms = JSON.parse(record.termsJson) as { quoteExpiry?: number };
+      expiry = terms.quoteExpiry;
+    } catch {
+      expiry = undefined;
+    }
+    const expired =
+      typeof expiry === 'number' && Math.floor(nowMs / 1000) > expiry;
+    const interval = expired ? 30_000 : QUOTED_POLL_MS;
+    const last = this.quotedPolledAt.get(record.id);
+    if (last !== undefined && nowMs - last < interval) return false;
+    this.quotedPolledAt.set(record.id, nowMs);
+    if (this.quotedPolledAt.size > 5_000) {
+      // Forget the oldest entries; a forgotten order is simply read on the next pass.
+      const first = this.quotedPolledAt.keys().next().value;
+      if (first !== undefined) this.quotedPolledAt.delete(first);
+    }
+    return true;
+  }
+
   async reconcileOrders(): Promise<void> {
     const nonTerminalOrders = this.db.listNonTerminalOrders();
     this.passes += 1;
@@ -552,6 +581,12 @@ export class SolverEngine {
     let firstError: unknown;
     let failed = false;
     for (const orderRecord of nonTerminalOrders) {
+      // A quote nobody has locked against yet needs no chain read every pass: one every 10 s
+      // (30 s once the quote has expired) is enough. Every quote used to be read every 3 s for
+      // about 15 minutes, about 300 reads each.
+      if (orderRecord.status === 'QUOTED' && !this.quotedPollDue(orderRecord)) {
+        continue;
+      }
       try {
         const startedAt = Date.now();
         await withTimeout(

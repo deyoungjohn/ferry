@@ -1,10 +1,9 @@
 import {
   createPublicClient,
   createWalletClient,
-  fallback,
-  http,
   type PublicClient,
 } from 'viem';
+import { rpcTransport } from '@ferry/chain-evm';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia } from 'viem/chains';
 import { EvmChainAdapter, type EvmChainAdapterOptions } from '@ferry/chain-evm';
@@ -98,19 +97,17 @@ export async function startSolver(
         : (chainFact?.rpcUrls ?? []);
     if (rpcUrls.length === 0) continue;
 
+    // Reads and sends both fail over: a rate-limited endpoint hands over to the next one.
     const publicClient = createPublicClient({
       chain: viemChain,
-      transport:
-        rpcUrls.length === 1
-          ? http(rpcUrls[0])
-          : fallback(rpcUrls.map((u) => http(u))),
+      transport: rpcTransport(rpcUrls),
     });
 
     const walletClient = evmAccount
       ? createWalletClient({
           account: evmAccount,
           chain: viemChain,
-          transport: http(rpcUrls[0]),
+          transport: rpcTransport(rpcUrls),
         })
       : undefined;
 
@@ -141,13 +138,13 @@ export async function startSolver(
     const viemChain = config.network === 'mainnet' ? base : baseSepolia;
     const publicClient = createPublicClient({
       chain: viemChain,
-      transport: http(config.baseRpcUrl),
+      transport: rpcTransport([config.baseRpcUrl]),
     });
     const walletClient = evmAccount
       ? createWalletClient({
           account: evmAccount,
           chain: viemChain,
-          transport: http(config.baseRpcUrl),
+          transport: rpcTransport([config.baseRpcUrl]),
         })
       : undefined;
     const baseFact = routesContext.chainConfig.facts.find(

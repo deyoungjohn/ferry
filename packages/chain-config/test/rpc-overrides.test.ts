@@ -24,6 +24,26 @@ function overrideError(
 }
 
 describe('RPC overrides', () => {
+  it('adds the fallbacks RPC_URL_<CHAIN>_1 to _3 after the main endpoint, in order', () => {
+    expect(
+      parseRpcOverrides({
+        RPC_URL_BASE: 'https://main.example.com',
+        RPC_URL_BASE_2: 'https://two.example.com',
+        RPC_URL_BASE_1: 'https://one.example.com',
+        RPC_URL_BASE_3: 'https://three.example.com, https://main.example.com',
+        RPC_URL_ARBITRUM_1: 'https://arb-fallback.example.com',
+      }),
+    ).toEqual({
+      base: [
+        'https://main.example.com',
+        'https://one.example.com',
+        'https://two.example.com',
+        'https://three.example.com',
+      ],
+      arbitrum: ['https://arb-fallback.example.com'],
+    });
+  });
+
   it('parses a comma-separated list in order', () => {
     expect(
       parseRpcOverrides({

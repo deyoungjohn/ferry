@@ -90,7 +90,9 @@ export class InventoryReader {
     this.evmAdapters = options.evmAdapters;
     this.solverEvmAddress = options.solverEvmAddress;
     this.solverBchScriptHash = options.solverBchScriptHash;
-    this.cacheTtlSeconds = options.cacheTtlSeconds ?? 4;
+    // Inventory only changes when a swap moves it: 15 s keeps the swap card's 15 s refresh to one
+    // read per chain instead of one per visitor.
+    this.cacheTtlSeconds = options.cacheTtlSeconds ?? 15;
   }
 
   private getAdapter(chain?: string): EvmChainAdapter {

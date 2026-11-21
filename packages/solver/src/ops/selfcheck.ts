@@ -1,11 +1,10 @@
 import {
   type PublicClient,
   createPublicClient,
-  http,
-  fallback,
   encodeFunctionData,
   parseAbi,
 } from 'viem';
+import { rpcTransport } from '@ferry/chain-evm';
 import { privateKeyToAccount } from 'viem/accounts';
 import { EvmChainAdapter, type EvmChainAdapterOptions } from '@ferry/chain-evm';
 import { parseOrderTerms, type OrderTerms } from '@ferry/core';
@@ -164,10 +163,7 @@ export async function runSelfCheck(
 
       const publicClient = createPublicClient({
         chain: viemChain,
-        transport:
-          rpcUrls.length === 1
-            ? http(rpcUrls[0])
-            : fallback(rpcUrls.map((u) => http(u))),
+        transport: rpcTransport(rpcUrls),
       });
 
       const adapter = new EvmChainAdapter({

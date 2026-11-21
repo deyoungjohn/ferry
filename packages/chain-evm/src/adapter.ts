@@ -1,11 +1,5 @@
-import {
-  createPublicClient,
-  fallback,
-  getAddress,
-  http,
-  isAddress,
-  parseAbi,
-} from 'viem';
+import { createPublicClient, getAddress, isAddress, parseAbi } from 'viem';
+import { rpcTransport } from './transport.js';
 import type { Address, Hash, PublicClient, WalletClient } from 'viem';
 import {
   evmLockId,
@@ -116,10 +110,7 @@ export class EvmChainAdapter implements ChainAdapter {
     this.client =
       options.client ??
       createPublicClient({
-        transport:
-          config.rpcUrls.length === 1
-            ? http(config.rpcUrls[0])
-            : fallback(config.rpcUrls.map((url) => http(url))),
+        transport: rpcTransport(config.rpcUrls),
       });
     this.walletClient = options.walletClient;
   }
@@ -476,24 +467,51 @@ export class EvmChainAdapter implements ChainAdapter {
     }
   }
 
+  /** Where the next log scan for a lock starts, so each block range is read once per lock. */
+  private readonly lockScanFrom = new Map<string, bigint>();
+  private readonly claimScanFrom = new Map<string, bigint>();
+  private headCache: { at: number; block: bigint } | null = null;
+  private tipCache: {
+    at: number;
+    value: { height: number; timestamp: number; ageSeconds: number };
+  } | null = null;
+
+  /** The head block, read at most every 3 seconds (one engine pass asks for it several times). */
+  private async headBlock(): Promise<bigint> {
+    const now = Date.now();
+    if (this.headCache && now - this.headCache.at < 3_000) {
+      return this.headCache.block;
+    }
+    const block = await this.client.getBlockNumber();
+    this.headCache = { at: now, block };
+    return block;
+  }
+
   private async findLockTx(lockId: Hex32): Promise<Hex32 | null> {
     try {
-      const tip = await this.client.getBlockNumber();
+      const tip = await this.headBlock();
       const lookback = 60_000n; // about a day on Base
-      const from = tip > lookback ? tip - lookback : 0n;
+      const earliest = tip > lookback ? tip - lookback : 0n;
+      const from =
+        this.lockScanFrom.get(lockId) ??
+        (earliest > this.deployBlock ? earliest : this.deployBlock);
+      if (from > tip) return null;
       const logs = await fetchLogsChunked(
         this.client,
         this.htlcAddress,
-        from > this.deployBlock ? from : this.deployBlock,
+        from,
         tip,
         this.maxLogRange ? { maxRange: this.maxLogRange } : undefined,
       );
       for (const log of logs) {
         const event = decodeHtlcLog(log, this.id, this.assets);
         if (event?.type === 'Locked' && event.lockId === lockId) {
+          this.lockScanFrom.delete(lockId);
           return event.tx.txId;
         }
       }
+      // Not found up to the head: next time scan only the newer blocks.
+      this.lockScanFrom.set(lockId, tip + 1n);
       return null;
     } catch {
       return null;
@@ -550,14 +568,20 @@ export class EvmChainAdapter implements ChainAdapter {
 
       if (!claimSecret || !cachedClaimTx) {
         try {
-          const currentBlock = await this.client.getBlockNumber();
-          const logs = await fetchLogsChunked(
-            this.client,
-            this.htlcAddress,
-            this.deployBlock,
-            currentBlock,
-            this.maxLogRange ? { maxRange: this.maxLogRange } : undefined,
-          );
+          const currentBlock = await this.headBlock();
+          // Each range is scanned once per lock: the next call starts after the last block read.
+          const from = this.claimScanFrom.get(lockId) ?? this.deployBlock;
+          const logs =
+            from > currentBlock
+              ? []
+              : await fetchLogsChunked(
+                  this.client,
+                  this.htlcAddress,
+                  from,
+                  currentBlock,
+                  this.maxLogRange ? { maxRange: this.maxLogRange } : undefined,
+                );
+          this.claimScanFrom.set(lockId, currentBlock + 1n);
           for (const log of logs) {
             const event = decodeHtlcLog(log, this.id, this.assets);
             if (event?.type === 'Claimed' && event.lockId === lockId) {
@@ -709,12 +733,25 @@ export class EvmChainAdapter implements ChainAdapter {
     timestamp: number;
     ageSeconds: number;
   }> {
+    // Read at most every 3 seconds: health checks, the engine and quotes all ask for it.
+    const nowMs = Date.now();
+    if (this.tipCache && nowMs - this.tipCache.at < 3_000) {
+      const { height, timestamp } = this.tipCache.value;
+      return {
+        height,
+        timestamp,
+        ageSeconds: Math.max(0, Math.floor(nowMs / 1000) - timestamp),
+      };
+    }
     const block = await this.client.getBlock({ blockTag: 'latest' });
     const height = Number(block.number);
     const timestamp = Number(block.timestamp);
-    const nowSeconds = Math.floor(Date.now() / 1000);
+    const nowSeconds = Math.floor(nowMs / 1000);
     const ageSeconds = Math.max(0, nowSeconds - timestamp);
-    return { height, timestamp, ageSeconds };
+    const value = { height, timestamp, ageSeconds };
+    this.tipCache = { at: nowMs, value };
+    this.headCache = { at: nowMs, block: block.number ?? 0n };
+    return value;
   }
 
   private assertTermsMatchChain(terms: OrderTerms): void {

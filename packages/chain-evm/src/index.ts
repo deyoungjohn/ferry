@@ -74,3 +74,4 @@ export type {
   RecipientTokenCheckResult,
   SendLinkRecipientFailureReason,
 } from './send-link.js';
+export { rpcTransport } from './transport.js';

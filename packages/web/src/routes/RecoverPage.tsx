@@ -114,6 +114,10 @@ export function RecoverPage() {
   );
   const [walletSwaps, setWalletSwaps] = useState<readonly WalletEvmSwap[]>([]);
   const [walletBusy, setWalletBusy] = useState(false);
+  const [walletProgress, setWalletProgress] = useState<{
+    scanned: number;
+    found: number;
+  } | null>(null);
   const [walletError, setWalletError] = useState<string | null>(null);
   const [bchSwaps, setBchSwaps] = useState<readonly BchWalletSwap[]>([]);
   const [bchBusy, setBchBusy] = useState(false);
@@ -358,6 +362,7 @@ export function RecoverPage() {
       return;
     }
     setWalletBusy(true);
+    setWalletProgress(null);
     try {
       const signature = await evm.signTypedData(
         EVM_RECOVERY_KEY_TYPED_DATA as Parameters<typeof evm.signTypedData>[0],
@@ -367,6 +372,7 @@ export function RecoverPage() {
         owner: evm.address,
         chains: walletRecoveryChains,
         gap: 20,
+        onProgress: (progress) => setWalletProgress(progress),
       });
       setWalletSwaps(result.swaps);
       const solverUrl = (
@@ -726,7 +732,11 @@ export function RecoverPage() {
           disabled={walletBusy}
           className="rounded-pill bg-lime px-4 py-1.5 text-xs font-semibold text-bg hover:bg-lime/90 transition-colors disabled:opacity-60"
         >
-          {walletBusy ? 'Scanning…' : 'Recover with wallet'}
+          {walletBusy
+            ? walletProgress
+              ? `Scanning… ${walletProgress.scanned} checked, ${walletProgress.found} found`
+              : 'Scanning…'
+            : 'Recover with wallet'}
         </button>
         {walletError && (
           <p className="mt-3 text-xs text-warn" role="status">

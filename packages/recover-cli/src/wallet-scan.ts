@@ -61,7 +61,8 @@ export async function defaultWalletLockReader(input: {
   for (const url of input.chain.rpcUrls) {
     try {
       const client = createPublicClient({
-        transport: http(url, { timeout: 15_000 }),
+        // One try per endpoint, 8 seconds: the next endpoint is the retry.
+        transport: http(url, { timeout: 8_000, retryCount: 0 }),
         cacheTime: 0,
       });
       const tuple = (await client.readContract({
@@ -92,49 +93,85 @@ export async function scanEvmRoot(input: {
   gap?: number;
   maxIndex?: number;
   readLock?: LockReader;
+  /** Indexes read at the same time (default 8). */
+  concurrency?: number;
+  /** Called after each window: indexes read so far and swaps found. */
+  onProgress?: (progress: { scanned: number; found: number }) => void;
 }): Promise<WalletEvmScanResult> {
   const gap = input.gap ?? RECOVERY_SCAN_GAP;
   const maxIndex = input.maxIndex ?? 500;
   const readLock = input.readLock ?? defaultWalletLockReader;
+  const concurrency = Math.max(1, input.concurrency ?? 8);
   const swaps: WalletEvmSwap[] = [];
   const errors: { chain: string; message: string }[] = [];
+  // A chain that fails three times in a row is skipped for the rest of the scan (and reported),
+  // so one slow public endpoint cannot hold the whole scan.
+  const failuresInARow = new Map<number, number>();
+  const skipped = new Set<number>();
   let misses = 0;
   let scanned = 0;
 
-  for (let index = 0; index < maxIndex && misses < gap; index += 1) {
-    scanned += 1;
+  /** Every chain and contract for one index, at the same time; the first lock found wins. */
+  const readIndex = async (index: number): Promise<WalletEvmSwap | null> => {
     const hashLock = swapHashLockAt(input.root, index);
     const lockId = evmLockId(input.owner, hashLock) as Hex32;
-    let found = false;
-    for (const chain of input.chains) {
-      for (const raw of chain.htlcAddresses) {
-        const htlcAddress = raw as Address;
-        try {
-          const result = await readLock({ chain, htlcAddress, lockId });
-          if (result && result.status !== 'none') {
-            found = true;
-            swaps.push({
-              index,
-              chainId: chain.chainId,
-              chainName: chain.name,
-              lockId,
-              hashLock,
-              status: result.status,
-              htlcAddress,
-              evmDeadline: result.evmDeadline ?? null,
-            });
-            break;
-          }
-        } catch (error) {
-          errors.push({
-            chain: chain.name,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-      if (found) break;
+    const attempts = input.chains.flatMap((chain) =>
+      skipped.has(chain.chainId)
+        ? []
+        : chain.htlcAddresses.map(async (raw) => {
+            const htlcAddress = raw as Address;
+            try {
+              const result = await readLock({ chain, htlcAddress, lockId });
+              failuresInARow.set(chain.chainId, 0);
+              if (result && result.status !== 'none') {
+                return {
+                  index,
+                  chainId: chain.chainId,
+                  chainName: chain.name,
+                  lockId,
+                  hashLock,
+                  status: result.status,
+                  htlcAddress,
+                  evmDeadline: result.evmDeadline ?? null,
+                } satisfies WalletEvmSwap;
+              }
+            } catch (error) {
+              const count = (failuresInARow.get(chain.chainId) ?? 0) + 1;
+              failuresInARow.set(chain.chainId, count);
+              if (count >= 3 && !skipped.has(chain.chainId)) {
+                skipped.add(chain.chainId);
+                errors.push({
+                  chain: chain.name,
+                  message:
+                    error instanceof Error ? error.message : String(error),
+                });
+              }
+            }
+            return null;
+          }),
+    );
+    const results = await Promise.all(attempts);
+    return results.find((item) => item !== null) ?? null;
+  };
+
+  for (let start = 0; start < maxIndex && misses < gap; start += concurrency) {
+    const indexes: number[] = [];
+    for (let i = start; i < Math.min(maxIndex, start + concurrency); i += 1) {
+      indexes.push(i);
     }
-    misses = found ? 0 : misses + 1;
+    const window = await Promise.all(indexes.map((i) => readIndex(i)));
+    // Count misses in index order, so the stopping rule is the same as reading one by one.
+    for (const found of window) {
+      if (misses >= gap) break;
+      scanned += 1;
+      if (found) {
+        swaps.push(found);
+        misses = 0;
+      } else {
+        misses += 1;
+      }
+    }
+    input.onProgress?.({ scanned, found: swaps.length });
   }
 
   return { swaps, scanned, errors };
@@ -147,6 +184,8 @@ export async function scanEvmSignature(input: {
   gap?: number;
   maxIndex?: number;
   readLock?: LockReader;
+  concurrency?: number;
+  onProgress?: (progress: { scanned: number; found: number }) => void;
 }): Promise<WalletEvmScanResult> {
   const root = deriveRecoveryRoot(input.signature);
   return scanEvmRoot({
@@ -156,6 +195,10 @@ export async function scanEvmSignature(input: {
     ...(input.gap !== undefined ? { gap: input.gap } : {}),
     ...(input.maxIndex !== undefined ? { maxIndex: input.maxIndex } : {}),
     ...(input.readLock !== undefined ? { readLock: input.readLock } : {}),
+    ...(input.concurrency !== undefined
+      ? { concurrency: input.concurrency }
+      : {}),
+    ...(input.onProgress !== undefined ? { onProgress: input.onProgress } : {}),
   });
 }
 
