@@ -15,4 +15,14 @@ describe('insufficient BCH message', () => {
     expect(text).not.toMatch(/satoshi/i);
     expect(text).toContain('Nothing was locked');
   });
+
+  it('reports a token shortage in the token, not as BCH', () => {
+    const text = insufficientBchMessage(
+      'Insufficient token balance for category b38a33f7: required 499, available 0',
+      0,
+      'MUSD',
+    );
+    expect(text).toContain('You hold 0.00 MUSD and this swap needs 4.99 MUSD');
+    expect(text).not.toMatch(/BCH to pay/);
+  });
 });

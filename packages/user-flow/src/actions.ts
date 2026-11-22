@@ -341,7 +341,11 @@ export async function lockUserOnBch(
     if (error instanceof Error && error.message.startsWith('Insufficient')) {
       throw new UserFlowError(
         'INSUFFICIENT_FUNDS',
-        insufficientBchMessage(error.message, searched),
+        insufficientBchMessage(
+          error.message,
+          searched,
+          String((terms as { bchToken?: string }).bchToken ?? 'PUSD'),
+        ),
         { cause: error },
       );
     }
@@ -379,7 +383,19 @@ export function formatBchAmount(sats: bigint): string {
 export function insufficientBchMessage(
   builderMessage: string,
   searched = 0,
+  tokenSymbol = 'PUSD',
 ): string {
+  const where =
+    searched > 0 ? ` Searched ${searched} of your wallet's addresses.` : '';
+  // A shortage of the token itself (PUSD or MUSD, two decimals), not of BCH for the fee.
+  const token =
+    /^Insufficient token balance.*required (\d+), available (\d+)/.exec(
+      builderMessage,
+    );
+  if (token) {
+    const cents = (v: string) => (Number(v) / 100).toFixed(2);
+    return `Your Bitcoin Cash wallet does not hold enough ${tokenSymbol}. You hold ${cents(token[2]!)} ${tokenSymbol} and this swap needs ${cents(token[1]!)} ${tokenSymbol}.${where} Nothing was locked.`;
+  }
   const match = /required (\d+), available (\d+)/.exec(builderMessage);
   if (!match) {
     return 'Your Bitcoin Cash wallet needs a little BCH to pay the network fee. Nothing was locked.';
