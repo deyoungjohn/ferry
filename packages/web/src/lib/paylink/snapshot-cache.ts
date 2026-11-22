@@ -19,3 +19,11 @@ export function writeSnapshot<T>(key: string, value: T): void {
     // storage blocked: the page still works, only without the quick first paint
   }
 }
+
+export function clearSnapshot(key: string): void {
+  try {
+    window.localStorage.removeItem(`ferry.snapshot.${key}`);
+  } catch {
+    // storage unavailable
+  }
+}

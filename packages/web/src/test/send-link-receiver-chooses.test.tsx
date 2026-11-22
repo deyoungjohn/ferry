@@ -540,4 +540,69 @@ describe('SendLinkPage: Receiver chooses destination route', () => {
     });
     expect(screen.queryByText(/Cannot read properties/)).toBeNull();
   });
+
+  it('ignores a kept snapshot that is the raw API body (it crashed every reload) and shows the live view', async () => {
+    const view: SendLinkView = {
+      id: orderId,
+      orderId,
+      lockId: ('0x' + '22'.repeat(32)) as Hex32,
+      chainId: 5042,
+      status: 'open',
+      isHeld: false,
+      amount: 13.01,
+      token: 'USDC',
+      chain: 'Arc',
+      recipientEvmAddress: recipientAddress,
+      expiresAt: Math.floor(Date.now() / 1000) + 7200,
+    };
+    // What an earlier version stored: the raw body, no `chain`.
+    window.localStorage.setItem(
+      `ferry.snapshot.sendview.${orderId}`,
+      JSON.stringify({
+        id: orderId,
+        status: 'locked',
+        token: 'PUSD',
+        chainId: 5042,
+        recipientEvmAddress: recipientAddress,
+      }),
+    );
+    const solver = createMockSolver(view);
+    render(
+      <WalletContext.Provider
+        value={
+          {
+            evm: {
+              status: 'disconnected',
+              address: null,
+              chainId: null,
+              connect: vi.fn(),
+              disconnect: vi.fn(),
+            },
+            bch: null,
+          } as never
+        }
+      >
+        <SolverProvider client={solver}>
+          <MemoryRouter
+            initialEntries={[`/s/${orderId}#${dummySecret.slice(2)}`]}
+          >
+            <Routes>
+              <Route
+                path="/s/:id"
+                element={
+                  <SendLinkPage isLive={true} initialSecret={dummySecret} />
+                }
+              />
+            </Routes>
+          </MemoryRouter>
+        </SolverProvider>
+      </WalletContext.Provider>,
+    );
+    expect(await screen.findByText(/Receive 13\.01 USDC/)).toBeInTheDocument();
+    const kept = JSON.parse(
+      window.localStorage.getItem(`ferry.snapshot.sendview.${orderId}`) ?? '{}',
+    );
+    expect(kept.chain).toBe('Arc');
+    window.localStorage.clear();
+  });
 });

@@ -2,7 +2,11 @@ import { useEffect, useState, useContext } from 'react';
 import { LinkHowItWorks } from '../components/links/LinkHowItWorks';
 import { ROUTES } from '../lib/routes';
 import { useParams, useNavigate, Link } from 'react-router';
-import { readSnapshot, writeSnapshot } from '../lib/paylink/snapshot-cache';
+import {
+  clearSnapshot,
+  readSnapshot,
+  writeSnapshot,
+} from '../lib/paylink/snapshot-cache';
 import { ProcessSteps } from '../components/links/ProcessSteps';
 import {
   sendLinkSteps,
@@ -90,6 +94,20 @@ export interface SendLinkPageProps {
   readonly initialSecret?: string | undefined;
 }
 
+/** A send link view the page can render: the fields its render reads must be present. */
+function isCompleteView(view: unknown): view is SendLinkView {
+  const v = view as Partial<SendLinkView> | null;
+  return (
+    v !== null &&
+    typeof v === 'object' &&
+    typeof v.id === 'string' &&
+    typeof v.chain === 'string' &&
+    typeof v.token === 'string' &&
+    typeof v.recipientEvmAddress === 'string' &&
+    typeof v.status === 'string'
+  );
+}
+
 export function SendLinkPage({
   isLive: propIsLive,
   dependencies,
@@ -104,7 +122,11 @@ export function SendLinkPage({
   const [load, setLoad] = useState<Load>(() => {
     // Paint from the last answer kept in this browser, then let the live one correct it.
     const kept = id ? readSnapshot<SendLinkView>(`sendview.${id}`) : null;
-    return kept ? { state: 'ready', link: kept } : { state: 'loading' };
+    // A kept view must be complete (an earlier version could store the raw API body, which
+    // crashed the page on every load): anything else is dropped and the live view is awaited.
+    if (kept && isCompleteView(kept)) return { state: 'ready', link: kept };
+    if (kept && id) clearSnapshot(`sendview.${id}`);
+    return { state: 'loading' };
   });
   const [claiming, setClaiming] = useState(false);
   const [claimedLocally, setClaimedLocally] = useState(false);
@@ -176,7 +198,8 @@ export function SendLinkPage({
     const read = solver?.getSendLink?.(id ?? '') ?? Promise.resolve(null);
     read.then(
       (link: SendLinkView | null) => {
-        if (link && id) writeSnapshot(`sendview.${id}`, link);
+        if (link && id && isCompleteView(link))
+          writeSnapshot(`sendview.${id}`, link);
         if (active)
           setLoad((current) =>
             link
@@ -378,16 +401,13 @@ export function SendLinkPage({
         let currentLink = link;
 
         // The link view is read through its client (a method taken off the client loses `this`).
+        // Through the page's solver context, whose getSendLink returns the page's view; the raw
+        // client's getSendLink returns the API body, a different shape.
         const refreshView = async () => {
-          const holder = liveSolver as unknown as {
-            getSendLink?: (id: string) => Promise<SendLinkView | null>;
-          };
-          const updated = holder?.getSendLink
-            ? await holder.getSendLink(id ?? '')
-            : solverContext?.getSendLink
-              ? await solverContext.getSendLink(id ?? '')
-              : null;
-          if (updated && id) {
+          const updated = solverContext?.getSendLink
+            ? await solverContext.getSendLink(id ?? '')
+            : null;
+          if (updated && id && isCompleteView(updated)) {
             setLoad({ state: 'ready', link: updated });
             writeSnapshot(`sendview.${id}`, updated);
             currentLink = updated;
