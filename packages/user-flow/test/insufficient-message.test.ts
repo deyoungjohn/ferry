@@ -25,4 +25,14 @@ describe('insufficient BCH message', () => {
     expect(text).toContain('You hold 0.00 MUSD and this swap needs 4.99 MUSD');
     expect(text).not.toMatch(/BCH to pay/);
   });
+
+  it('says when only the connected address could be read', () => {
+    const text = insufficientBchMessage(
+      'Insufficient BCH balance for fees and carry satoshis: required 4633, available 3500',
+      0,
+      'MUSD',
+      true,
+    );
+    expect(text).toContain('only your connected address');
+  });
 });

@@ -323,7 +323,7 @@ export async function lockUserOnBch(
   context: BchLockContext,
   terms: OrderTerms,
 ): Promise<string> {
-  const { utxos, searched } = await gatherFunding(context);
+  const { utxos, searched, narrowed } = await gatherFunding(context);
   assertFundingMakesSense(utxos, terms);
   let built: ReturnType<typeof buildLockTransaction>;
   try {
@@ -345,6 +345,7 @@ export async function lockUserOnBch(
           error.message,
           searched,
           String((terms as { bchToken?: string }).bchToken ?? 'PUSD'),
+          narrowed,
         ),
         { cause: error },
       );
@@ -384,9 +385,14 @@ export function insufficientBchMessage(
   builderMessage: string,
   searched = 0,
   tokenSymbol = 'PUSD',
+  narrowed = false,
 ): string {
-  const where =
-    searched > 0 ? ` Searched ${searched} of your wallet's addresses.` : '';
+  // Only the connected address could be read (the wallet's other addresses were not available).
+  const where = narrowed
+    ? ' Ferry could read only your connected address; if you hold more on other addresses of this wallet, disconnect and reconnect it so Ferry can see them all.'
+    : searched > 0
+      ? ` Searched ${searched} of your wallet's addresses.`
+      : '';
   // A shortage of the token itself (PUSD or MUSD, two decimals), not of BCH for the fee.
   const token =
     /^Insufficient token balance.*required (\d+), available (\d+)/.exec(
@@ -403,20 +409,25 @@ export function insufficientBchMessage(
   const required = BigInt(match[1]!);
   const available = BigInt(match[2]!);
   const missing = required > available ? required - available : 0n;
-  return `Your Bitcoin Cash wallet needs a little BCH to pay the network fee. You hold ${formatBchAmount(available)} and you need ${formatBchAmount(required)} (${formatBchAmount(missing)} more).${searched > 0 ? ` Searched ${searched} of your wallet's addresses.` : ''} Nothing was locked.`;
+  return `Your Bitcoin Cash wallet needs a little BCH to pay the network fee. You hold ${formatBchAmount(available)} and you need ${formatBchAmount(required)} (${formatBchAmount(missing)} more).${where} Nothing was locked.`;
 }
 
 /**
  * The outputs the lock may spend: from every address the wallet reports (each tagged with where
  * the wallet keeps its key), or from the one known address when the wallet reports none.
  */
-async function gatherFunding(
-  context: BchLockContext,
-): Promise<{ utxos: readonly BchUtxo[]; searched: number }> {
+async function gatherFunding(context: BchLockContext): Promise<{
+  utxos: readonly BchUtxo[];
+  searched: number;
+  /** The wallet could list no addresses, so only the connected one was read. */
+  narrowed: boolean;
+}> {
   const { bchSigner, bchChain } = context;
   let searched = 0;
+  let narrowed = false;
   if (bchSigner.listFundingAddresses && bchChain.getUtxosMany) {
     const addresses = await bchSigner.listFundingAddresses();
+    narrowed = addresses.length === 0;
     if (addresses.length > 0) {
       const found = await bchChain.getUtxosMany(
         addresses.map((a) => a.lockingBytecodeHex),
@@ -435,12 +446,14 @@ async function gatherFunding(
           });
         }
       }
-      if (all.length > 0) return { utxos: all, searched: addresses.length };
+      if (all.length > 0)
+        return { utxos: all, searched: addresses.length, narrowed: false };
       searched = addresses.length;
     }
   }
   return {
     utxos: await bchChain.getUtxos(context.userLockingBytecodeHex),
     searched,
+    narrowed,
   };
 }

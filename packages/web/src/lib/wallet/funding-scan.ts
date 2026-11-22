@@ -100,8 +100,16 @@ function rowToUtxo(
   } as BchUtxo;
 }
 
-/** Global session cache so multiple calls for the same wallet session scan only once. */
-const sessionScanCache = new Map<string, FundingScanResult>();
+/**
+ * A short cache so calls made together (a quote, then the lock) scan once. It lives 30 seconds:
+ * a wallet receives on new addresses (a swap's payout, a fresh receive address), and a longer
+ * cache never saw them.
+ */
+export const FUNDING_SCAN_CACHE_MS = 30_000;
+const sessionScanCache = new Map<
+  string,
+  { readonly at: number; readonly result: FundingScanResult }
+>();
 
 /** Clears the session scan cache (useful for tests and wallet disconnects). */
 export function clearFundingScanCache(): void {
@@ -166,8 +174,9 @@ export async function scanFundingAddresses(
   } = options;
 
   // 1. Check session cache
-  if (sessionKey && sessionScanCache.has(sessionKey)) {
-    const cached = sessionScanCache.get(sessionKey)!;
+  const kept = sessionKey ? sessionScanCache.get(sessionKey) : undefined;
+  if (kept && Date.now() - kept.at < FUNDING_SCAN_CACHE_MS) {
+    const cached = kept.result;
     if (neededSatoshis !== undefined) {
       assertSensibleInputs(cached.utxos, neededSatoshis, maxInputs);
     }
@@ -379,7 +388,7 @@ export async function scanFundingAddresses(
   };
 
   if (sessionKey) {
-    sessionScanCache.set(sessionKey, result);
+    sessionScanCache.set(sessionKey, { at: Date.now(), result });
   }
 
   return result;

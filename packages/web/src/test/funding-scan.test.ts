@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   scanFundingAddresses,
   clearFundingScanCache,
+  FUNDING_SCAN_CACHE_MS,
   assertSensibleInputs,
   scriptHashOf,
   type FulcrumClientLike,
@@ -307,6 +308,24 @@ describe('Funding scan for rotating BCH wallet', () => {
     expect(secondResult).toBe(firstResult);
     expect(connectCount).toBe(1);
     expect(requestCount).toBe(initialRequests);
+
+    // After the cache's short life the wallet is scanned again (it may have new addresses).
+    const realNow = Date.now;
+    Date.now = () => realNow() + FUNDING_SCAN_CACHE_MS + 1_000;
+    try {
+      const third = await scanFundingAddresses({
+        getPubkey: (child, idx) => fakePubkey(child, Number(idx)),
+        startIndex: 0,
+        createClient: () => client,
+        urls: ['wss://mock1'],
+        sessionKey,
+        gapLimit: 20,
+      });
+      expect(third).not.toBe(firstResult);
+      expect(requestCount).toBeGreaterThan(initialRequests);
+    } finally {
+      Date.now = realNow;
+    }
   });
 
   it('7. sorts outputs biggest first', async () => {
