@@ -211,12 +211,35 @@ export async function getOrDeriveRecoveryRoot(
   }
 
   // 4. EOA: Ask wallet to sign EVM_RECOVERY_KEY_TYPED_DATA
-  const signature = await wallet.signTypedData(
-    EVM_RECOVERY_KEY_TYPED_DATA as never,
-  );
+  let signature: Hex;
+  try {
+    signature = await wallet.signTypedData(
+      EVM_RECOVERY_KEY_TYPED_DATA as never,
+    );
+  } catch (cause) {
+    // The recovery message has no chain id on purpose (one key for every chain). Some wallets
+    // refuse such a message ("Provided chainId NaN must match the active chainId"); they get the
+    // per-swap secret and recovery file instead, as wallets without a stable signature do. Any
+    // other refusal (the person cancelling) still stops the swap.
+    if (refusesMessageWithoutChainId(cause)) {
+      return { root: null, isContract: true };
+    }
+    throw cause;
+  }
   const root = deriveRecoveryRoot(signature);
   await store.set(`ferry.recovery.root.${address}`, root);
   return { root, isContract: false };
+}
+
+/** A wallet's refusal of a typed message because it carries no chain id. */
+export function refusesMessageWithoutChainId(cause: unknown): boolean {
+  const text =
+    cause instanceof Error
+      ? `${cause.message} ${String((cause as { details?: unknown }).details ?? '')}`
+      : String(cause);
+  return /chain\s?id\W*["']?NaN|chainid.*must match|missing.*chain\s?id|chain\s?id.*(required|missing)/i.test(
+    text,
+  );
 }
 
 /**

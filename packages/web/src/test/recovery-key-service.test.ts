@@ -223,3 +223,46 @@ describe('RecoveryKeyService', () => {
     expect(await isRescueKeySaved(mockStore)).toBe(true);
   });
 });
+
+describe('wallets that refuse a typed message without a chain id', () => {
+  const memoryStore = () => {
+    const map = new Map<string, string>();
+    return {
+      get: async (k: string) => map.get(k) ?? null,
+      set: async (k: string, v: string) => void map.set(k, v),
+      remove: async (k: string) => void map.delete(k),
+    };
+  };
+  const wallet = (error: Error) =>
+    ({
+      address: '0x1111111111111111111111111111111111111111',
+      signTypedData: async () => {
+        throw error;
+      },
+    }) as never;
+
+  it('falls back to a per-swap secret on "Provided chainId NaN must match the active chainId"', async () => {
+    const result = await getOrDeriveRecoveryRoot(
+      wallet(
+        new Error(
+          'An unknown RPC error occurred. Details: Provided chainId "NaN" must match the active chainId "8453"',
+        ),
+      ),
+      { store: memoryStore() },
+    );
+    expect(result.root).toBeNull();
+  });
+
+  it('still stops when the person cancels', async () => {
+    let outcome: 'stopped' | 'fell back' = 'fell back';
+    try {
+      await getOrDeriveRecoveryRoot(
+        wallet(new Error('User rejected the request.')),
+        { store: memoryStore() },
+      );
+    } catch {
+      outcome = 'stopped';
+    }
+    expect(outcome).toBe('stopped');
+  });
+});
