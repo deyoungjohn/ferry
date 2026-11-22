@@ -48,3 +48,7 @@ test-results/
 # generated soak output
 scripts/soak/REPORT.md
 scripts/soak/report.json
+
+# test leftovers
+test-broadcast-*.log
+test-crash-*.db*
