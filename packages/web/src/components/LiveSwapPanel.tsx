@@ -335,6 +335,16 @@ export function LiveSwapPanel({
                   anything stops, your refund stays available. Nothing is locked
                   until you confirm in your wallet.
                 </p>
+                <p
+                  className="rounded-lg border border-hairline bg-surface-2 px-3 py-2 text-xs text-text-muted"
+                  data-testid="live-first-signature-note"
+                >
+                  First swap from this wallet on this device? Your wallet first
+                  asks you to sign a &ldquo;Ferry recovery key&rdquo; message.
+                  It moves no funds and costs no gas: it is what lets you find
+                  and finish this swap from any device. Then you approve the
+                  swap itself.
+                </p>
                 <button
                   type="button"
                   className="h-10 w-full rounded-pill bg-olive font-semibold"

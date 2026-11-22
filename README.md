@@ -8,6 +8,12 @@
 
 > Ferry is live on mainnet with capped swap sizes ($1 to $50). It has not had an external security audit. See [Known limitations](https://ferry.incepture.dev/docs/limitations).
 
+## Before your first swap: the recovery signature
+
+The first time you swap from an EVM wallet on a device, your wallet asks you to sign a message titled **"Ferry recovery key"** before anything else. It is a typed message, not a transaction: it moves no funds, costs no gas and grants no approval. Ferry derives each swap's secret from that signature, which is what lets you find and finish any of your swaps from any device later ([Wallet-derived recovery key](https://ferry.incepture.dev/docs/recovery-key)). After it, you approve the swap itself (a permit and a lock request, or an approve and a lock on tokens without a permit).
+
+The message has no chain id on purpose, so the same key comes out on every chain. A few wallets refuse a message without a chain id; with those, Ferry skips it and gives you a recovery file for each swap instead.
+
 ## How a swap works
 
 ```text

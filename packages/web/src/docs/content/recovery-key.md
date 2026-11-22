@@ -18,5 +18,6 @@ Ordinary wallets produce the same signature for the same message (deterministic 
 
 ## Limits
 
+- A few wallets refuse a typed message without a chain id (the error mentions a chain id of NaN). Ferry then uses a random secret and a recovery file for each swap, as for wallets below.
 - Some smart-contract wallets do not sign deterministically. Ferry signs twice to check; if the two differ, it uses a recovery file for each swap instead.
 - Anyone who obtains that one signature could recompute your secrets. They could not steal funds (claims only pay the addresses in the terms) but could see your swaps. Ferry asks for the signature only on its own domain and only for this purpose.
