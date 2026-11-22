@@ -12,7 +12,7 @@ Most people hold their dollars as USDC or USDT on Ethereum, Base or another EVM 
 
 - **Swap** stablecoins into Bitcoin Cash or out of it, in about a minute.
 - **Get paid** with a pay link: anyone holding dollars on six chains pays you in PUSD or MUSD.
-- **Send** PUSD or MUSD to someone who only has an EVM wallet, with a send link.
+- **Send** PUSD to someone who only has an EVM wallet, with a send link.
 - **Recover** any swap with your wallet, on any device, or with a file and no website at all.
 
 ## Where to start

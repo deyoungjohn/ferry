@@ -1,6 +1,6 @@
 # Send links
 
-A send link sends PUSD or MUSD to someone who only has an EVM wallet. You lock the tokens on Bitcoin Cash; the receiver opens the link and gets USDC, USDT or USDG on their chain. If they never claim, the money comes back to you.
+A send link sends PUSD to someone who only has an EVM wallet. You lock the tokens on Bitcoin Cash; the receiver opens the link and gets USDC, USDT or USDG on their chain. If they never claim, the money comes back to you.
 
 ## Create a send link
 
