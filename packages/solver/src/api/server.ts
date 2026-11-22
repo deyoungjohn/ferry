@@ -119,7 +119,6 @@ import type { SolverEngine } from '../engine/runner.js';
 import { createLinkId, verifyPayLinksSignature } from '../paylink/link.js';
 import {
   LiquidityManager,
-  exposureInAssetUnits,
   type InventoryAssetView,
 } from '../pricing/liquidity.js';
 import { InventoryReader } from '../pricing/inventory-reader.js';
@@ -925,7 +924,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       }
     }
 
-    const openExposure = db.getOpenExposureUsdMicros();
+    // Only what is still owed from the inventory this quote draws on. buildQuote takes
+    // USD micros for PUSD and MUSD (100 micros-per-cent scale) and token units for EVM tokens.
+    const openExposure =
+      request.direction === 'EVM_TO_BCH'
+        ? owedBch(request.bchToken) * 10_000n
+        : owedEvm(chainFact.chainId, evmAsset?.address ?? '');
 
     const quoteResult = await quoteBuilder.buildQuote({
       quoteId,
@@ -1866,10 +1870,27 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     return reply.status(200).send(response);
   });
 
+  // What the solver still has to lock from one inventory: PUSD or MUSD on Bitcoin
+  // Cash, or one token on one EVM chain. Orders already locked by the solver are not counted.
+  const owedBch = (token: string): bigint =>
+    db
+      .getPendingSolverLocks()
+      .filter((o) => o.side === 'bch' && o.token === token.toUpperCase())
+      .reduce((sum, o) => sum + o.units, 0n);
+  const owedEvm = (chainId: number, tokenAddress: string): bigint =>
+    db
+      .getPendingSolverLocks()
+      .filter(
+        (o) =>
+          o.side === 'evm' &&
+          o.chainId === chainId &&
+          o.token === tokenAddress.toLowerCase(),
+      )
+      .reduce((sum, o) => sum + o.units, 0n);
+
   // 7. GET /v1/liquidity
   app.get('/v1/liquidity', async (_req, reply) => {
     const now = Math.floor(Date.now() / 1000);
-    const openExposure = db.getOpenExposureUsdMicros();
 
     // A failed read reports nothing for these routes; it must not look like an empty wallet.
     let pusdInventory = 0n;
@@ -1887,7 +1908,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const pusdData = liquidityManager.getLiquidityData(
       'PUSD',
       pusdInventory,
-      exposureInAssetUnits('PUSD', openExposure),
+      owedBch('PUSD'),
       2,
       now,
       'base-usdc-to-bch-pusd',
@@ -1896,7 +1917,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const musdData = liquidityManager.getLiquidityData(
       'MUSD',
       musdInventory,
-      exposureInAssetUnits('MUSD', openExposure),
+      owedBch('MUSD'),
       2,
       now,
       'base-usdc-to-bch-musd',
@@ -1932,7 +1953,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
             liquidityManager.getLiquidityData(
               symbol,
               inventory,
-              openExposure,
+              owedEvm(chainFact.chainId, asset.address ?? ''),
               asset.decimals ?? 6,
               now,
               `bch-pusd-to-${chainKey}-${symbol.toLowerCase()}`,
@@ -1949,7 +1970,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
               liquidityManager.getLiquidityData(
                 symbol,
                 inventory,
-                openExposure,
+                owedEvm(chainFact.chainId, asset.address ?? ''),
                 asset.decimals ?? 6,
                 now,
                 `bch-musd-to-${chainKey}-${symbol.toLowerCase()}`,
@@ -2712,7 +2733,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         now,
       );
 
-      const bchExposure = openExposure / 10_000n;
+      const bchExposure = owedBch('PUSD');
       const pusdAvailable = liquidityManager.getAvailableLiquidity(
         'PUSD',
         pusdBal,
@@ -2722,13 +2743,13 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       const musdAvailable = liquidityManager.getAvailableLiquidity(
         'MUSD',
         musdBal,
-        bchExposure,
+        owedBch('MUSD'),
         now,
       );
       const usdcAvailable = liquidityManager.getAvailableLiquidity(
         'USDC',
         evmUsdcBal,
-        openExposure,
+        owedEvm(config.baseChainId, config.baseUsdcAddress || ''),
         now,
       );
 
@@ -2746,7 +2767,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           symbol: 'MUSD',
           balance: musdBal.toString(),
           reserved: musdReserved.toString(),
-          exposure: bchExposure.toString(),
+          exposure: owedBch('MUSD').toString(),
           available: musdAvailable.toString(),
         },
         {
@@ -3305,7 +3326,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         userAddress: request.userEvmAddress,
         userIp: '127.0.0.1',
         currentInventory,
-        openExposure: db.getOpenExposureUsdMicros(),
+        openExposure: owedBch(link.token) * 10_000n,
         nowSeconds: now,
         quotingEnabled: config.quotingEnabled,
         minSwapUsdMicros: MIN_TRANSACTION_USD_MICROS,

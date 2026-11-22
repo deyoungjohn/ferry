@@ -1178,6 +1178,73 @@ export class SolverDatabase {
     return rows.map((row) => this.mapOrderRow(row));
   }
 
+  /**
+   * What the solver still has to lock from its own inventory: orders whose user lock is seen or
+   * final but whose solver lock is not yet out of the wallet. Keyed by the asset it draws on: the
+   * PUSD or MUSD token on Bitcoin Cash for swaps into Bitcoin Cash, the EVM token on its chain for
+   * swaps out. Money already locked has left inventory and is not counted again.
+   */
+  getPendingSolverLocks(nowSeconds = Math.floor(Date.now() / 1000)): Array<{
+    side: 'bch' | 'evm';
+    token: string;
+    chainId: number | null;
+    units: bigint;
+    usdMicros: bigint;
+  }> {
+    const out: Array<{
+      side: 'bch' | 'evm';
+      token: string;
+      chainId: number | null;
+      units: bigint;
+      usdMicros: bigint;
+    }> = [];
+    for (const order of this.listNonTerminalOrders()) {
+      if (
+        ![
+          'USER_LOCK_SEEN',
+          'USER_LOCK_FINAL',
+          'SOLVER_LOCK_BROADCAST',
+        ].includes(order.status)
+      ) {
+        continue;
+      }
+      try {
+        const terms = JSON.parse(order.termsJson) as Record<string, unknown>;
+        const forward =
+          order.direction === 'EVM_TO_BCH' ||
+          order.direction === 'COUNTER_TO_BCH';
+        const deadline = Number(
+          String(terms.evmDeadline ?? '0').replace(/n$/, ''),
+        );
+        if (forward && deadline > 0 && deadline < nowSeconds) continue;
+        if (!forward && toSeconds(order.createdAt) < nowSeconds - 86_400)
+          continue;
+        const bchUnits = termsBigInt(terms.bchTokenAmount);
+        const usdMicros = bchUnits * 10_000n;
+        if (forward) {
+          out.push({
+            side: 'bch',
+            token: String(terms.bchToken ?? 'PUSD').toUpperCase(),
+            chainId: null,
+            units: bchUnits,
+            usdMicros,
+          });
+        } else {
+          out.push({
+            side: 'evm',
+            token: String(terms.evmToken ?? '').toLowerCase(),
+            chainId: Number(terms.evmChainId ?? 0),
+            units: termsBigInt(terms.evmAmount),
+            usdMicros,
+          });
+        }
+      } catch {
+        // malformed terms: nothing owed is assumed
+      }
+    }
+    return out;
+  }
+
   getOpenExposureUsdMicros(): bigint {
     const orders = this.listNonTerminalOrders();
     let totalMicros = 0n;

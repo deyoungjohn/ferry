@@ -648,6 +648,64 @@ describe('Real Inventory, Dry-Run Quotes, Health Tips, and Policy Authority (B4-
       expect(musdRoute).toBeDefined();
       expect(musdRoute.decimals).toBe(2); // MUSD has 2 decimals, not 8!
     });
+
+    it('subtracts from a route only what the solver still has to lock from that inventory', async () => {
+      inventoryReader.clearCache();
+      currentBchUtxos = [
+        {
+          height: 330000,
+          tx_hash: '12'.repeat(32),
+          tx_pos: 0,
+          value: 100000,
+          token_data: {
+            category:
+              'ec335fd3ffa45f80cef7217cf98e8adf562df5a3e33f354f69df2951703586ac',
+            amount: '50000',
+          },
+        },
+      ];
+      const now = Math.floor(Date.now() / 1000);
+      const save = (
+        id: string,
+        direction: 'EVM_TO_BCH' | 'BCH_TO_EVM',
+        status: 'USER_LOCK_FINAL' | 'SOLVER_LOCK_SEEN',
+        bchToken: string,
+        bchTokenAmount: string,
+      ) =>
+        db.saveOrder({
+          id: ('0x' + id.repeat(32)) as `0x${string}`,
+          direction,
+          status,
+          userCounterAddress: '0x' + '11'.repeat(20),
+          lockId: ('0x' + id.repeat(32)) as `0x${string}`,
+          termsJson: JSON.stringify({
+            bchToken,
+            bchTokenAmount: `${bchTokenAmount}n`,
+            evmAmount: '13030000n',
+            evmChainId: 5042,
+            evmToken: '0x3600000000000000000000000000000000000000',
+            evmDeadline: `${now + 3600}n`,
+          }),
+          hashLock: ('0x' + id.repeat(32)) as `0x${string}`,
+          createdAt: now,
+          updatedAt: now,
+        });
+      // Out of Bitcoin Cash on Arc, solver already locked: owes nothing more from any inventory.
+      save('e1', 'BCH_TO_EVM', 'SOLVER_LOCK_SEEN', 'PUSD', '1303');
+      // Into Bitcoin Cash as PUSD, solver already locked: already out of the PUSD inventory.
+      save('e2', 'EVM_TO_BCH', 'SOLVER_LOCK_SEEN', 'PUSD', '1303');
+      // Into Bitcoin Cash as PUSD, user locked, solver not yet: owed from the PUSD inventory only.
+      save('e3', 'EVM_TO_BCH', 'USER_LOCK_FINAL', 'PUSD', '700');
+      const res = await app.inject({ method: 'GET', url: '/v1/liquidity' });
+      const body = res.json();
+      const route = (asset: string) =>
+        body.routes.find((r: { asset: string }) => r.asset === asset);
+      expect(route('PUSD').exposure).toBe('700');
+      expect(BigInt(route('PUSD').available)).toBe(
+        50000n - 700n - BigInt(route('PUSD').reserved),
+      );
+      expect(route('MUSD').exposure).toBe('0');
+    });
   });
 
   describe('3. Policy Authority (MAX_SWAP_USD_MICROS=1000000)', () => {
