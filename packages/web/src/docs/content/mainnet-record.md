@@ -2,13 +2,15 @@
 
 Ferry runs on mainnet. Every swap below is a real swap with real money, settled through the contracts on this site, and every transaction links to its explorer.
 
+> **Note:** These are test swaps the project owner ran with their own wallets to exercise every route in both directions. They are real mainnet transactions with real funds, but not outside users, and the volume is test volume.
+
 ## Totals
 
 On 21 November 2026 the live solver reported **55 completed swaps** and **$475.61 settled**, with a median of **46 seconds** on the fast lane. The current numbers are always at [`/v1/stats`](https://ferry.incepture.dev/v1/stats), and the latest swaps are listed under the swap form in [Ferry](/app/swap).
 
 ## Every route, both directions
 
-By 20 November each route had been run at least once in each direction:
+By 20 November each PUSD route had been run at least once in each direction. MUSD is supported, but the solver held no MUSD at submission and no MUSD swap had completed.
 
 | Chain           | Token | EVM to Bitcoin Cash | Bitcoin Cash to EVM |
 | --------------- | ----- | ------------------- | ------------------- |
@@ -23,7 +25,7 @@ By 20 November each route had been run at least once in each direction:
 
 ## The first 27 swaps
 
-Dates are 2026, times UTC. "Time" is from the quote to the last claim. The first swaps on 19 November ran while the solver's engine was still being finished, so some took many minutes; later swaps settle in about a minute. In each swap the lock comes from the person swapping and the counter-lock from the solver.
+Dates are 2026, times UTC. "Time" is from the quote to the last claim. The first swaps on 19 November ran while the solver's engine was still being finished, so some took many minutes; later swaps settle in about a minute. In each swap the lock comes from the person swapping and the counter-lock from the solver. Swaps 1 to 14 (Base and Arbitrum One, 19 November) went through an earlier deployment of the same contract, `0x8b968625F983420B571C102eC0b57F7e509c916e` (different compiler settings, also ownerless and source verified on Sourcify); from swap 15 on, `0xfC28…DAdF`.
 
 | #   | Date  | Swap                    | Chain           | Time   | Transactions                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | --- | ----- | ----------------------- | --------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

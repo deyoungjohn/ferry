@@ -13,7 +13,7 @@ Bitcoin Cash is on one side of every swap. The other side is one of six EVM chai
 | Arc             | 5042     | USDC                     | Yes               |
 | Robinhood Chain | 4663     | USDG                     | Yes               |
 
-On Bitcoin Cash you receive or send **PUSD** (ParyonUSD) or **MUSD** (Moria Protocol v1). Which routes are open at a given moment depends on the solver's liquidity; the [status page](/status) shows each route live.
+On Bitcoin Cash you receive or send **PUSD** (ParyonUSD) or **MUSD** (Moria Protocol v1). MUSD routes are built but had no liquidity at submission; PUSD routes are live. Which routes are open at a given moment depends on the solver's liquidity; the [status page](/status) shows each route live.
 
 > **Note:** Tokens without a gasless permit (USDT on Ethereum, both tokens on BNB Chain) ask for a normal approve transaction first, which needs a little native gas.
 
