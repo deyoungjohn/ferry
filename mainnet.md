@@ -2,7 +2,13 @@
 
 Real swaps settled on mainnet through Ferry, read from the public solver record at `https://ferry.incepture.dev` on 2026-11-20 14:18:30 UTC. Every row is a completed swap; each transaction links to its chain's explorer. Amounts are what the person sent and received; the difference is the quoted fee.
 
+**Who made these swaps:** test swaps run by the project owner with his own wallets, to exercise every route. They are real mainnet transactions, not outside users.
+
 **The contract:** FerryHTLC `0xfC28c2596C553353578a5a444d2316514009DAdF`, the same address on all six EVM chains (created through the standard deterministic deployer). Source verified on Etherscan (Ethereum), Arbiscan (Arbitrum) and Sourcify (Base, BNB Chain, Arc, Robinhood Chain). Bitcoin Cash locks are per-swap CashScript covenants (no deployment).
+
+**Earlier contract:** swaps 1 to 14 (Base and Arbitrum One, 19 November) went through an earlier deployment of the same contract, `0x8b968625F983420B571C102eC0b57F7e509c916e` (different compiler settings, also ownerless and source verified on Sourcify). Swaps 15 to 27 use `0xfC28…DAdF`.
+
+**MUSD:** no MUSD swap had completed at submission. Later swaps, including MUSD once funded, appear in the Recent swaps table on <https://ferry.incepture.dev>.
 
 **Totals:** 27 completed swaps, $186.76 settled, median time 93 s (28 s fastest, 4547 s slowest).
 

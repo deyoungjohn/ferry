@@ -1,6 +1,6 @@
 # Ferry
 
-**Move stablecoins in and out of Bitcoin Cash.** Ferry swaps USDC, USDT and USDG on six EVM chains for PUSD and MUSD on Bitcoin Cash, and back, with atomic swaps: either both sides happen or your money comes back. Nothing is wrapped, minted or held by a custodian. It also does pay links (get paid in PUSD by anyone holding dollars on six chains) and send links (send PUSD to someone who only has an EVM wallet), and every swap can be recovered with your wallet on any device.
+**Move stablecoins in and out of Bitcoin Cash.** Ferry swaps USDC, USDT and USDG on six EVM chains for PUSD on Bitcoin Cash, and back (MUSD is built in but had no liquidity at submission, see below), with atomic swaps: either both sides happen or your money comes back. Nothing is wrapped, minted or held by a custodian. It also does pay links (get paid in PUSD by anyone holding dollars on six chains) and send links (send PUSD to someone who only has an EVM wallet), and every swap can be recovered with your wallet on any device.
 
 - **Live app:** <https://ferry.incepture.dev>
 - **Documentation:** <https://ferry.incepture.dev/docs>
@@ -29,8 +29,8 @@ If anything stops, each lock refunds to its owner after its deadline. The first 
 
 | Feature    | What it does                                                                                    | Docs                                                                       |
 | ---------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Swap in    | USDC, USDT or USDG to PUSD or MUSD in about a minute, gasless on most routes                    | [Swap into Bitcoin Cash](https://ferry.incepture.dev/docs/swap-to-bch)     |
-| Swap out   | PUSD or MUSD to an EVM stablecoin, with WizardConnect for the Bitcoin Cash wallet               | [Swap out of Bitcoin Cash](https://ferry.incepture.dev/docs/swap-from-bch) |
+| Swap in    | USDC, USDT or USDG to PUSD (MUSD once funded) in about a minute, gasless on most routes         | [Swap into Bitcoin Cash](https://ferry.incepture.dev/docs/swap-to-bch)     |
+| Swap out   | PUSD (MUSD once funded) to an EVM stablecoin, with WizardConnect for the Bitcoin Cash wallet    | [Swap out of Bitcoin Cash](https://ferry.incepture.dev/docs/swap-from-bch) |
 | Pay links  | Fixed or open amount; the payer picks any chain and stablecoin                                  | [Pay links](https://ferry.incepture.dev/docs/pay-links)                    |
 | Send links | The receiver picks a route and signs one free message; unclaimed links refund                   | [Send links](https://ferry.incepture.dev/docs/send-links)                  |
 | Recovery   | One wallet signature finds every swap on any device; `recover.html` works with no server at all | [Recovery](https://ferry.incepture.dev/docs/recovery)                      |
@@ -38,6 +38,8 @@ If anything stops, each lock refunds to its owner after its deadline. The first 
 ## Mainnet contracts
 
 **FerryHTLC** `0xfC28c2596C553353578a5a444d2316514009DAdF`, the same address on all six chains through the standard deterministic deployer, with no owner, admin, pause or upgrade.
+
+> **Earlier contract.** Swaps 1 to 14 in the table below (Base and Arbitrum One, 19 November) went through an earlier deployment of the same contract, `0x8b968625F983420B571C102eC0b57F7e509c916e`, built with different compiler settings. It is also ownerless and source verified (Sourcify), and the recovery tools still read it. Every swap from number 15 on uses `0xfC28…DAdF`.
 
 | Chain           | Contract                                                                                               | Source verified on |
 | --------------- | ------------------------------------------------------------------------------------------------------ | ------------------ |
@@ -52,7 +54,11 @@ On Bitcoin Cash each swap gets its own CashScript covenant ([`FerryHTLC.cash`](p
 
 ## Mainnet transactions
 
-On 21 November 2026 the live solver reported **55 completed swaps** and **$475.61 settled**, with a **46 s** median on the fast lane ([`/v1/stats`](https://ferry.incepture.dev/v1/stats)). By 20 November every route had run in both directions. The first 27 swaps, with every transaction (dates 2026, UTC; "Time" is from quote to last claim):
+> **Who made these swaps.** These are test swaps I ran with my own wallets to exercise every route in both directions. They are real mainnet transactions with real funds, but they are not outside users, and the volume below is test volume, not customer volume.
+
+On 21 November 2026 the live solver reported **55 completed swaps** and **$475.61 settled**, with a **46 s** median on the fast lane ([`/v1/stats`](https://ferry.incepture.dev/v1/stats)). By 20 November every PUSD route had run in both directions. **MUSD:** the route is built, but at submission the solver held no MUSD and no MUSD swap had completed.
+
+**Current source of truth:** this README is a snapshot taken before the deadline. For what has happened since (including any MUSD swaps once liquidity is added), see the **Recent swaps** table on the [swap page](https://ferry.incepture.dev), which refreshes every 20 seconds and shows the latest 50 completed swaps with their transactions, and [`/v1/stats`](https://ferry.incepture.dev/v1/stats) for the running totals. The first 27 swaps, with every transaction (dates 2026, UTC; "Time" is from quote to last claim):
 
 | #   | Date  | Swap                    | Chain           | Time   | Transactions                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | --- | ----- | ----------------------- | --------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -90,21 +96,21 @@ Full order ids: [`mainnet.md`](mainnet.md). The same record in the docs: [Mainne
 
 Ferry was first built on testnets before BCH BLAZE 2026, as [`ferry-testnet`](https://github.com/deyoungjohn/ferry-testnet). This repository was started fresh on 15 November 2026 and is not a fork of it. On testnet only Base Sepolia to chipnet, and back, was ever swapped end to end.
 
-|                              | Testnet build                                                                                          | Mainnet build (this one)                                                                                                      |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| Swaps that worked end to end | Base Sepolia USDC to chipnet tPUSD, and back. Nothing else                                             | Every route in both directions on six chains: 55 real swaps and $475 settled by 21 Nov ([record](/docs/mainnet-record))       |
-| Other chains                 | The contract was deployed to some other testnets and poked by scripts; never swapped, never in the app | Base, Ethereum, Arbitrum One, BNB Chain, Arc, Robinhood Chain, all live in the app                                            |
-| Bitcoin Cash tokens          | Self-minted test tokens (tPUSD) on chipnet                                                             | Real PUSD (ParyonUSD) and MUSD (Moria v1) on mainnet                                                                          |
-| EVM stablecoins              | Test USDC on Base Sepolia                                                                              | USDC, USDT and USDG                                                                                                           |
-| EVM contract                 | `FerryHTLC` on Base Sepolia                                                                            | `FerryHTLC` at `0xfC28…DAdF` on six mainnets, source verified                                                                 |
-| Pay links                    | A page existed; never tested                                                                           | Live and used: fixed or open amount, any chain and token, delete unpaid links                                                 |
-| Send links                   | Not built                                                                                              | Live: receiver chooses the route and signs one free message; unclaimed links refund                                           |
-| Recovery                     | A recovery file and a recovery page existed; never tested on a real stuck swap                         | Tested on mainnet: wallet-derived key finds and finishes a swap from another browser; files and `recover.html`                |
-| Finishing a swap             | Keep the page open                                                                                     | Finish with your wallet from any device, or the optional handoff                                                              |
-| Bitcoin Cash wallets         | Locks signed in testing setups                                                                         | WizardConnect, with Ferry's own relay and fallback to public relays                                                           |
-| Pricing                      | Fixed test prices                                                                                      | Live Chainlink, Cauldron and Paryon prices with a peg guard                                                                   |
-| Gas for the user             | Permit and relayed lock on Base Sepolia                                                                | Gasless locks and claims on every permit token                                                                                |
-| Testing                      | Unit and end-to-end tests on Base Sepolia and chipnet                                                  | Plus fork rehearsals on every chain, 30,000 fuzz runs, 2,700 covenant attacks, a 200-swap load run ([details](/docs/testing)) |
+|                              | Testnet build                                                                                          | Mainnet build (this one)                                                                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Swaps that worked end to end | Base Sepolia USDC to chipnet tPUSD, and back. Nothing else                                             | Every PUSD route in both directions on six chains: 55 test swaps from the owner's own wallets, $475 settled by 21 Nov ([record](/docs/mainnet-record)) |
+| Other chains                 | The contract was deployed to some other testnets and poked by scripts; never swapped, never in the app | Base, Ethereum, Arbitrum One, BNB Chain, Arc, Robinhood Chain, all live in the app                                                                     |
+| Bitcoin Cash tokens          | Self-minted test tokens (tPUSD) on chipnet                                                             | Real PUSD (ParyonUSD) on mainnet; MUSD (Moria v1) supported but unfunded at submission                                                                 |
+| EVM stablecoins              | Test USDC on Base Sepolia                                                                              | USDC, USDT and USDG                                                                                                                                    |
+| EVM contract                 | `FerryHTLC` on Base Sepolia                                                                            | `FerryHTLC` at `0xfC28…DAdF` on six mainnets, source verified (swaps 1 to 14 used the earlier `0x8b96…916e`)                                           |
+| Pay links                    | A page existed; never tested                                                                           | Live and used: fixed or open amount, any chain and token, delete unpaid links                                                                          |
+| Send links                   | Not built                                                                                              | Live: receiver chooses the route and signs one free message; unclaimed links refund                                                                    |
+| Recovery                     | A recovery file and a recovery page existed; never tested on a real stuck swap                         | Tested on mainnet: wallet-derived key finds and finishes a swap from another browser; files and `recover.html`                                         |
+| Finishing a swap             | Keep the page open                                                                                     | Finish with your wallet from any device, or the optional handoff                                                                                       |
+| Bitcoin Cash wallets         | Locks signed in testing setups                                                                         | WizardConnect, with Ferry's own relay and fallback to public relays                                                                                    |
+| Pricing                      | Fixed test prices                                                                                      | Live Chainlink, Cauldron and Paryon prices with a peg guard                                                                                            |
+| Gas for the user             | Permit and relayed lock on Base Sepolia                                                                | Gasless locks and claims on every permit token                                                                                                         |
+| Testing                      | Unit and end-to-end tests on Base Sepolia and chipnet                                                  | Plus fork rehearsals on every chain, 30,000 fuzz runs, 2,700 covenant attacks, a 200-swap load run ([details](/docs/testing))                          |
 
 ## How it was tested
 
